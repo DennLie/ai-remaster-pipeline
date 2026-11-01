@@ -1,6 +1,7 @@
 function drawGlobal() {
   const global = state.settings.global || {};
   const source = global.source || '';
+  const commercialGuard = global.commercial_model_guard === 'true';
   const cleanup = global.cleanup === 'true';
   const stabilize = global.stabilize === 'true';
   const expandOutpaint = global.expand_outpaint !== 'false';
@@ -33,6 +34,14 @@ function drawGlobal() {
       ${sourceAnalysisHtml(analysis)}
       ${overviewSectionPicker(global, source, state.source_playback || source)}
       ${workflowPickerHtml(cleanup, stabilize, expandOutpaint, colorize, upscale, soundtrack, sourceTone)}
+      <div class="inline-warning">
+        <label for="globalCommercialModelGuard">
+          <input id="globalCommercialModelGuard" type="checkbox" ${commercialGuard ? 'checked' : ''}>
+          <strong>Commercial model guard (strict, opt-in)</strong>
+        </label>
+        Blocks non-commercial and unaudited AI model bundles before they run. This does not certify the footage, other software or output files.
+        See <a href="https://github.com/DennLie/ai-remaster-pipeline/blob/feature/commercial-safe-foundation/docs/commercial-model-guard.md" target="_blank" rel="noopener">licensing notes</a>.
+      </div>
       ${noProcessing ? '<div class="inline-warning"><strong>No processing stages selected.</strong> Choose at least one workflow step, otherwise Run Whole Remaster has nothing to do.</div>' : ''}
       <div id="overviewFilmstrip">${overviewFilmstripInner()}</div>
       <div id="overviewSourceInfo">${sourceInfoHtml(state.source_info || {})}</div>
@@ -43,6 +52,7 @@ function drawGlobal() {
   `;
 
   document.getElementById('globalSource').addEventListener('change', saveGlobal);
+  document.getElementById('globalCommercialModelGuard').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalCleanup').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalStabilize').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalExpandOutpaint').addEventListener('change', saveGlobalPipelineOptions);
