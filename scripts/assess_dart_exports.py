@@ -146,6 +146,7 @@ def evaluate(
     max_frames: int | None = None,
     write_masked_composite: bool = False,
     research_only: bool = False,
+    classical_masks: Path | None = None,
 ) -> dict[str, Any]:
     if not 1 <= threshold <= 255:
         raise ValueError("threshold must be 1..255")
@@ -162,6 +163,7 @@ def evaluate(
     rows: list[dict[str, Any]] = []
     gallery: list[tuple[float, int, np.ndarray]] = []
     expected_names: set[str] = set()
+    classical_intersection = classical_union = 0
     first_shape = None
     for name, original in source_frames(source, max_frames):
         if name in expected_names:
@@ -175,6 +177,15 @@ def evaluate(
         mask = read_mask(dart_output / "masks" / f"{name}.png", original.shape)
         row = scores(original, restored, mask, threshold)
         row["frame"] = name
+        if classical_masks is not None:
+            baseline = read_mask(classical_masks / f"{name}.png", original.shape)
+            baseline_selected = baseline >= 128
+            dart_selected = mask >= threshold
+            intersection = int(np.count_nonzero(baseline_selected & dart_selected))
+            union = int(np.count_nonzero(baseline_selected | dart_selected))
+            classical_intersection += intersection
+            classical_union += union
+            row["classical_mask_jaccard"] = round(intersection / union, 6) if union else None
         rows.append(row)
         if write_masked_composite:
             image = masked_composite(original, restored, mask, threshold)
@@ -191,6 +202,11 @@ def evaluate(
         raise ValueError("DART evaluation requires at least two frames")
 
     # No stale, unrelated frame files can silently distort the diagnosis.
+    if classical_masks is not None:
+        present = {p.stem for p in classical_masks.glob("*.png")}
+        extra = present - expected_names
+        if extra:
+            raise ValueError(f"Classical mask directory contains stale frames: {sorted(extra)[:8]}")
     for dirname in ("frames", "masks"):
         present = {p.stem for p in (dart_output / dirname).glob("*.png")}
         extra = present - expected_names
@@ -214,6 +230,9 @@ def evaluate(
         "changed_unmasked_fraction": round(total["changed_unmasked"] / max(1, total["unmasked_pixels"]), 7),
         "changed_masked_fraction": round(total["changed_masked"] / max(1, total["mask_pixels"]), 7),
         "commercially_cleared": False,
+        "classical_vs_dart_mask_jaccard": (
+            round(classical_intersection / classical_union, 6) if classical_masks is not None and classical_union else None
+        ),
         "masked_composite_written": write_masked_composite,
         "gated_pixels_unchanged_outside_mask": bool(write_masked_composite),
         "warning": "Unmasked-change rate is a fidelity diagnostic, not a defect-repair success score. Real changes can be desirable; masked changes can be wrong. Evaluate annotated ground truth and actual footage.",
@@ -240,10 +259,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-frames", type=int, default=None, help="Match DART's --max-frames exactly")
     parser.add_argument("--write-masked-composite", action="store_true", help="Research-only image outputs; use with --research-only")
     parser.add_argument("--research-only", action="store_true", help="Acknowledge no commercial redistribution clearance")
+    parser.add_argument("--classical-masks", type=Path, help="Optional OpenCV mask PNGs with exact DART frame names")
     args = parser.parse_args(argv)
     result = evaluate(args.source, args.dart_output, args.output_dir, threshold=args.threshold,
                       max_frames=args.max_frames, write_masked_composite=args.write_masked_composite,
-                      research_only=args.research_only)
+                      research_only=args.research_only, classical_masks=args.classical_masks)
     print(json.dumps({k: v for k, v in result.items() if k not in {"per_frame", "totals"}}, indent=2))
     return 0
 
