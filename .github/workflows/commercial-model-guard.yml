@@ -15,6 +15,9 @@ on:
       - "scripts/artifact_ids.py"
       - "tests/test_temporal_defect_masks.py"
       - "docs/temporal-defect-masks.md"
+      - "scripts/benchmark_defect_masks.py"
+      - "tests/test_defect_mask_benchmark.py"
+      - "docs/dart-vs-temporal-mask-benchmark.md"
   workflow_dispatch:
 
 permissions:
@@ -49,6 +52,9 @@ jobs:
 
       - name: Run temporal film defect tests
         run: python -m unittest -v tests.test_temporal_defect_masks
+
+      - name: Run film defect mask benchmark tests
+        run: python -m unittest -v tests.test_defect_mask_benchmark
 
       - name: Run commercial model policy tests
         run: python -m unittest -v tests.test_commercial_policy tests.test_model_license_inventory
