@@ -51,6 +51,13 @@ jobs:
       - name: Run temporal film defect tests
         run: python -m unittest -v tests.test_temporal_defect_masks
 
+      - name: Install FFmpeg for end-to-end video tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
+
       - name: Run end-to-end FFmpeg mask-only video smoke test
         run: python -m unittest -v tests.test_temporal_video_smoke
 
