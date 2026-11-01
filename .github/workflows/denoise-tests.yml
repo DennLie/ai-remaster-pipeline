@@ -167,7 +167,7 @@ jobs:
             -A "ARP archival-detail-compare (https://github.com/DennLie/ai-remaster-pipeline)" \
             "https://upload.wikimedia.org/wikipedia/commons/2/27/Neighbors_%281920%29.webm" \
             -o "$RUNNER_TEMP/film/Neighbors_original.webm"
-          printf '%s  %s\\n' "029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966" "$RUNNER_TEMP/film/Neighbors_original.webm" | sha256sum --check
+          echo "029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966  $RUNNER_TEMP/film/Neighbors_original.webm" | sha256sum --check
           ffmpeg -hide_banner -loglevel error -y -ss 00:05:00 \
             -i "$RUNNER_TEMP/film/Neighbors_original.webm" \
             -frames:v 36 -map 0:v:0 -an -c:v ffv1 \
