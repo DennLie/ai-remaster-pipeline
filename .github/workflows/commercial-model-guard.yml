@@ -24,6 +24,8 @@ on:
       - ".github/workflows/neighbors-light-deflicker.yml"
       - "scripts/compare_pre_dart_baselines.py"
       - "tests/test_pre_dart_baselines.py"
+      - "scripts/assess_stabilization.py"
+      - "tests/test_assess_stabilization.py"
       - "docs/pre-dart-baseline-comparison.md"
   workflow_dispatch:
 
@@ -75,6 +77,9 @@ jobs:
 
       - name: Compare ARP and FFmpeg Deflicker plus Stabilization no-zoom options
         run: python -m unittest -v tests.test_pre_dart_baselines
+
+      - name: Test archival stabilization frame alignment and measured movement
+        run: python -m unittest -v tests.test_assess_stabilization
 
       - name: Run end-to-end FFmpeg mask-only video smoke test
         run: python -m unittest -v tests.test_temporal_video_smoke
