@@ -14,6 +14,7 @@ on:
       - "scripts/cleanup_video.py"
       - "scripts/artifact_ids.py"
       - "tests/test_temporal_defect_masks.py"
+      - "tests/test_temporal_video_smoke.py"
       - "docs/temporal-defect-masks.md"
   workflow_dispatch:
 
@@ -49,6 +50,9 @@ jobs:
 
       - name: Run temporal film defect tests
         run: python -m unittest -v tests.test_temporal_defect_masks
+
+      - name: Run end-to-end FFmpeg mask-only video smoke test
+        run: python -m unittest -v tests.test_temporal_video_smoke
 
       - name: Run commercial model policy tests
         run: python -m unittest -v tests.test_commercial_policy tests.test_model_license_inventory
