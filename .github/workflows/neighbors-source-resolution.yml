@@ -1,13 +1,7 @@
 name: Neighbors source resolution comparison
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/neighbors-source-resolution.yml"
-      - "scripts/compare_source_resolution.py"
-      - "scripts/film_defect_masks.py"
-      - "tests/test_source_resolution_comparison.py"
-      - "docs/neighbors-source-resolution-test.md"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
