@@ -77,8 +77,8 @@ to target the 05:00 excerpt (and ensure the file is the original
 digital transfer, not the previously upscaled copy). The sample
 output begins at 00:00 and runs for exactly the requested frames.
 
-**Artifacts:** FFV1 research-only RGB converted to `gbrp`, no audio;
-adjacent `.research.json` metadata records the hash of the checkpoint
+**Artifacts:** FFV1 research-only RGB converted to `bgr0`, no audio;
+adjacent `.research.json` metadata records the hashes of the source and checkpoint
 and output, output format, requested frames and source path.
 Compare to the **matching original excerpt** produced using the
 same FFmpeg `--start-seconds` and frame range, not to a full-length
