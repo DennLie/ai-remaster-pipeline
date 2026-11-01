@@ -47,7 +47,7 @@ def filter_for(method: str, preset: str) -> str | None:
         return f"hqdn3d=luma_spatial={ls:g}:chroma_spatial={cs:g}:luma_tmp={lt:g}:chroma_tmp={ct:g}"
     if method == "nlmeans":
         return f"nlmeans=s={NLMEANS[preset]:g}:p=3:r=7"
-    return f"bm3d=sigma={BM3D[preset]:g}:block=4:bstep=2:group=1:estim=basic"
+    return f"bm3d=sigma={BM3D[preset]:g}:block=8:bstep=4:group=1:estim=basic"
 
 
 def probe(ffmpeg: str, video: Path) -> dict:
