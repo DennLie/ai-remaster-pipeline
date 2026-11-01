@@ -84,10 +84,26 @@ def calculate_gains(
                 continue
             left = max(start, i-radius)
             right = min(end, i+radius+1)
-            window = [v for v in luminances[left:right] if 18.0 <= v <= 240.0]
-            if len(window) < 3:
+            window = [(j, v) for j in range(left, right)
+                      if 18.0 <= (v := luminances[j]) <= 240.0]
+            if len(window) < 4:
                 continue
-            reference = float(np.median(window))
+            # Preserve real exposure ramps: monotonic sequences (fades,
+            # opening a door, deliberate lighting) are not frame flicker.
+            exposure = [v for _, v in window]
+            steps = np.diff(exposure)
+            if len(steps) >= 3 and (
+                np.all(steps >= -0.5) or np.all(steps <= 0.5)
+            ):
+                continue
+            # Excluding the current value prevents an alternating two-frame
+            # flicker from making the odd-window median equal the flicker.
+            neighbors = [v for j, v in window if j != i]
+            if len(neighbors) < 3:
+                continue
+            reference = float(np.median(neighbors))
+            if abs(reference - value) < 1.5:
+                continue
             adjustment = strength * (reference / value - 1.0)
             gains[i] = 1.0 + float(np.clip(adjustment, -max_correction, max_correction))
     return gains, boundaries[:-1]
