@@ -19,8 +19,8 @@ from common import (
 )
 from intermediate_video import canonical_profile, codec_args, container_args
 
-VERSION = 1
-METHODS = ("off", "unsharp", "cas", "multiscale")
+VERSION = 2
+METHODS = ("off", "unsharp", "cas", "multiscale", "richardson_lucy")
 PRESETS = ("gentle", "balanced", "strong")
 
 # Luminance-only, at native resolution; all preset values are bounded.
@@ -50,6 +50,8 @@ def effect_for(method: str, preset: str) -> str | None:
     validate(method, preset, 100)
     if method == "off":
         return None
+    if method == "richardson_lucy":
+        raise ValueError("Richardson–Lucy uses the dedicated CPU deconvolution runner, not FFmpeg filter graph")
     if method == "unsharp":
         size, amount = UNSHARP[preset]
         return f"unsharp=luma_msize_x={size}:luma_msize_y={size}:luma_amount={amount:g}:chroma_amount=0"
@@ -106,6 +108,12 @@ def run(source: Path, target: Path, *, method: str, preset: str, mix: int,
         intermediate_profile: str, ffmpeg: str, force: bool = False,
         dry_run: bool = False) -> dict:
     source, target = source.resolve(), target.resolve()
+    validate(method, preset, mix)
+    if method == "richardson_lucy":
+        from richardson_lucy_video import run as run_rl
+        return run_rl(source, target, method=method, preset=preset, mix=mix,
+                      intermediate_profile=intermediate_profile, ffmpeg=ffmpeg,
+                      force=force, dry_run=dry_run)
     graph = filter_graph(method, preset, mix)
     profile = canonical_profile(intermediate_profile)
     if source == target:
