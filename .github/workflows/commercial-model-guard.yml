@@ -18,6 +18,10 @@ on:
       - "scripts/benchmark_defect_masks.py"
       - "tests/test_defect_mask_benchmark.py"
       - "docs/dart-vs-temporal-mask-benchmark.md"
+      - ".github/workflows/neighbors-source-resolution.yml"
+      - "scripts/compare_source_resolution.py"
+      - "tests/test_source_resolution_comparison.py"
+      - "docs/neighbors-source-resolution-test.md"
   workflow_dispatch:
 
 permissions:
@@ -53,8 +57,16 @@ jobs:
       - name: Run temporal film defect tests
         run: python -m unittest -v tests.test_temporal_defect_masks
 
+      - name: Test source-resolution analysis on tiny synthetic video
+        run: python -m unittest -v tests.test_source_resolution_comparison
+
       - name: Run film defect mask benchmark tests
         run: python -m unittest -v tests.test_defect_mask_benchmark
 
       - name: Run commercial model policy tests
         run: python -m unittest -v tests.test_commercial_policy tests.test_model_license_inventory
+
+  original-source-resolution:
+    # Only the experimental PR #4 branch downloads the large Commons video.
+    if: github.event_name == 'pull_request' && github.head_ref == 'feature/defect-mask-benchmark'
+    uses: ./.github/workflows/neighbors-source-resolution.yml
