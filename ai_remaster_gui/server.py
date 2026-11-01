@@ -3284,7 +3284,7 @@ def detail_output_for(source_text: str, values: dict[str, str], profile: str = "
         return ""
     source = resolve_video_source(source_text)
     method = values.get("method", "off")
-    if method not in ("off", "unsharp", "cas", "multiscale"):
+    if method not in ("off", "unsharp", "cas", "multiscale", "richardson_lucy"):
         raise ValueError(f"Unknown detail method {method}")
     preset = values.get("preset", "gentle")
     if preset not in ("gentle", "balanced", "strong"):
