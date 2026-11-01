@@ -23,6 +23,11 @@ on:
       - "scripts/compare_source_resolution.py"
       - "tests/test_source_resolution_comparison.py"
       - "docs/neighbors-source-resolution-test.md"
+      - "scripts/assess_dart_exports.py"
+      - "scripts/run_dart_research.py"
+      - "tests/test_dart_exports.py"
+      - "tests/test_dart_pinned_runner.py"
+      - "docs/dart-external-research-evaluation.md"
   workflow_dispatch:
 
 permissions:
@@ -60,6 +65,9 @@ jobs:
 
       - name: Test source-resolution analysis on synthetic video
         run: python -m unittest -v tests.test_source_resolution_comparison
+
+      - name: Validate DART external-mask and repair evaluation (no DART dependency)
+        run: python -m unittest -v tests.test_dart_exports tests.test_dart_pinned_runner
 
       - name: Run film defect mask benchmark tests
         run: python -m unittest -v tests.test_defect_mask_benchmark
