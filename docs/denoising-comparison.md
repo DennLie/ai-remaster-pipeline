@@ -103,3 +103,58 @@ remain separate; no DART model or neural denoiser was executed.
 **Next test:** longer excerpts with cuts, moving subjects and prominent
 grain; inspect matching frames at 100% and compare masked DART
 restoration with and without preprocessing on the RTX 4090.
+
+
+## Experimental in-app A/B/C viewer (stacked research PR)
+
+The `Remove Noise` tab now contains a **three-slot A/B/C preview**
+of the original and cached denoising outputs. It provides a common
+source-relative clip start time (up to 12 seconds per request),
+selection of any previously generated denoising variant, linked
+play/pause/scrub, approximate one-frame steps, display zoom,
+and a preview A–B pixel-difference canvas.
+
+The media endpoint generates cached H.264 previews of the requested
+segment on demand from *each* source master. The full-resolution
+lossless research masters remain untouched. Video elements with
+mismatched dimensions or noticeably different clip durations are
+blocked from synchronized playback. The native browser cannot
+guarantee **subframe-accurate synchronization**; individual frames,
+timestamps and numerical restoration claims must be validated
+with the existing `scripts/compare_denoising.py` CLI rather than
+the browser player. The difference canvas works on re-encoded
+H.264 preview pixels, not the original high-precision masters.
+
+For meaningful A/B/C testing, choose clips from the **same trim,
+source, frame rate and pixel geometry**. Cached files may refer to
+different source material: the stage lists them for intentional
+manual choice but does not silently assert equivalent provenance.
+
+### FastDVDnet integration hazard (official pinned upstream)
+
+At the time of review the official `m-tassano/fastdvdnet` Git
+master commit was
+`c8fdf6182a0340e89dd18f5df25b47337cbede6f`,
+and its code LICENSE is MIT:
+https://github.com/m-tassano/fastdvdnet/blob/master/LICENSE
+
+**Do not reuse its `test_fastdvdnet.py` unmodified on original
+film.** The official script performs:
+`noise = torch.empty_like(seq).normal_(mean=0, std=noise_sigma)`
+and `seqn = seq + noise`, then denoises `seqn`. That script
+is designed for a synthetic-noise benchmark, not directly
+for real noisy archive footage. A future adapter must feed the
+**original decoded frames** to `denoise_seq_fastdvdnet` without
+adding synthetic noise, while using `noise_sigma` only as the
+conditioning estimate.
+
+The included `model.pth` is a PyTorch checkpoint and
+`torch.load` requires treating untrusted weights as a potential
+code-execution hazard. A production ARP adapter must pin and
+verify the exact external code/checkpoint SHA-256 and dependencies,
+validate model weights/redistribution and training rights
+for commercial use, and support controlled chunked GPU inference
+with preserved source cadence and no new color shifts.
+A research-only adapter would require separate explicit approval
+before any checkpoint execution. No model downloads, weights
+or deep-network imports are part of this PR.
