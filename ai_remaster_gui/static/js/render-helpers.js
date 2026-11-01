@@ -49,6 +49,10 @@ function sourceInfoHtml(info) {
 // Help text shown under stage fields. Keys are "<stage>.<field>" with a bare
 // "<field>" fallback for keys that are unique across stages.
 const FIELD_DESCRIPTIONS = {
+  'denoise.method':
+    'Off leaves the source image unchanged. hqdn3d uses a 3D spatial/temporal filter, NLMeans uses similar image patches, and BM3D uses block matching. These are classical FFmpeg methods; trained AI models are not installed by this stage.',
+  'denoise.preset':
+    'Gentle, Balanced and Strong map to native parameters for the selected algorithm, not a universal strength percentage. Compare versions at identical source frames and protect film grain as desired.',
   'cleanup.ai_descratch':
     'Detect only scratch-shaped damage, reconstruct those masked pixels across neighbouring frames with ProPainter, and composite them back over the untouched source. Runs after DeVignette and before Dearchive. ProPainter is licensed for non-commercial use only.',
   'cleanup.scratch_sensitivity':
