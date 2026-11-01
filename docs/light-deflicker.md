@@ -104,3 +104,39 @@ A comparison with post-restoration AI upscaling is deliberately outside
 the scope of this PR. The mask-resolution experiment already showed
 that increasing pixels **before** restoration cannot be assumed to
 improve detection accuracy.
+
+
+## Native 960×720 public-source validation — November 1, 2026
+
+[Completed GitHub Actions run #41343808901](https://github.com/DennLie/ai-remaster-pipeline/actions/runs/41343808901)
+ran both the full CPU test suite and a real source comparison using
+[the Wikimedia Commons digital transfer](https://commons.wikimedia.org/wiki/File:Neighbors_(1920).webm).
+Both jobs succeeded. The source WebM SHA-256 was
+`029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966`.
+
+The automated job extracted four seconds at 00:05:00, retaining
+**960×720 resolution and 30 fps (120 frames)**. With defaults
+`strength=0.65`, `max_correction=0.08`:
+
+- **45 of 120 frames** received a bounded exposure correction;
+- the maximum calculated gain adjustment was **8%**;
+- **one shot boundary** was detected;
+- the mean absolute change in the per-frame median between adjacent
+  frames was **2.61345 before** versus **1.84874 afterward**
+  (approximately **29% lower**);
+- the largest measured change in frame median was **10 intensity levels**
+  on the 8-bit scale.
+
+The artifact `neighbors-native-light-deflicker-comparison` retains
+a labeled before/after contact sheet, 4-second split-screen H.264
+video, machine-readable measurements and a provenance file.
+The **left** pane is source and the **right** pane is corrected.
+
+**What this does not prove:** lower inter-frame luminance variation is
+not equivalent to a more historically correct image, nor evidence that
+film texture or shadows are perfectly preserved. Adjacent differences
+mix flicker, movement, cuts and legitimate exposure changes. The
+poster's selected frames have visually similar detail, but a careful
+review of the whole sequence and more source scenes is needed before
+enabling Light Deflicker by default. This was an experimental
+source-resolution test, **not** a colorization, DART or AI upscale.
