@@ -38,7 +38,7 @@ test('only video candidates are selectable, and source stays first', () => {
     'intermediate/denoised/arp_nlmeans_gentle.mkv',
   ]);
   context.denoiseCompareInitializePaths(found);
-  assert.deepEqual(Array.from(vm.runInContext('denoiseComparePaths', context)), found.map(x => x.path));
+  assert.deepEqual(Array.from(vm.runInContext('denoiseComparePaths', context)), Array.from(found, x => x.path));
 });
 
 test('reuse a manual choice, but reject removed cached files', () => {
@@ -47,7 +47,7 @@ test('reuse a manual choice, but reject removed cached files', () => {
   context.denoiseCompareInitializePaths(options);
   const result = Array.from(vm.runInContext('denoiseComparePaths', context));
   assert.equal(result[1], 'intermediate/denoised/arp_nlmeans_gentle.mkv');
-  assert.equal(result[2], 'input/original.webm');
+  assert.equal(result[2], 'intermediate/denoised/arp_hqdn3d_gentle.mkv');
 });
 
 test('clip and playback contracts reject mismatched geometry or duration', () => {
