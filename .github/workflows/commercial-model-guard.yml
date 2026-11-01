@@ -68,5 +68,5 @@ jobs:
 
   original-source-resolution:
     # Only the experimental PR #4 branch downloads the large Commons video.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feature/defect-mask-benchmark'
+    if: github.event_name == 'pull_request' && github.head_ref == 'test/commons-original-resolution-validation'
     uses: ./.github/workflows/neighbors-source-resolution.yml
