@@ -1610,7 +1610,13 @@ class PipelineApp:
             if not self.cleanup_enabled():
                 return []
             output = self.cleanup_output()
-            return [output] if output else []
+            if not output:
+                return []
+            outputs = [output]
+            if is_true(values, "detect_defects"):
+                video = Path(output)
+                outputs.append(str(video.with_name(f"{video.stem}_defect_mask.mp4")))
+            return outputs
         if stage_key == "stabilize":
             if not self.stabilize_enabled():
                 return []
@@ -3225,7 +3231,7 @@ def cleanup_output_for(source_text: str, values: dict[str, str]) -> str:
         source_fidelity=source_fidelity,
         ai_descratch=is_true(values, "ai_descratch"),
         detect_defects=is_true(values, "detect_defects"),
-        defect_sensitivity=float(values.get("defect_sensitivity", "0.65")),
+        defect_sensitivity=float(values.get("defect_sensitivity", "0.65") or 0.65),
         defect_mask_height=values.get("defect_mask_height", "720"),
         ai_descratch_height=values.get("ai_descratch_height", "720"),
         scratch_sensitivity=scratch_sensitivity,
