@@ -14,6 +14,7 @@ on:
       - "scripts/cleanup_video.py"
       - "scripts/artifact_ids.py"
       - "tests/test_temporal_defect_masks.py"
+      - "tests/test_temporal_video_smoke.py"
       - "docs/temporal-defect-masks.md"
       - "scripts/benchmark_defect_masks.py"
       - "tests/test_defect_mask_benchmark.py"
@@ -57,16 +58,26 @@ jobs:
       - name: Run temporal film defect tests
         run: python -m unittest -v tests.test_temporal_defect_masks
 
-      - name: Test source-resolution analysis on tiny synthetic video
+      - name: Test source-resolution analysis on synthetic video
         run: python -m unittest -v tests.test_source_resolution_comparison
 
       - name: Run film defect mask benchmark tests
         run: python -m unittest -v tests.test_defect_mask_benchmark
 
+      - name: Install FFmpeg for end-to-end video tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Run end-to-end FFmpeg mask-only video smoke test
+        run: python -m unittest -v tests.test_temporal_video_smoke
+
       - name: Run commercial model policy tests
         run: python -m unittest -v tests.test_commercial_policy tests.test_model_license_inventory
 
   original-source-resolution:
-    # Only the experimental PR #4 branch downloads the large Commons video.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feature/defect-mask-benchmark'
+    # The Commons download is deliberately on demand; real-video trial completed in run 41339842192.
+    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/neighbors-source-resolution.yml
