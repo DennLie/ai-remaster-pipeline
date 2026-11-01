@@ -8,6 +8,9 @@ on:
       - "scripts/compare_denoising.py"
       - "tests/test_compare_denoising.py"
       - "docs/denoising-comparison.md"
+      - "scripts/run_fastdvdnet_research.py"
+      - "tests/test_fastdvdnet_research.py"
+      - "docs/fastdvdnet-research.md"
       - "tests/test_denoise_comparison_browser.test.cjs"
       - "ai_remaster_gui/**"
       - ".github/workflows/denoise-tests.yml"
@@ -42,6 +45,8 @@ jobs:
           while IFS= read -r -d '' file; do node --check "$file"; done < <(find ai_remaster_gui/static -name '*.js' -print0)
       - name: Test real video and GUI model settings
         run: python -m unittest -v tests.test_denoise_video
+      - name: Test optional FastDVDnet research-only adapter without neural weights
+        run: python -m unittest -v tests.test_fastdvdnet_research
       - name: Test synchronized A/B/C browser comparison contracts
         run: node --test tests/test_denoise_comparison_browser.test.cjs
       - name: Test frame-aligned denoising diagnostics
