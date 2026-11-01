@@ -48,6 +48,7 @@ from .manifests import (
     write_manifest_details,
     write_outpaint_chunk_rows,
 )
+from .commercial_policy import pipeline_issues, stage_issue
 from .models import CLEANUP_NEGATIVE_PROMPT, CLEANUP_PROMPT, COLORIZE_STAGE_KEYS, SHOT_STAGE_KEYS, STAGES, Stage, output_stage
 from .paths import even_int, format_timecode, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
 from .power import keep_awake, release_keep_awake
@@ -2081,6 +2082,9 @@ class PipelineApp:
         return self.upscale_command(values, source, output)
 
     def run_stage(self, stage_key: str) -> tuple[bool, str]:
+        problem = stage_issue(self.settings, stage_key)
+        if problem:
+            return False, problem
         if self.quitting:
             return False, "ARP is shutting down."
         if stage_key == "cleanup" and not self.cleanup_enabled():
@@ -2219,6 +2223,9 @@ class PipelineApp:
         return True, "Started " + stage.title
 
     def run_outpaint_chunk(self, index: int) -> tuple[bool, str]:
+        problem = stage_issue(self.settings, "outpaint")
+        if problem:
+            return False, problem
         if not self.settings.get("global", {}).get("source"):
             return False, "Choose source material on the Overview tab first."
         try:
@@ -2248,6 +2255,9 @@ class PipelineApp:
     def run_reference_regeneration(self, manifest_text: str, index: int, provider: str = "qwen", reference_index: int = 0) -> tuple[bool, str]:
         method = self.settings.get("references", {}).get("method")
         provider = "openai" if (provider == "openai" or method == "openai") else "qwen21" if method == "qwen21" else "qwen"
+        problem = stage_issue(self.settings, "references", model_override=provider)
+        if problem:
+            return False, problem
         if provider != "openai":
             ok, message = ensure_comfy_available_for_stage("Reference Generation")
             if not ok:
@@ -2287,6 +2297,9 @@ class PipelineApp:
         return True, f"Started {provider} reference regeneration for shot {index + 1}."
 
     def run_reference_edit_preview(self, manifest_text: str, index: int, instruction: str, mask_data: str = "", sampled_color: str = "", reference_index: int = 0) -> tuple[bool, str, str]:
+        problem = stage_issue(self.settings, "references", model_override="qwen")
+        if problem:
+            return False, problem, ""
         ok, message = ensure_comfy_available_for_stage("Reference Editing")
         if not ok:
             return False, message, ""
@@ -2320,6 +2333,9 @@ class PipelineApp:
         return True, f"Started reference edit preview for shot {index + 1}.", output
 
     def run_outpaint_end_guide_generation(self, index: int, prompt: str) -> tuple[bool, str]:
+        problem = stage_issue(self.settings, "references", model_override="qwen")
+        if problem:
+            return False, problem
         ok, message = ensure_comfy_available_for_stage("End Guide Frame Generation")
         if not ok:
             return False, message
@@ -2354,6 +2370,9 @@ class PipelineApp:
         return True, f"Started Qwen end guide frame generation for chunk {index + 1}."
 
     def run_outpaint_guide_generation(self, index: int, prompt: str) -> tuple[bool, str]:
+        problem = stage_issue(self.settings, "references", model_override="qwen")
+        if problem:
+            return False, problem
         ok, message = ensure_comfy_available_for_stage("Guide Frame Generation")
         if not ok:
             return False, message
@@ -2388,6 +2407,9 @@ class PipelineApp:
         return True, f"Started Qwen guide frame generation for chunk {index + 1}."
 
     def run_guide_frame_generation(self, chunk_index: int, guide_index: int, frame_idx: int, prompt: str) -> tuple[bool, str]:
+        problem = stage_issue(self.settings, "references", model_override="qwen")
+        if problem:
+            return False, problem
         ok, message = ensure_comfy_available_for_stage("Guide Frame Generation")
         if not ok:
             return False, message
@@ -2653,6 +2675,9 @@ class PipelineApp:
         return {"path": "", "kind": "", "label": ""}
 
     def run_upscale_preview(self) -> tuple[bool, str]:
+        problem = stage_issue(self.settings, "upscale")
+        if problem:
+            return False, problem
         values = self.settings.get("upscale", {})
         source_text = self.upscale_input_for() or values.get("input_video")
         if not source_text:
@@ -2712,6 +2737,9 @@ class PipelineApp:
 
     def run_guide_edit_preview(self, chunk_index: int, guide_index: int, instruction: str, mask_data: str = "", sampled_color: str = "", engine: str = "") -> tuple[bool, str, str]:
         engine = guide_edit_engine(engine)
+        problem = stage_issue(self.settings, "references", model_override="qwen21" if engine == "qwen21" else "openai" if engine == "openai" else "qwen")
+        if problem:
+            return False, problem, ""
         if engine != self.settings.get("outpaint", {}).get("guide_edit_method"):
             self.update_settings("outpaint", {"guide_edit_method": engine})
         try:
@@ -2822,6 +2850,9 @@ class PipelineApp:
                 self.hydrate_stage_inputs("outpaint")
 
     def run_all(self, keep_shots: bool = False) -> tuple[bool, str]:
+        problems = pipeline_issues(self.settings, (stage.key for stage in self.active_stages()))
+        if problems:
+            return False, "Whole remaster blocked by commercial model guard: " + " | ".join(problems)
         threading.Thread(target=self._run_all_worker, kwargs={"keep_shots": keep_shots}, daemon=True).start()
         return True, "Started whole remaster queue."
 
