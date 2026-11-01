@@ -12,6 +12,9 @@ on:
       - "scripts/richardson_lucy_video.py"
       - "tests/test_richardson_lucy.py"
       - "docs/richardson-lucy-detail.md"
+      - "scripts/run_restormer_deblur_research.py"
+      - "tests/test_restormer_deblur_research.py"
+      - "docs/restormer-deblur-research.md"
       - "tests/test_detail_enhancement.py"
       - "docs/detail-enhancement-implementation.md"
       - "tests/test_denoise_comparison_browser.test.cjs"
@@ -48,6 +51,8 @@ jobs:
           while IFS= read -r -d '' file; do node --check "$file"; done < <(find ai_remaster_gui/static -name '*.js' -print0)
       - name: Test real video and GUI model settings
         run: python -m unittest -v tests.test_denoise_video
+      - name: Test Restormer research-only provenance and lossless RGB frame I/O
+        run: python -m unittest -v tests.test_restormer_deblur_research
       - name: Test Richardson–Lucy PSFs and controlled synthetic-blur recovery
         run: python -m unittest -v tests.test_richardson_lucy
       - name: Test native 1x detail enhancement methods and GUI chain
