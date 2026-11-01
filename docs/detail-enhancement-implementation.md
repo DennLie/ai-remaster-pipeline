@@ -114,3 +114,33 @@ conservation-oriented default **Off**, but supports stronger
 modernized outputs on explicit user selection. It implements
 sharpening and contrast enhancement, **not** learned
 native-resolution deblurring or "restoration" of invisible details.
+
+## Verified real-film first-pass results (November 2026)
+
+[GitHub Actions run #41361640082](https://github.com/DennLie/ai-remaster-pipeline/actions/runs/41361640082):
+**CPU unit and regression tests succeeded, as did the real-original-film comparison.**
+The verified Commons digital transfer was sampled at 00:05:00 for
+36 consecutive 960×720, 30 fps frames (1.2 seconds). All three
+methods used their **gentle** preset, full 100% enhanced image mix,
+and lossless intermediate output.
+
+| Diagnostic, not fidelity ranking | Original | Unsharp | CAS | Multiscale |
+|---|---:|---:|---:|---:|
+| Mean 8-bit absolute channel difference from the source | 0 | 0.2683079 | 0.4936153 | 0.5560888 |
+| Mean absolute spatial Laplacian | 12.1746443 | 14.0294955 | 15.3806047 | 16.0708239 |
+| Newly clipped channel fraction | 0 | 0.0015261 | 0.0025531 | 0.0032160 |
+
+Interpretation: multiscale is most invasive of these **unmatched**
+preset strengths on this one short segment, Unsharp the least.
+Greater Laplacian response means higher spatial frequencies;
+it may indicate sharpening, amplified grain/scratches or
+unwanted halos, not authentically recovered details. Clipping is
+small but nonzero and should be inspected on high-contrast edges.
+There is **no perceptual quality winner** established by these numbers.
+
+The workflow artifact `neighbors-native-detail-four-method-comparison`
+includes 4-way same-frame video, JPEG contact sheet and JSON summary.
+The preview H.264 video is downscaled to four 320×240 panels for
+side-by-side watching; numerical analysis used 960×720.
+Longer scene diversity, 100%-scale inspection and comparison
+against controlled synthetic blur ground truth remain necessary.
