@@ -1,5 +1,9 @@
 # Commercial model guard (experimental, opt-in)
 
+The [model licence audit](model-license-audit.md) and its
+[machine-readable inventory](model-license-inventory.json) describe the
+primary-source evidence and unresolved model-chain issues.
+
 The **Commercial model guard** option on the **Overview** tab enables a
 conservative *model selection* preflight for GUI and HTTP-launched workflows.
 It is **off by default** to preserve existing project behavior. Turn it on for
