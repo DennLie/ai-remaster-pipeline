@@ -34,8 +34,9 @@ def probe_frames(path: Path) -> dict[str, object]:
 
 
 class TemporalDefectPipelineSmokeTests(unittest.TestCase):
-    @unittest.skipUnless(FFMPEG and FFPROBE, "FFmpeg and ffprobe required")
     def test_mask_only_cleanup_real_video_and_resume(self) -> None:
+        self.assertIsNotNone(FFMPEG, "FFmpeg must be installed: end-to-end test may not skip")
+        self.assertIsNotNone(FFPROBE, "ffprobe must be installed: end-to-end test may not skip")
         with tempfile.TemporaryDirectory(prefix="arp-temporal-video-") as folder:
             root = Path(folder)
             input_video = root / "sample.mkv"
