@@ -63,6 +63,22 @@ jobs:
             --output-dir "$RUNNER_TEMP/deflick_results"
           cat "$RUNNER_TEMP/deflick_results/light_deflicker_compare.json"
 
+      - name: Benchmark the built-in FFmpeg median Deflicker on the same native footage
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i "$RUNNER_TEMP/film/Neighbors_native_720p.mkv" \
+            -vf "deflicker=size=5:mode=median" -an \
+            -c:v ffv1 -pix_fmt yuv420p \
+            "$RUNNER_TEMP/film/Neighbors_ffmpeg_deflicker.mkv"
+          python scripts/compare_pre_dart_baselines.py \
+            --original "$RUNNER_TEMP/film/Neighbors_native_720p.mkv" \
+            --variant arp="$RUNNER_TEMP/film/Neighbors_light_deflicked.mkv" \
+            --variant ffmpeg="$RUNNER_TEMP/film/Neighbors_ffmpeg_deflicker.mkv" \
+            --output-dir "$RUNNER_TEMP/deflick_results"
+          cat "$RUNNER_TEMP/deflick_results/pre_dart_baselines.json"
+
       - name: Make limited-size original vs corrected side-by-side preview
         shell: bash
         run: |
