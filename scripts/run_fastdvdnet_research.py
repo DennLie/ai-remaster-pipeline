@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -202,7 +203,7 @@ def encode_research_output(ffmpeg: str, target: Path, frames, model,
     cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s:v", f"{width}x{height}",
            "-r", fps, "-i", "pipe:0", "-map", "0:v:0", "-an",
-           "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gbrp", "-f", "matroska", str(tmp)]
+           "-c:v", "ffv1", "-level", "3", "-pix_fmt", "bgr0", "-f", "matroska", str(tmp)]
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
@@ -238,7 +239,7 @@ def inspect(args: argparse.Namespace) -> dict:
         raise ValueError(f"Frames must be between 1 and {MAX_RESEARCH_FRAMES}")
     if not 5 <= args.sigma <= 55:
         raise ValueError("Conditioning noise sigma (8-bit units) must be 5..55")
-    if not 0 <= args.start_seconds <= 86400:
+    if not math.isfinite(args.start_seconds) or not 0 <= args.start_seconds <= 86400:
         raise ValueError("Source start time must be between 0 and 86400 seconds")
     verify_checkout(args.checkout.resolve())
     model_sha = verify_checkpoint(args.weights.resolve(), args.weights_sha256)
@@ -250,7 +251,7 @@ def inspect(args: argparse.Namespace) -> dict:
     return {
         "model": "FastDVDnet", "upstream": UPSTREAM,
         "external_checkout": str(args.checkout.resolve()), "revision": PINNED_COMMIT,
-        "checkpoint_sha256": model_sha, "source": str(source),
+        "checkpoint_sha256": model_sha, "source": str(source), "source_sha256": sha256_file(source),
         "output": str(target), "frames_requested": args.frames,
         "start_seconds": args.start_seconds, "fps": fps,
         "width": width, "height": height, "noise_sigma_8bit": args.sigma,
