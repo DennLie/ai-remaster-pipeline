@@ -147,6 +147,7 @@ def base_settings() -> dict[str, dict[str, str]]:
         "source_sequence_fps": "24",
         "source_sequence_preview": "",
         "cleanup": "false",
+        "commercial_model_guard": "false",
         "stabilize": "false",
         "expand_outpaint": "true",
         "colorize": "true",
