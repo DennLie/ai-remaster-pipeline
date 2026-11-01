@@ -106,6 +106,21 @@ class DartExportAnalysisTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unexpected frames"):
                 assessment.evaluate(src, dart, root / "result")
 
+    def test_optional_classical_masks_compare_same_coordinates(self):
+        with tempfile.TemporaryDirectory(prefix="dart-eval-test-") as td:
+            root = Path(td)
+            src, dart = fixture(root)
+            classical = root / "classical"
+            classical.mkdir()
+            for i in range(3):
+                mask = cv2.imread(str(dart / "masks" / f"frame_{i:06d}.png"), cv2.IMREAD_GRAYSCALE)
+                self.assertTrue(cv2.imwrite(str(classical / f"frame_{i:06d}.png"), mask))
+            result = assessment.evaluate(src, dart, root / "out", classical_masks=classical)
+            self.assertEqual(result["classical_vs_dart_mask_jaccard"], 1.0)
+            (classical / "frame_000002.png").unlink()
+            with self.assertRaises(FileNotFoundError):
+                assessment.evaluate(src, dart, root / "out2", classical_masks=classical)
+
     def test_video_input_names_match_official_dart_naming(self):
         with tempfile.TemporaryDirectory(prefix="dart-eval-test-") as td:
             root = Path(td)
