@@ -72,7 +72,7 @@ class FastDVDnetResearchContracts(unittest.TestCase):
             source, target = folder / "synthetic.mkv", folder / "passed.mkv"
             subprocess.run(
                 [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                 "-f", "lavfi", "-i", "testsrc2=size=97x71:rate=12:duration=0.5",
+                 "-f", "lavfi", "-i", "testsrc=size=97x71:rate=12:duration=0.5",
                  "-c:v", "ffv1", str(source)],
                 check=True, capture_output=True, timeout=35,
             )
@@ -125,6 +125,10 @@ class FastDVDnetResearchContracts(unittest.TestCase):
             args.frames = 24
             args.sigma = 60
             with self.assertRaisesRegex(ValueError, "5..55"):
+                research.inspect(args)
+            args.sigma = 10
+            args.start_seconds = float("nan")
+            with self.assertRaisesRegex(ValueError, "between 0 and 86400"):
                 research.inspect(args)
 
 
