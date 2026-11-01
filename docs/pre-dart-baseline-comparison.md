@@ -180,3 +180,62 @@ annotate areas with actually unwanted flicker before deciding whether
 to ship any deflicker as default. The stabilization run used synthetic
 known jitter; no real-archive residual gate-weave/valid-area
 measurement has been completed yet.
+
+
+## Real archival stabilizer test: zero zoom versus default 3% (2026-11-01)
+
+[GitHub Actions run #41353115226](https://github.com/DennLie/ai-remaster-pipeline/actions/runs/41353115226)
+completed successfully for the CPU contract tests **and** the real
+Wikimedia *Neighbors* digital transfer (960×720, 30fps, 120 frames,
+00:05:00–00:05:04). The stabilization analysis itself detected **two
+shot ranges, frames 0–114 and 115–119**, so the two-pass motion fit did
+not cross the detected cut. Each variant used the exact same stabilizer,
+settings and source; **only the fixed zoom differed** (0 or 3).
+
+The additional `scripts/assess_stabilization.py` measures apparent
+image-content motion by forward-backward sparse optical flow and a
+RANSAC partial-affine fit between adjacent frames. On this specific
+footage, 118/119 adjacent pairs were accepted and one pair was
+untrusted. The detector does **not** classify true gate weave versus
+intentional camera movement or guarantee a correct cut label.
+
+| Metric (image-content surrogate) | Original | 0% fixed zoom | 3% fixed zoom |
+|---|---:|---:|---:|
+| Median adjacent translation (px) | 0.65936 | **0.33076** | 0.33677 |
+| Median change in adjacent translation (px) | 0.97860 | **0.50192** | 0.53008 |
+| Median absolute rotation (degrees) | 0.01244 | 0.00927 | 0.01050 |
+| Near-black pixels in a narrow edge strip (proxy only) | 0.107609 | 0.107418 | 0.103400 |
+
+**Interpretation:** On this one shot-dominated sample, 0% zoom
+produced approximately the same image-content-motion smoothing as 3%
+fixed zoom, while preserving the original field of view from **additional
+fixed zoom**. The 3% zoom has a theoretical centered-area cost of
+about 5.7% before accounting for other warps. This geometric estimate
+is **not** a measured source-pixel loss or valid-image-footprint map.
+Neither the near-black edge fraction nor the OpenCV motion measurements
+prove any actual gate-weave correction, because old films can have dark
+borders and intended camera/subject movement. The short second shot
+is not a meaningful independent stabilization evaluation.
+
+Artifacts in GitHub run `neighbors-native-stabilization-0-vs-3-zoom`:
+`Neighbors_stabilization_compare.mp4` (4-second three-column
+preview: original / 0% / 3%), `stabilization_contact_sheet.jpg` (five
+identical original frame numbers), `stabilization_qa.json`, original
+per-zoom process logs, and `SOURCE.txt`. Comparison thumbnails were
+resized for preview; analysis used full 960×720 frames. The original
+source was not overwritten and no AI models were used.
+
+### Decision and limitation
+
+The evidence supports making **0% fixed zoom the preferred
+conservation-oriented test preset**, *not* unconditionally declaring
+any stabilizer effect optimal, disabling stabilization globally or
+changing production defaults without user review. On material with
+unwanted black corners, a separately approved 3% presentation crop can
+be applied in a distinct deliverable.
+
+Next tests should inspect several genuine transport-weave and
+camera-pan scenes, use verified overscan/perforations if available,
+quantify full valid-image footprint with explicit transformed geometry,
+and check original grain loss from interpolation. Only then consider
+an alternative image registration backend.
