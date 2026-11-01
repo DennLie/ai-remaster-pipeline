@@ -19,6 +19,9 @@ on:
       - "scripts/film_deflicker.py"
       - "tests/test_light_deflicker.py"
       - "docs/light-deflicker.md"
+      - "scripts/compare_light_deflicker.py"
+      - "tests/test_compare_light_deflicker.py"
+      - ".github/workflows/neighbors-light-deflicker.yml"
   workflow_dispatch:
 
 permissions:
@@ -64,8 +67,16 @@ jobs:
       - name: Test conservative Light Deflicker, including video pipeline
         run: python -m unittest -v tests.test_light_deflicker
 
+      - name: Test original-versus-deflicker visual diagnostics
+        run: python -m unittest -v tests.test_compare_light_deflicker
+
       - name: Run end-to-end FFmpeg mask-only video smoke test
         run: python -m unittest -v tests.test_temporal_video_smoke
 
       - name: Run commercial model policy tests
         run: python -m unittest -v tests.test_commercial_policy tests.test_model_license_inventory
+
+  original-film-deflicker:
+    # Run the real 960x720 source test only on the Light Deflicker draft PR.
+    if: github.event_name == 'pull_request' && github.head_ref == 'feature/light-deflicker-cpu'
+    uses: ./.github/workflows/neighbors-light-deflicker.yml
