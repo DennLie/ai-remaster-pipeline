@@ -49,6 +49,12 @@ function sourceInfoHtml(info) {
 // Help text shown under stage fields. Keys are "<stage>.<field>" with a bare
 // "<field>" fallback for keys that are unique across stages.
 const FIELD_DESCRIPTIONS = {
+  'cleanup.detect_defects':
+    'Create independent, motion-aligned pixel masks of transient dust, small blotches and short scratches. The detector uses only OpenCV/NumPy and does not edit frames or run DART/ProPainter. Saved alongside the cleaned video as _defect_mask.mp4. For commercial mask-only operation, switch off Dearchive and AI DeScratch.',
+  'cleanup.defect_sensitivity':
+    'Higher values catch fainter transient blemishes but can produce false positives at motion boundaries; review the mask preview before ever using it for repair.',
+  'cleanup.defect_mask_height':
+    'Mask analysis height. Lower resolutions use less CPU and miss finer defects; source may be slow on 4K film scans. The saved preview is scaled to the source dimensions.',
   'cleanup.ai_descratch':
     'Detect only scratch-shaped damage, reconstruct those masked pixels across neighbouring frames with ProPainter, and composite them back over the untouched source. Runs after DeVignette and before Dearchive. ProPainter is licensed for non-commercial use only.',
   'cleanup.scratch_sensitivity':

@@ -39,6 +39,7 @@ from prepare_outpaint_input import probe_video
 from stream_copy import count_video_packets, stream_format
 from intermediate_video import audio_codec_args as intermediate_audio_codec_args, codec_args as intermediate_codec_args, comfy_video_combine_inputs, container_args, existing_comfy_render, vhs_inputs_for_profile
 import artifact_ids as aid
+from film_defect_masks import MASK_VERSION as TEMPORAL_MASK_VERSION, defect_mask_size, temporal_defect_mask
 
 
 DEFAULT_WORKFLOW = ROOT / "workflows" / "cleanup_ltx" / "DeArchive.json"
@@ -78,6 +79,9 @@ def cleanup_identity(source: Path, args: argparse.Namespace) -> dict[str, Any]:
         args.seed,
         source_fidelity=args.source_fidelity,
         ai_descratch=args.ai_descratch,
+        detect_defects=args.detect_defects,
+        defect_sensitivity=args.defect_sensitivity,
+        defect_mask_height=args.defect_mask_height,
         ai_descratch_height=args.ai_descratch_height,
         scratch_sensitivity=args.scratch_sensitivity,
         scratch_mask_dilate=args.scratch_mask_dilate,
@@ -603,6 +607,107 @@ def ai_descratch_dimensions(info: dict[str, Any], requested_height: str | int) -
     return width, height
 
 
+def defect_mask_preview_path(output: Path) -> Path:
+    return output.with_name(f"{output.stem}_defect_mask.mp4")
+
+
+def prepare_temporal_defect_masks(
+    ffmpeg: str,
+    source: Path,
+    output: Path,
+    work_dir: Path,
+    info: dict[str, Any],
+    args: argparse.Namespace,
+) -> Path:
+    """Analyze transient defects, save a lossless working mask and browser preview.
+
+    The cleaned video is NEVER modified by this detector. The generated masks
+    are proposals, not repair instructions; inpainting is a separate operation.
+    """
+    import cv2
+    import numpy as np
+
+    full_w, full_h = int(info["width"]), int(info["height"])
+    width, height = defect_mask_size(full_w, full_h, args.defect_mask_height)
+    fps = float(info.get("fps") or 24.0)
+    preview = defect_mask_preview_path(output)
+    mask = work_dir / f"temporal_defects_v{TEMPORAL_MASK_VERSION}_{width}x{height}.mkv"
+    signature = {
+        "tool": "film_defect_masks.py", "version": TEMPORAL_MASK_VERSION,
+        "source": root_relative(source), "source_fingerprint": file_fingerprint(source),
+        "width": width, "height": height, "sensitivity": float(args.defect_sensitivity),
+        "fps": fps,
+    }
+    if not args.force and resumable_output(mask, signature, width=width, height=height):
+        if not preview.is_file():
+            save_scratch_mask_preview(ffmpeg, mask, output, info, kind="defect")
+        print(f"Reuse temporal defect masks: {mask}", flush=True)
+        return preview
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    partial = mask.with_suffix(".partial.mkv")
+    partial.unlink(missing_ok=True)
+    capture = cv2.VideoCapture(str(source))
+    if not capture.isOpened():
+        raise RuntimeError(f"Could not decode film for defect masks: {source}")
+    encoder = None
+    processed = selected = 0
+
+    def read_frame() -> Any | None:
+        ok, frame = capture.read()
+        if not ok:
+            return None
+        return cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+
+    try:
+        encoder = subprocess.Popen(
+            [
+                ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo",
+                "-pix_fmt", "bgr24", "-s", f"{width}x{height}",
+                "-r", f"{fps:.8f}", "-i", "pipe:0", "-an",
+                *intermediate_codec_args("lossless", fast=True),
+                *container_args(str(partial), "lossless"), str(partial),
+            ],
+            stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        if encoder.stdin is None:
+            raise RuntimeError("Could not open FFmpeg temporal mask encoder")
+        previous = None
+        current = read_frame()
+        following = read_frame()
+        while current is not None:
+            frame_mask = (
+                temporal_defect_mask(previous, current, following, args.defect_sensitivity)
+                if previous is not None and following is not None
+                else np.zeros((height, width), dtype=np.uint8)
+            )
+            encoder.stdin.write(cv2.cvtColor(frame_mask, cv2.COLOR_GRAY2BGR).tobytes())
+            selected += int(np.count_nonzero(frame_mask))
+            processed += 1
+            previous, current, following = current, following, read_frame()
+    finally:
+        capture.release()
+        if encoder is not None and encoder.stdin:
+            encoder.stdin.close()
+    if encoder is None:
+        raise RuntimeError("Missing FFmpeg mask process")
+    error = (encoder.stderr.read() if encoder.stderr else b"").decode("utf-8", errors="replace")
+    if encoder.stderr:
+        encoder.stderr.close()
+    code = encoder.wait()
+    if code or not processed or not partial.is_file():
+        partial.unlink(missing_ok=True)
+        raise RuntimeError(error.strip() or "Temporal film mask encoding failed")
+    replace_with_retry(partial, mask, "Temporal defect masks")
+    write_signature(mask, signature)
+    save_scratch_mask_preview(ffmpeg, mask, output, info, kind="defect")
+    print(
+        f"Temporal masks: {processed} frames, {selected / (processed * width * height):.2%} mean selected pixels. "
+        "No source pixels were repaired.", flush=True,
+    )
+    return preview
+
+
 def ai_scratch_mask(frame: Any, sensitivity: float = 0.65) -> Any:
     """Detect long, narrow light/dark damage without granting an AI access to the full frame.
 
@@ -1052,11 +1157,14 @@ def save_scratch_mask_preview(
     mask: Path,
     output: Path,
     info: dict[str, Any],
+    *,
+    kind: str = "scratch",
 ) -> Path:
     width, height = int(info["width"]), int(info["height"])
     fps = float(info.get("fps") or 24.0)
     frames = int(info.get("frames") or 0)
-    preview = output.with_name(f"{output.stem}_scratch_mask.mp4")
+    preview = output.with_name(f"{output.stem}_{kind}_mask.mp4")
+    preview.parent.mkdir(parents=True, exist_ok=True)
     partial = preview.with_suffix(".partial.mp4")
     vf = (
         f"scale={width}:{height}:flags=neighbor,trim=end_frame={frames},"
@@ -1257,6 +1365,7 @@ def run_signature(source: Path, workflow: Path, args: argparse.Namespace, info: 
             "fps": float(info.get("fps") or 24.0), "frames": int(info.get("frames") or 0),
         },
         "ai_descratch_version": AI_DESCRATCH_VERSION if args.ai_descratch else 0,
+        "temporal_defect_mask_version": TEMPORAL_MASK_VERSION if args.detect_defects else 0,
         "devignette_version": DEVIGNETTE_VERSION if args.devignette else 0,
         "chunk_seconds": args.chunk_seconds,
         "overlap_frames": args.overlap_frames,
@@ -1339,6 +1448,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", required=True)
     parser.add_argument("--output")
     parser.add_argument("--workflow", default=str(DEFAULT_WORKFLOW))
+    parser.add_argument("--detect-defects", action="store_true", help="Create motion-aligned film defect masks without modifying picture content (no AI models).")
+    parser.add_argument("--defect-sensitivity", type=parse_source_fidelity, default=0.65, help="Conservative temporal defect-mask sensitivity, 0 to 1.")
+    parser.add_argument("--defect-mask-height", choices=["540", "720", "1080", "source"], default="720")
     parser.add_argument(
         "--ai-descratch",
         action="store_true",
@@ -1448,10 +1560,11 @@ def main() -> int:
     comfy_output_root = resolve_path(args.comfy_output_root) if args.comfy_output_root else comfy_dir / "output"
     if not source.is_file():
         raise FileNotFoundError(f"Clean Up source video not found: {source}")
-    if not (args.ai_descratch or args.devignette or args.dearchive):
-        raise ValueError("Select at least one Clean Up operation: AI DeScratch, DeVignette, or Dearchive.")
+    if not (args.detect_defects or args.ai_descratch or args.devignette or args.dearchive):
+        raise ValueError("Select at least one Clean Up operation: Detect Defects, AI DeScratch, DeVignette, or Dearchive.")
     print(
         "Clean Up operations: "
+        f"Detect Defects={'on' if args.detect_defects else 'off'}, "
         f"AI DeScratch={'on' if args.ai_descratch else 'off'}, "
         f"DeVignette={'on' if args.devignette else 'off'}, "
         f"Dearchive={'on' if args.dearchive else 'off'}.",
@@ -1468,7 +1581,7 @@ def main() -> int:
     )
     if not args.force and resumable_output(
         output, sig, width=delivery_width, height=delivery_height, video_like=source
-    ):
+    ) and (not args.detect_defects or defect_mask_preview_path(output).is_file()):
         print(f"Reuse Clean Up output: {output}", flush=True)
         return 0
     if args.dry_run:
@@ -1482,6 +1595,8 @@ def main() -> int:
     identity_key = aid.artifact_key(cleanup_identity(source, args))
     work_dir = ROOT / ".cache" / "cleanup_chunks" / f"{safe_stem(source.name)}_{identity_key}"
     repaired_source = prepare_devignette(ffmpeg, source, work_dir, info, args)
+    if args.detect_defects:
+        prepare_temporal_defect_masks(ffmpeg, repaired_source, output, work_dir, info, args)
     scratch_mask_preview: Path | None = None
     if args.ai_descratch:
         if not (comfy_dir / "main.py").is_file():

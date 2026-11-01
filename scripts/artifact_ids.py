@@ -226,6 +226,9 @@ def cleanup_identity(
     *,
     source_fidelity: float = 1.0,
     ai_descratch: bool = False,
+    detect_defects: bool = False,
+    defect_sensitivity: float = 0.65,
+    defect_mask_height: int | str = 720,
     ai_descratch_height: int | str = 720,
     scratch_sensitivity: float = 0.65,
     scratch_mask_dilate: int = 3,
@@ -248,6 +251,13 @@ def cleanup_identity(
         "devignette": bool(devignette),
         "dearchive": bool(dearchive),
     }
+    if detect_defects:
+        identity.update({
+            "detect_defects": True,
+            "defect_sensitivity": float(defect_sensitivity),
+            "defect_mask_height": str(defect_mask_height),
+            "defect_algorithm": "temporal_motion_v1",
+        })
     if ai_descratch:
         identity.update({
             "ai_model": "propainter",
