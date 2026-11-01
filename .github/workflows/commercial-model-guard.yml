@@ -84,5 +84,5 @@ jobs:
 
   original-film-deflicker:
     # Run the real 960x720 source test only on the Light Deflicker draft PR.
-    if: github.event_name == 'pull_request' && github.head_ref == 'feature/light-deflicker-cpu'
+    if: github.event_name == 'pull_request' && (github.head_ref == 'feature/light-deflicker-cpu' || github.head_ref == 'feature/pre-dart-baseline-ablation')
     uses: ./.github/workflows/neighbors-light-deflicker.yml
