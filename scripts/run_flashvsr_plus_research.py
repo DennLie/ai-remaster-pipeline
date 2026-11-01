@@ -178,7 +178,7 @@ def validate(a: argparse.Namespace) -> dict:
 
 def build_upstream_command(a: argparse.Namespace, input_clip: Path, output: Path) -> list[str]:
     return [
-        str(a.python), "-m", "inference.run_stream",
+        str(a.python.resolve()), "-m", "inference.run_stream",
         "--input", str(input_clip), "--output", str(output),
         "--mode", a.mode, "--height", str(a.height),
         "--width", str(a.width), "--max-frames", str(a.frames),
