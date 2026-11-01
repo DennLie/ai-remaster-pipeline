@@ -1164,6 +1164,7 @@ def save_scratch_mask_preview(
     fps = float(info.get("fps") or 24.0)
     frames = int(info.get("frames") or 0)
     preview = output.with_name(f"{output.stem}_{kind}_mask.mp4")
+    preview.parent.mkdir(parents=True, exist_ok=True)
     partial = preview.with_suffix(".partial.mp4")
     vf = (
         f"scale={width}:{height}:flags=neighbor,trim=end_frame={frames},"
