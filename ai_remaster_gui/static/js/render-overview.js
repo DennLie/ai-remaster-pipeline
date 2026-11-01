@@ -1,13 +1,14 @@
 function drawGlobal() {
   const global = state.settings.global || {};
   const source = global.source || '';
+  const denoise = global.denoise === 'true';
   const cleanup = global.cleanup === 'true';
   const stabilize = global.stabilize === 'true';
   const expandOutpaint = global.expand_outpaint !== 'false';
   const colorize = global.colorize !== 'false';
   const upscale = global.upscale === 'true';
   const soundtrack = global.add_soundtrack === 'true';
-  const noProcessing = !cleanup && !stabilize && !expandOutpaint && !colorize && !upscale && !soundtrack;
+  const noProcessing = !denoise && !cleanup && !stabilize && !expandOutpaint && !colorize && !upscale && !soundtrack;
   const analysis = state.source_analysis || {};
   const sourceTone = source && !analysis.ready
     ? (analysis.message || 'Analyzing source material')
@@ -32,7 +33,7 @@ function drawGlobal() {
       ${overviewSourcePicker(source, global)}
       ${sourceAnalysisHtml(analysis)}
       ${overviewSectionPicker(global, source, state.source_playback || source)}
-      ${workflowPickerHtml(cleanup, stabilize, expandOutpaint, colorize, upscale, soundtrack, sourceTone)}
+      ${workflowPickerHtml(denoise, cleanup, stabilize, expandOutpaint, colorize, upscale, soundtrack, sourceTone)}
       ${noProcessing ? '<div class="inline-warning"><strong>No processing stages selected.</strong> Choose at least one workflow step, otherwise Run Whole Remaster has nothing to do.</div>' : ''}
       <div id="overviewFilmstrip">${overviewFilmstripInner()}</div>
       <div id="overviewSourceInfo">${sourceInfoHtml(state.source_info || {})}</div>
@@ -43,6 +44,7 @@ function drawGlobal() {
   `;
 
   document.getElementById('globalSource').addEventListener('change', saveGlobal);
+  document.getElementById('globalDenoise').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalCleanup').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalStabilize').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalExpandOutpaint').addEventListener('change', saveGlobalPipelineOptions);
@@ -52,9 +54,16 @@ function drawGlobal() {
   bindOverviewSectionControls();
 }
 
-function workflowPickerHtml(cleanup, stabilize, expandOutpaint, colorize, upscale, soundtrack, sourceTone) {
+function workflowPickerHtml(denoise, cleanup, stabilize, expandOutpaint, colorize, upscale, soundtrack, sourceTone) {
   return `
     <div class="workflow-list">
+      ${workflowOptionHtml({
+        id: 'globalDenoise',
+        checked: denoise,
+        icon: 'cleanup',
+        title: 'Remove Noise',
+        body: 'Optional independent denoising with Off, hqdn3d, NLMeans or BM3D before Clean Up. Choose separate presets and retain different versions for comparison.',
+      })}
       ${workflowOptionHtml({
         id: 'globalCleanup',
         checked: cleanup,
