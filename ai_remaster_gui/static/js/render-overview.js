@@ -81,6 +81,13 @@ function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint,
         body: 'Remove gate weave, frame jitter, and unwanted rotation per shot before outpainting and colour propagation. Shot cuts reset motion tracking.',
       })}
       ${workflowOptionHtml({
+        id: 'globalDetail',
+        checked: detail,
+        icon: 'cleanup',
+        title: 'Detail Enhancement',
+        body: 'Optional 1x image sharpening after Clean Up and Stabilization. Choose Off, Unsharp, CAS or Multiscale, preset strength and original-image mix; compare versions before Upscaling.',
+      })}
+      ${workflowOptionHtml({
         id: 'globalExpandOutpaint',
         checked: expandOutpaint,
         icon: 'wide',
