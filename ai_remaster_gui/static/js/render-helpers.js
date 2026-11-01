@@ -49,6 +49,12 @@ function sourceInfoHtml(info) {
 // Help text shown under stage fields. Keys are "<stage>.<field>" with a bare
 // "<field>" fallback for keys that are unique across stages.
 const FIELD_DESCRIPTIONS = {
+  'cleanup.light_deflicker':
+    'Reduce rapid whole-frame exposure flicker using bounded per-shot gain adjustments, with no AI model and no blur. Disabled by default. Cuts, long fades and intentional illumination transitions are protected as far as possible; compare the preview before publishing.',
+  'cleanup.deflicker_strength':
+    'Fraction of the estimated correction to apply. Zero leaves frames unchanged; 0.65 is conservative. Smooth fades and film-grain texture are not intentionally filtered.',
+  'cleanup.deflicker_max_correction':
+    'Absolute limit on per-frame gain (e.g. 0.08 = up to 8% brighter or darker). Lower values reduce the risk of changing intentional lighting and scene tone.',
   'cleanup.detect_defects':
     'Create independent, motion-aligned pixel masks of transient dust, small blotches and short scratches. The detector uses only OpenCV/NumPy and does not edit frames or run DART/ProPainter. Saved alongside the cleaned video as _defect_mask.mp4. For commercial mask-only operation, switch off Dearchive and AI DeScratch.',
   'cleanup.defect_sensitivity':

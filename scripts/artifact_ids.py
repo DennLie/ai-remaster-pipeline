@@ -226,6 +226,9 @@ def cleanup_identity(
     *,
     source_fidelity: float = 1.0,
     ai_descratch: bool = False,
+    light_deflicker: bool = False,
+    deflicker_strength: float = 0.65,
+    deflicker_max_correction: float = 0.08,
     detect_defects: bool = False,
     defect_sensitivity: float = 0.65,
     defect_mask_height: int | str = 720,
@@ -251,6 +254,13 @@ def cleanup_identity(
         "devignette": bool(devignette),
         "dearchive": bool(dearchive),
     }
+    if light_deflicker:
+        identity.update({
+            "light_deflicker": True,
+            "deflicker_strength": float(deflicker_strength),
+            "deflicker_max_correction": float(deflicker_max_correction),
+            "deflicker_algorithm": "light_deflicker_v1",
+        })
     if detect_defects:
         identity.update({
             "detect_defects": True,

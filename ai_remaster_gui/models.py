@@ -54,6 +54,9 @@ STAGES = (
         ("intermediate/cleaned",),
         (
             ("compute", "Compute", "select:local|runpod", "local"),
+            ("light_deflicker", "Light Deflicker (conservative; no AI)", "checkbox", "false"),
+            ("deflicker_strength", "Deflicker strength", "range:0|1|0.05", "0.65"),
+            ("deflicker_max_correction", "Maximum brightness correction", "range:0|0.15|0.01", "0.08"),
             ("detect_defects", "Detect film damage (mask only; no AI)", "checkbox", "false"),
             ("defect_sensitivity", "Temporal defect sensitivity", "range:0|1|0.05", "0.65"),
             ("defect_mask_height", "Defect mask resolution", "select:540|720|1080|source", "720"),
