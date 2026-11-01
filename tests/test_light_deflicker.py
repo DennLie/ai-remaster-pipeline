@@ -1,0 +1,179 @@
+"""CPU-only Light Deflicker tests: cuts, fades, grain and complete video CLI."""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import cleanup_video  # noqa: E402
+import film_deflicker as flicker  # noqa: E402
+from ai_remaster_gui import app  # noqa: E402
+from ai_remaster_gui.runtime_settings import base_settings  # noqa: E402
+
+
+def film_texture() -> np.ndarray:
+    rng = np.random.default_rng(43)
+    pixels = np.clip(rng.normal(115, 12, (96, 128)), 0, 255).astype(np.uint8)
+    pixels[26:64, 67:73] = 175
+    return cv2.cvtColor(pixels, cv2.COLOR_GRAY2BGR)
+
+
+def exposure_sequence() -> list[np.ndarray]:
+    base = film_texture()
+    return [
+        np.clip(np.round(base.astype(np.float32) * (1.15 if i % 2 else 0.85)), 0, 255).astype(np.uint8)
+        for i in range(18)
+    ]
+
+
+class LightDeflickerUnitTests(unittest.TestCase):
+    def test_static_scene_remains_unchanged(self):
+        frame = film_texture()
+        metrics = [flicker.frame_luma(frame) for _ in range(15)]
+        gains, cuts = flicker.calculate_gains(
+            [m[0] for m in metrics], [m[1] for m in metrics]
+        )
+        self.assertEqual(cuts, [0])
+        self.assertTrue(all(g == 1.0 for g in gains))
+        self.assertTrue(np.array_equal(flicker.apply_gain(frame, 1.0), frame))
+
+    def test_exposure_flicker_reduces_without_blurring_detail(self):
+        source = exposure_sequence()
+        metrics = [flicker.frame_luma(frame) for frame in source]
+        values = [m[0] for m in metrics]
+        gains, cuts = flicker.calculate_gains(values, [m[1] for m in metrics])
+        self.assertEqual(cuts, [0], "Brightness-only flicker must not be called a scene cut")
+        self.assertGreater(sum(g != 1.0 for g in gains), 5)
+        self.assertLess(np.std([v*g for v, g in zip(values, gains)]), 0.80 * np.std(values))
+        self.assertLessEqual(max(abs(g-1) for g in gains), 0.0800001)
+        # A global gain can change contrast but does not spatially blur pixels.
+        changed = flicker.apply_gain(source[4], gains[4])
+        self.assertEqual(changed.shape, source[4].shape)
+        self.assertGreater(np.std(cv2.cvtColor(changed, cv2.COLOR_BGR2GRAY)), 4)
+
+    def test_monotonic_intentional_fade_is_unmodified(self):
+        base = film_texture().astype(np.float32)
+        frames = [
+            np.clip(np.round(base * (0.76 + i * 0.022)), 0, 255).astype(np.uint8)
+            for i in range(15)
+        ]
+        metrics = [flicker.frame_luma(f) for f in frames]
+        gains, _cuts = flicker.calculate_gains(
+            [m[0] for m in metrics], [m[1] for m in metrics]
+        )
+        self.assertTrue(all(abs(g-1) < 1e-5 for g in gains), gains)
+
+    def test_hard_scene_cut_separates_temporal_windows(self):
+        hist1 = np.eye(16, dtype=np.float32)[2]
+        hist2 = np.eye(16, dtype=np.float32)[13]
+        levels = [95.0]*7 + [165.0]*7
+        histograms = [hist1]*7 + [hist2]*7
+        gains, cuts = flicker.calculate_gains(levels, histograms)
+        self.assertEqual(cuts, [0, 7])
+        self.assertTrue(all(g == 1.0 for g in gains))
+
+    def test_bounds_and_invalid_inputs(self):
+        hist = np.eye(16, dtype=np.float32)[5]
+        for overrides in ({"strength": -0.1}, {"strength": 1.1},
+                          {"max_correction": 0.20}, {"radius": 0}):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                flicker.calculate_gains([90, 140, 90], [hist]*3, **overrides)
+        with self.assertRaises(ValueError):
+            flicker.calculate_gains([90], [hist]*2)
+
+    def test_cleanup_gui_command_identity_and_commercial_guard(self):
+        settings = base_settings()
+        settings["global"].update({"source": "input/film.mp4", "cleanup": "true",
+                                   "commercial_model_guard": "true"})
+        settings["cleanup"].update({
+            "light_deflicker": "true", "deflicker_strength": "0.65",
+            "deflicker_max_correction": "0.08",
+            "dearchive": "false", "ai_descratch": "false",
+        })
+        old_settings = app.APP.settings
+        try:
+            app.APP.settings = settings
+            command = app.APP.command_for("cleanup")
+            self.assertIn("--light-deflicker", command)
+            self.assertIn("--no-dearchive", command)
+            self.assertEqual(command[command.index("--deflicker-strength")+1], "0.65")
+            self.assertEqual(command[command.index("--deflicker-max-correction")+1], "0.08")
+            from ai_remaster_gui.commercial_policy import stage_issue
+            self.assertEqual(stage_issue(settings, "cleanup"), "")
+            args = cleanup_video.build_parser().parse_args(command[3:])
+            self.assertTrue(args.light_deflicker)
+            self.assertFalse(args.dearchive)
+            expected = Path(app.cleanup_output_for("input/film.mp4", settings["cleanup"])).name
+            self.assertEqual(expected, cleanup_video.default_output(Path(args.source), args).name)
+        finally:
+            app.APP.settings = old_settings
+
+
+class LightDeflickerVideoSmokeTests(unittest.TestCase):
+    def test_real_ffmpeg_video_flicker_and_resume(self):
+        ffmpeg = shutil.which("ffmpeg")
+        ffprobe = shutil.which("ffprobe")
+        self.assertIsNotNone(ffmpeg, "GitHub Actions must install FFmpeg")
+        self.assertIsNotNone(ffprobe, "GitHub Actions must install ffprobe")
+        with tempfile.TemporaryDirectory(prefix="arp-deflick-") as td:
+            work = Path(td)
+            source = work / "test.mkv"
+            output = work / "cleaned.mkv"
+            frames = exposure_sequence()
+            encoder = subprocess.Popen([
+                ffmpeg, "-loglevel", "error", "-y", "-f", "rawvideo",
+                "-pix_fmt", "bgr24", "-s:v", "128x96", "-r", "12",
+                "-i", "pipe:0", "-an", "-c:v", "ffv1", str(source),
+            ], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            raw = b"".join(f.tobytes() for f in frames)
+            _stdout, errors = encoder.communicate(raw, timeout=30)
+            self.assertEqual(encoder.returncode, 0, errors.decode(errors="replace"))
+            cmd = [
+                sys.executable, str(ROOT / "scripts" / "cleanup_video.py"),
+                "--source", str(source), "--output", str(output),
+                "--light-deflicker", "--no-dearchive",
+                "--intermediate-profile", "lossless",
+            ]
+            first = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=150)
+            self.assertEqual(first.returncode, 0, first.stdout[-3000:] + first.stderr[-3000:])
+            self.assertTrue(output.exists())
+            self.assertIn("Light Deflicker:", first.stdout)
+            self.assertIn("Wrote Clean Up video", first.stdout)
+            second = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=80)
+            self.assertEqual(second.returncode, 0, second.stdout[-3000:]+second.stderr[-3000:])
+            self.assertIn("Reuse Clean Up output", second.stdout)
+
+            capture = cv2.VideoCapture(str(output))
+            measured = []
+            try:
+                while True:
+                    ok, frame = capture.read()
+                    if not ok:
+                        break
+                    measured.append(flicker.frame_luma(frame)[0])
+            finally:
+                capture.release()
+            self.assertEqual(len(measured), len(frames))
+            originals = [flicker.frame_luma(f)[0] for f in frames]
+            self.assertLess(float(np.std(measured)), float(np.std(originals)) * 0.85)
+            report_files = sorted((ROOT / ".cache" / "cleanup_chunks").glob(
+                f"{source.stem}_*/light_deflicker_*_analysis.json"
+            ))
+            self.assertTrue(report_files, "Expected per-frame gains report in cleanup cache")
+            report = json.loads(report_files[-1].read_text())
+            self.assertEqual(report["frames"], 18)
+            self.assertGreater(report["nonneutral_frames"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
