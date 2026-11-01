@@ -787,6 +787,7 @@ function drawStage(st) {
   const expected = (state.expected_outputs && state.expected_outputs[st.key]) || [];
   const sp = stageProgress(st.key);
 
+  if (st.key === 'denoise') return drawDenoise(st, s, expected, sp);
   if (st.key === 'cleanup') return drawCleanup(st, s, expected, sp);
   if (st.key === 'stabilize') return drawStabilization(st, s, expected, sp);
   if (st.key === 'outpaint') return drawOutpaint(st, s, expected, sp);
