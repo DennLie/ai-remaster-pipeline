@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "checked_date": "2026-11-01",
+  "commercially_approved": false,
+  "scope": "Reference identities for the four files in scripts/dependency_manager.py::QWEN_IMAGE_EDIT_MODELS. File hashes and declared licences do not constitute complete commercial clearance.",
+  "artifacts": [
+    {
+      "id": "transformer",
+      "repo": "unsloth/Qwen-Image-Edit-2511-GGUF",
+      "source_path": "qwen-image-edit-2511-Q4_K_M.gguf",
+      "destination": "models/diffusion_models/qwen-image-edit-2511-Q4_K_M.gguf",
+      "source_revision": "5aa544d2fb4c5f3787009deede55c4ceac573f52",
+      "sha256": "5f2ef6c0bf59e5a15aaf8836fcb07d9424f36dd0f1a62e285cd3055c7b374fca",
+      "declared_license": "apache-2.0",
+      "evidence": "https://huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF/blob/5aa544d2fb4c5f3787009deede55c4ceac573f52/qwen-image-edit-2511-Q4_K_M.gguf"
+    },
+    {
+      "id": "text_encoder",
+      "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+      "source_path": "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "destination": "models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "source_revision": "7beb7b647f04469fbe64ba8adc2bb0d7e5e9f73f",
+      "sha256": "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4",
+      "declared_license": "apache-2.0",
+      "evidence": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/blob/7beb7b647f04469fbe64ba8adc2bb0d7e5e9f73f/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    },
+    {
+      "id": "vae",
+      "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+      "source_path": "split_files/vae/qwen_image_vae.safetensors",
+      "destination": "models/vae/qwen_image_vae.safetensors",
+      "source_revision": null,
+      "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+      "declared_license": "apache-2.0",
+      "evidence": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/vae/qwen_image_vae.safetensors"
+    },
+    {
+      "id": "lightning_lora",
+      "repo": "lightx2v/Qwen-Image-Edit-2511-Lightning",
+      "source_path": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "destination": "models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "source_revision": null,
+      "sha256": "22226e8d05d354bb356627d428809f5afd7819399b077238a2b70a82883a904f",
+      "declared_license": "apache-2.0",
+      "evidence": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/blob/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+    }
+  ],
+  "additional_dependencies_not_covered": [
+    {
+      "name": "Optional Qwen-Image-2.1 text encoder for reference color descriptions",
+      "trigger": "scripts/qwen_colorize_references.py: reference_colours() if shown and --describe-references (default true)",
+      "repo": "Comfy-Org/Qwen-Image-2.1",
+      "path": "text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+      "licence_status": "unreviewed/research-license risk; do not enable commercial path without review",
+      "evidence": "https://github.com/DennLie/ai-remaster-pipeline/blob/main/scripts/qwen_colorize_references.py"
+    },
+    {
+      "name": "ComfyUI core and custom nodes",
+      "trigger": "Qwen 2511 workflow / ComfyUI-GGUF",
+      "licence_status": "GPL-3.0 (ComfyUI core), downstream GPL implications and node-specific licenses to review",
+      "evidence": "https://github.com/comfyanonymous/ComfyUI"
+    }
+  ]
+}

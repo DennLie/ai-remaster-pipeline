@@ -7,6 +7,10 @@ on:
       - "ai_remaster_gui/**"
       - "tests/test_commercial_policy.py"
       - "tests/test_model_license_inventory.py"
+      - "tests/test_qwen_bundle_audit.py"
+      - "scripts/audit_qwen_2511_bundle.py"
+      - "docs/qwen-2511-file-manifest.json"
+      - "docs/qwen-2511-bundle-audit.md"
       - "docs/commercial-model-guard.md"
       - "docs/model-license-audit.md"
       - "docs/model-license-inventory.json"
@@ -40,4 +44,4 @@ jobs:
           done < <(find ai_remaster_gui/static -name '*.js' -print0)
 
       - name: Run commercial model policy tests
-        run: python -m unittest -v tests.test_commercial_policy tests.test_model_license_inventory
+        run: python -m unittest -v tests.test_commercial_policy tests.test_model_license_inventory tests.test_qwen_bundle_audit
