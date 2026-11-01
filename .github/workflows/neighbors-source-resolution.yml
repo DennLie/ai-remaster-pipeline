@@ -1,0 +1,91 @@
+name: Neighbors source resolution comparison
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/neighbors-source-resolution.yml"
+      - "scripts/compare_source_resolution.py"
+      - "scripts/film_defect_masks.py"
+      - "tests/test_source_resolution_comparison.py"
+      - "docs/neighbors-source-resolution-test.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-resolution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install computer-vision dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy opencv-python-headless
+          python -m unittest -v tests.test_source_resolution_comparison
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Download public Commons digital source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/neighbor_source"
+          curl -fL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 40 --max-time 660 \
+            -A "ARP film restoration research workflow (https://github.com/DennLie/ai-remaster-pipeline)" \
+            "https://upload.wikimedia.org/wikipedia/commons/2/27/Neighbors_%281920%29.webm" \
+            -o "$RUNNER_TEMP/neighbor_source/Neighbors-1920-wikimedia-original.webm"
+          sha256sum "$RUNNER_TEMP/neighbor_source/Neighbors-1920-wikimedia-original.webm"
+          ffprobe -v error -show_entries stream=width,height,avg_frame_rate -select_streams v:0 \
+            -of default=noprint_wrappers=1 "$RUNNER_TEMP/neighbor_source/Neighbors-1920-wikimedia-original.webm"
+          test "$(ffprobe -v error -show_entries stream=width -of csv=p=0 "$RUNNER_TEMP/neighbor_source/Neighbors-1920-wikimedia-original.webm")" = "960"
+          test "$(ffprobe -v error -show_entries stream=height -of csv=p=0 "$RUNNER_TEMP/neighbor_source/Neighbors-1920-wikimedia-original.webm")" = "720"
+
+      - name: Trim identical source frames for every resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -ss 00:05:00 \
+            -i "$RUNNER_TEMP/neighbor_source/Neighbors-1920-wikimedia-original.webm" \
+            -t 4 -map 0:v:0 -an -c:v ffv1 -level 3 -pix_fmt yuv420p \
+            "$RUNNER_TEMP/neighbor_source/neighbors-5m-4s.mkv"
+          ffprobe -v error -select_streams v:0 \
+            -show_entries stream=width,height,nb_frames,avg_frame_rate -of default=noprint_wrappers=1 \
+            "$RUNNER_TEMP/neighbor_source/neighbors-5m-4s.mkv"
+
+      - name: Compare native and resized detection masks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/compare_source_resolution.py \
+            --input "$RUNNER_TEMP/neighbor_source/neighbors-5m-4s.mkv" \
+            --output-dir "$RUNNER_TEMP/source_comparison" \
+            --max-frames 72 \
+            --sensitivity 0.65
+          cat "$RUNNER_TEMP/source_comparison/source_resolution_report.json"
+          {
+            printf "Source: https://commons.wikimedia.org/wiki/File:Neighbors_(1920).webm\\n"
+            printf "Source used: original 960x720 VP8 file, not a Wikimedia 480p transcode.\\n"
+            printf "Source SHA-256: "
+            sha256sum "$RUNNER_TEMP/neighbor_source/Neighbors-1920-wikimedia-original.webm" | awk '{print $1}'
+            printf "Trim: 00:05:00 through 00:05:04 at source video cadence.\\n"
+            printf "Reminder: this is a digital transfer, not the original film scan; US PD status does not confirm German rights.\\n"
+          } > "$RUNNER_TEMP/source_comparison/SOURCE.txt"
+
+      - name: Publish only diagnostic report and sample contact sheet
+        uses: actions/upload-artifact@v4
+        with:
+          name: neighbors-source-480-720-1440-comparison
+          path: ${{ runner.temp }}/source_comparison/
+          retention-days: 30
