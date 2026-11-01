@@ -11,7 +11,9 @@ let denoiseCompareZoom = 1;
 
 function denoiseCompareCandidates(st) {
   const global = (state && state.settings && state.settings.global) || {};
-  const source = global.source_sequence_preview || global.source || '';
+  const source = st.key === 'detail'
+    ? ((state && state.detail_comparison && state.detail_comparison.source) || '')
+    : (global.source_sequence_preview || global.source || '');
   const candidates = [];
   if (source && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(source)) {
     candidates.push({ path: source, label: 'Original — ' + source });
@@ -57,21 +59,21 @@ function drawDenoise(st, settings, expected, progress) {
   document.getElementById('app').innerHTML = `
     <div class="editor-page">
       <section class="card">
-        <h2>Remove Noise</h2>
+        <h2>${esc(st.title)}</h2>
         <p>${esc(st.description)}</p>
         ${progressHtml(progress.percent, progress.label)}
         ${st.fields.map(field => fieldHtml(st, field)).join('')}
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(settings)}
         <div class="actions">
-          <button class="primary" onclick="runStage('denoise')" ${state.running ? 'disabled' : ''}>Run Remove Noise</button>
+          <button class="primary" onclick="runStage('${st.key}')" ${state.running ? 'disabled' : ''}>Run ${esc(st.title)}</button>
           <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
         </div>
         <div class="command" id="cmd"></div>
       </section>
       <section class="card">
         <h2>Synchronized A/B/C Comparison</h2>
-        <p class="shot-empty">Choose original and any cached denoising outputs. All three preview clips use the same source-relative start time. The browser's video seeking is approximate; use the offline frame-exact report for scientific comparisons.</p>
+        <p class="shot-empty">Choose the input and any cached ${st.key === 'detail' ? 'detail enhancement' : 'denoising'} outputs. All three preview clips use the same source-relative start time. The browser's video seeking is approximate; use the offline frame-exact report for scientific comparisons.</p>
         <div class="denoise-compare-toolbar">
           <label>Start second <input id="denoiseCompareStart" type="number" min="0" max="360000" step="0.1" value="${denoiseCompareStart}"></label>
           <label>Clip duration <select id="denoiseCompareLength">
@@ -87,8 +89,8 @@ function drawDenoise(st, settings, expected, progress) {
       </section>
     </div>
   `;
-  bindStageFields('denoise');
-  showCommand('denoise');
+  bindStageFields(st.key);
+  showCommand(st.key);
   renderDenoiseComparePlayers(candidates);
 }
 
@@ -138,7 +140,7 @@ function denoiseCompareVideos() {
 
 function denoiseCompareChoose(index, path) {
   if (![0, 1, 2].includes(index)) return;
-  const st = (state.stages || []).find(v => v.key === 'denoise');
+  const st = (state.stages || []).find(v => v.key === active);
   const candidates = st ? denoiseCompareCandidates(st) : [];
   if (!candidates.some(v => v.path === path)) return;
   denoiseComparePaths[index] = path;
@@ -155,7 +157,7 @@ function denoiseCompareApplyClip() {
   }
   denoiseCompareStart = clipped.start;
   denoiseCompareLength = clipped.duration;
-  const st = (state.stages || []).find(v => v.key === 'denoise');
+  const st = (state.stages || []).find(v => v.key === active);
   renderDenoiseComparePlayers(st ? denoiseCompareCandidates(st) : []);
 }
 
