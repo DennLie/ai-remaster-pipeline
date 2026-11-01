@@ -149,6 +149,7 @@ def base_settings() -> dict[str, dict[str, str]]:
         "denoise": "false",
         "cleanup": "false",
         "stabilize": "false",
+        "detail": "false",
         "expand_outpaint": "true",
         "colorize": "true",
         "upscale": "false",

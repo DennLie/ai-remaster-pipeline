@@ -103,6 +103,18 @@ STAGES = (
         (),
     ),
     Stage(
+        "detail",
+        "Detail Enhancement",
+        "Optional 1x sharpening after Clean Up and Stabilization. Choose Unsharp, contrast-adaptive sharpening, or two-scale detail enhancement without changing dimensions.",
+        ("intermediate/detail_enhanced",),
+        (
+            ("method", "Detail method", "select:off|unsharp|cas|multiscale", "off"),
+            ("preset", "Method strength", "select:gentle|balanced|strong", "gentle"),
+            ("mix", "Enhanced picture mix (%)", "range:0|100|1", "100"),
+        ),
+        (),
+    ),
+    Stage(
         "outpaint",
         "Outpainting",
         "Prepare the source clip chosen on the Global tab for outpainting.",

@@ -51,6 +51,12 @@ function sourceInfoHtml(info) {
 const FIELD_DESCRIPTIONS = {
   'denoise.method':
     'Off leaves the source image unchanged. hqdn3d uses a 3D spatial/temporal filter, NLMeans uses similar image patches, and BM3D uses block matching. These are classical FFmpeg methods; trained AI models are not installed by this stage.',
+  'detail.method':
+    'Off copies the original frames. Unsharp amplifies luminance edges, CAS selectively sharpens by local contrast, and Multiscale combines fine and broad unsharp filters. All are non-generative and may intensify scratches.',
+  'detail.preset':
+    'Gentle, Balanced and Strong map to method-specific filter settings. More sharpness does not mean recovered original details.',
+  'detail.mix':
+    '0% uses the unprocessed upstream picture and 100% the sharpened version. Blending is within the processing codec and may incur re-encoding.',
   'denoise.preset':
     'Gentle, Balanced and Strong map to native parameters for the selected algorithm, not a universal strength percentage. Compare versions at identical source frames and protect film grain as desired.',
   'cleanup.ai_descratch':
@@ -788,6 +794,7 @@ function drawStage(st) {
   const sp = stageProgress(st.key);
 
   if (st.key === 'denoise') return drawDenoise(st, s, expected, sp);
+  if (st.key === 'detail') return drawDenoise(st, s, expected, sp);
   if (st.key === 'cleanup') return drawCleanup(st, s, expected, sp);
   if (st.key === 'stabilize') return drawStabilization(st, s, expected, sp);
   if (st.key === 'outpaint') return drawOutpaint(st, s, expected, sp);
