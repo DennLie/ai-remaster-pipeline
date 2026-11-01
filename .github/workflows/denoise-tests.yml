@@ -220,3 +220,61 @@ jobs:
           name: neighbors-native-detail-four-method-comparison
           path: ${{ runner.temp }}/detail_results/
           retention-days: 30
+
+  neighbors-native-deblur:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feature/richardson-lucy-detail'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install open-source deblurring dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
+          ffmpeg -hide_banner -filters | grep -E 'unsharp|cas|blend'
+      - name: Download and hash-verify original Neighbors digital transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/film" "$RUNNER_TEMP/deblur_results"
+          curl -fL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 40 --max-time 660             -A "ARP historic-film native deblur research (https://github.com/DennLie/ai-remaster-pipeline)"             "https://upload.wikimedia.org/wikipedia/commons/2/27/Neighbors_%281920%29.webm"             -o "$RUNNER_TEMP/film/Neighbors_original.webm"
+          echo "029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966  $RUNNER_TEMP/film/Neighbors_original.webm" | sha256sum --check
+          ffmpeg -hide_banner -loglevel error -y -ss 00:05:00             -i "$RUNNER_TEMP/film/Neighbors_original.webm" -map 0:v:0             -frames:v 24 -an -c:v ffv1 -pix_fmt bgr0             "$RUNNER_TEMP/film/neighbors_reference.mkv"
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,avg_frame_rate -of csv=p=0 "$RUNNER_TEMP/film/neighbors_reference.mkv"
+          test "$(ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of csv=p=0 "$RUNNER_TEMP/film/neighbors_reference.mkv")" = 24
+      - name: Render four native 1x candidate algorithms on identical 24 frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          for method in unsharp cas multiscale richardson_lucy; do
+            python scripts/detail_enhance_video.py               --source "$RUNNER_TEMP/film/neighbors_reference.mkv"               --output "$RUNNER_TEMP/film/${method}_gentle.mkv"               --method "$method" --preset gentle --mix 100               --intermediate-profile lossless
+            test "$(ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of csv=p=0 "$RUNNER_TEMP/film/${method}_gentle.mkv")" = 24
+          done
+      - name: Produce native-frame numerical diagnostics and contact sheet
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/compare_denoising.py             --source "$RUNNER_TEMP/film/neighbors_reference.mkv"             --variant "unsharp=$RUNNER_TEMP/film/unsharp_gentle.mkv"             --variant "cas=$RUNNER_TEMP/film/cas_gentle.mkv"             --variant "multiscale=$RUNNER_TEMP/film/multiscale_gentle.mkv"             --variant "richardson_lucy=$RUNNER_TEMP/film/richardson_lucy_gentle.mkv"             --output-dir "$RUNNER_TEMP/deblur_results"
+          cat "$RUNNER_TEMP/deblur_results/denoising_comparison.json"
+      - name: Encode source-synchronized five-way visual preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y             -i "$RUNNER_TEMP/film/neighbors_reference.mkv"             -i "$RUNNER_TEMP/film/unsharp_gentle.mkv"             -i "$RUNNER_TEMP/film/cas_gentle.mkv"             -i "$RUNNER_TEMP/film/multiscale_gentle.mkv"             -i "$RUNNER_TEMP/film/richardson_lucy_gentle.mkv"             -filter_complex "[0:v]scale=288:216[a];[1:v]scale=288:216[b];[2:v]scale=288:216[c];[3:v]scale=288:216[d];[4:v]scale=288:216[e];[a][b][c][d][e]hstack=inputs=5[out]"             -map "[out]" -an -c:v libx264 -crf 18 -preset veryfast             -pix_fmt yuv420p "$RUNNER_TEMP/deblur_results/Neighbors_native_detail_5way.mp4"
+          {
+            echo "Left to right: Original / Unsharp gentle / CAS gentle / Multiscale gentle / Richardson-Lucy gentle."
+            echo "Verified Commons 960x720 WebM transfer SHA-256: 029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966"
+            echo "24 frames at 30 fps from source 05:00. All analyses performed on equal native 960x720 1x results."
+            echo "Richardson-Lucy uses an ASSUMED Gaussian PSF sigma 0.75px, 3 iterations, 100% output mix."
+            echo "Increased high-frequency response might mean grain/scratch amplification or ringing, not genuine recovered historical detail."
+            echo "No learned models or GPU used; no commercial rights statement for the film transfer."
+          } > "$RUNNER_TEMP/deblur_results/METHODOLOGY.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neighbors-native-5way-deblur-real-source
+          path: ${{ runner.temp }}/deblur_results/
+          retention-days: 30
