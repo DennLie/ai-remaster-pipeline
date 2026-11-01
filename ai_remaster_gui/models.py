@@ -48,6 +48,17 @@ class Stage:
 
 STAGES = (
     Stage(
+        "denoise",
+        "Remove Noise",
+        "Compare classical spatial and temporal noise reduction methods before film cleanup. Optional; preserve the original for A/B comparison.",
+        ("intermediate/denoised",),
+        (
+            ("method", "Denoising algorithm", "select:off|hqdn3d|nlmeans|bm3d", "off"),
+            ("preset", "Intensity (method-specific)", "select:gentle|balanced|strong", "gentle"),
+        ),
+        (),
+    ),
+    Stage(
         "cleanup",
         "Clean Up",
         "Reconstruct masked scratches with ProPainter, correct vignettes, then optionally restore archive footage with Dearchive at a selectable model-safe resolution.",
