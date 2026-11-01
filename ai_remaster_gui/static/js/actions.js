@@ -1817,6 +1817,7 @@ async function saveGlobalPipelineOptions() {
       denoise: String(document.getElementById('globalDenoise').checked),
       cleanup: String(document.getElementById('globalCleanup').checked),
       stabilize: String(document.getElementById('globalStabilize').checked),
+      detail: String(document.getElementById('globalDetail').checked),
       expand_outpaint: String(document.getElementById('globalExpandOutpaint').checked),
       colorize: String(document.getElementById('globalColorize').checked),
       upscale: String(document.getElementById('globalUpscale').checked),
