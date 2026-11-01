@@ -84,3 +84,53 @@ retention setting.
 
 **Release gate:** Do not merge this branch or change commercial processing
 defaults based solely on the mask coverage of one sample.
+
+
+## First reproducible run — November 1, 2026
+
+**[GitHub Actions run #41339842192](https://github.com/DennLie/ai-remaster-pipeline/actions/runs/41339842192)**:
+both the CPU unit-test job and the actual Commons download / video-resolution
+comparison job completed successfully. The downloadable artifact
+`neighbors-source-480-720-1440-comparison` contains `SOURCE.txt`,
+`source_resolution_report.json` and a JPEG contact sheet.
+
+- Downloaded 2016 **original uploaded 960 × 720 digital transfer** on Commons
+  (not the separately available 480p transcode).
+- SHA-256 of the acquired Commons WebM:
+  `029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966`.
+- Extracted a four-second excerpt at **00:05:00**. Analyzed the first
+  **72 frames**, at **30 fps = 2.4 seconds** of that excerpt.
+- Mask sensitivity `0.65`. The 1440p version uses only Lanczos
+  interpolation, **not** an AI super-resolution model.
+
+| Analysis size | Frames with nonempty mask | Mask share, mapped to 960×720 coordinates |
+|---|---:|---:|
+| 640 × 480 | 36 / 72 | **0.010059 %** |
+| 960 × 720 | 38 / 72 | **0.003800 %** |
+| 1920 × 1440 | 37 / 72 | **0.000330 %** |
+
+Pairwise Jaccard agreement of binary masks after remapping to the
+960 × 720 grid: **0.155664** (480p vs. 720p) and **0.063114**
+(1440p vs. 720p). These scores compare *mask decisions*, not
+ground truth. The high number of candidate frames with very low
+pixel coverage should **not** be interpreted as accurate detection.
+
+### Interpretation
+
+This small experiment demonstrates substantial sensitivity to analysis
+resolution. The 1440p interpolation yielded markedly fewer marked pixels,
+but that **does not prove** it is cleaner: small real scratches might have
+been missed, and 480p proposals might be false positives. The experiment
+contains **no labeled ground-truth masks**, and the excerpt is too short
+to generalize to the whole film.
+
+**Current engineering recommendation:** process at the native
+digital-transfer resolution for the first pass; do **not** make upscaling
+a required prerequisite to defect detection. Benchmark 480p/720p/1440p
+again on hand-labeled dust, scratches, scene cuts and intact character
+details before making an automatic resolution choice. An actual
+super-resolution backend remains a separate experiment with independent
+licence and checkpoint review.
+
+The source's US public-domain label is **not proof of rights in Germany**
+or of the digital transfer's separate commercial licensing status.
