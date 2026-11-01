@@ -17,6 +17,10 @@ class DetailEnhancementTests(unittest.TestCase):
     def test_presets_and_blends_are_explicit_not_model_synthesis(self):
         for method in detail.METHODS:
             for preset in detail.PRESETS:
+                if method == "richardson_lucy":
+                    with self.assertRaisesRegex(ValueError, "dedicated CPU"):
+                        detail.effect_for(method, preset)
+                    continue
                 effect = detail.effect_for(method, preset)
                 self.assertIsNone(effect) if method == "off" else self.assertTrue(effect)
                 self.assertEqual(detail.filter_graph(method, preset, 0), None)
@@ -49,6 +53,8 @@ class DetailEnhancementTests(unittest.TestCase):
         c = detail_output_for(src, {"method": "cas", "preset": "gentle", "mix": "100"}, "lossless")
         self.assertNotEqual(a, b)
         self.assertNotEqual(b, c)
+        d = detail_output_for(src, {"method": "richardson_lucy", "preset": "gentle", "mix": "100"}, "lossless")
+        self.assertNotEqual(c, d)
         opts["global"].update({"source": src, "denoise": "false", "cleanup": "false",
                                "stabilize": "false", "detail": "true"})
         opts["detail"].update({"method": "cas", "preset": "gentle", "mix": "100"})
@@ -73,7 +79,7 @@ class DetailEnhancementTests(unittest.TestCase):
             original = detail.probe(ffmpeg, source)
             for method, mix in (
                 ("off", 100), ("unsharp", 100), ("unsharp", 45),
-                ("cas", 100), ("multiscale", 100),
+                ("cas", 100), ("multiscale", 100), ("richardson_lucy", 100),
             ):
                 target = root / f"{method}_{mix}.mkv"
                 result = detail.run(source, target, method=method, preset="gentle",
