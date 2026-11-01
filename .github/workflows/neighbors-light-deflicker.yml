@@ -99,6 +99,59 @@ jobs:
             printf 'Commons asserts US public domain; German commercial rights require separate review.\n'
           } > "$RUNNER_TEMP/deflick_results/SOURCE.txt"
 
+      - name: Run actual archival film stabilization at 0 and 3 percent fixed zoom
+        if: github.head_ref == 'feature/pre-dart-baseline-ablation'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stable_results"
+          python scripts/stabilize_video.py \
+            --source "$RUNNER_TEMP/film/Neighbors_native_720p.mkv" \
+            --output "$RUNNER_TEMP/film/Neighbors_stabilized_0.mkv" \
+            --smoothing 12 --zoom 0 --intermediate-profile lossless \
+            2>&1 | tee "$RUNNER_TEMP/stable_results/stabilizer_0_log.txt"
+          python scripts/stabilize_video.py \
+            --source "$RUNNER_TEMP/film/Neighbors_native_720p.mkv" \
+            --output "$RUNNER_TEMP/film/Neighbors_stabilized_3.mkv" \
+            --smoothing 12 --zoom 3 --intermediate-profile lossless \
+            2>&1 | tee "$RUNNER_TEMP/stable_results/stabilizer_3_log.txt"
+          python scripts/assess_stabilization.py \
+            --source "$RUNNER_TEMP/film/Neighbors_native_720p.mkv" \
+            --variant no_zoom="$RUNNER_TEMP/film/Neighbors_stabilized_0.mkv" \
+            --variant fixed_zoom="$RUNNER_TEMP/film/Neighbors_stabilized_3.mkv" \
+            --output-dir "$RUNNER_TEMP/stable_results"
+          cat "$RUNNER_TEMP/stable_results/stabilization_qa.json"
+
+      - name: Make original versus stabilized preview without upscaling
+        if: github.head_ref == 'feature/pre-dart-baseline-ablation'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i "$RUNNER_TEMP/film/Neighbors_native_720p.mkv" \
+            -i "$RUNNER_TEMP/film/Neighbors_stabilized_0.mkv" \
+            -i "$RUNNER_TEMP/film/Neighbors_stabilized_3.mkv" \
+            -filter_complex "[0:v]scale=480:360:flags=lanczos[a];[1:v]scale=480:360:flags=lanczos[b];[2:v]scale=480:360:flags=lanczos[c];[a][b][c]hstack=inputs=3[out]" \
+            -map "[out]" -an -t 4 -c:v libx264 -preset fast -crf 19 \
+            -pix_fmt yuv420p "$RUNNER_TEMP/stable_results/Neighbors_stabilization_compare.mp4"
+          {
+            printf 'Left: original; middle: stabilization without fixed zoom; right: 3 percent fixed zoom.\n'
+            printf 'Source: https://commons.wikimedia.org/wiki/File:Neighbors_(1920).webm\n'
+            printf 'Excerpt 00:05:00 to 00:05:04, original digital 960x720 transfer, 30 fps.\n'
+            printf 'WARNING: not the documented original scan, and not necessarily a single shot.\n'
+            printf 'No claim of genuine gate-weave improvement or zero source crop without independent review.\n'
+            printf 'Source SHA256: '
+            sha256sum "$RUNNER_TEMP/film/neighbors_original_960x720.webm" | awk '{print $1}'
+          } > "$RUNNER_TEMP/stable_results/SOURCE.txt"
+
+      - name: Upload real archival stabilization comparisons and QC
+        if: github.head_ref == 'feature/pre-dart-baseline-ablation'
+        uses: actions/upload-artifact@v4
+        with:
+          name: neighbors-native-stabilization-0-vs-3-zoom
+          path: ${{ runner.temp }}/stable_results/
+          retention-days: 30
+
       - name: Upload only short preview and diagnostics, not the full movie
         uses: actions/upload-artifact@v4
         with:
