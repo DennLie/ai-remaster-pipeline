@@ -105,10 +105,10 @@ STAGES = (
     Stage(
         "detail",
         "Detail Enhancement",
-        "Optional 1x sharpening after Clean Up and Stabilization. Choose Unsharp, contrast-adaptive sharpening, or two-scale detail enhancement without changing dimensions.",
+        "Optional 1x sharpening after Clean Up and Stabilization. Choose Unsharp, CAS, two-scale detail enhancement or assumed-PSF Richardson–Lucy deblurring without changing dimensions.",
         ("intermediate/detail_enhanced",),
         (
-            ("method", "Detail method", "select:off|unsharp|cas|multiscale", "off"),
+            ("method", "Detail method", "select:off|unsharp|cas|multiscale|richardson_lucy", "off"),
             ("preset", "Method strength", "select:gentle|balanced|strong", "gentle"),
             ("mix", "Enhanced picture mix (%)", "range:0|100|1", "100"),
         ),
