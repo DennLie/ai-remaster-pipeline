@@ -39,10 +39,16 @@ function denoiseCompareInitializePaths(candidates) {
   const names = new Set(candidates.map(v => v.path));
   const source = candidates[0] ? candidates[0].path : '';
   const variants = candidates.slice(1).map(v => v.path);
-  // Avoid hidden replacements: preserve a previous explicit selection if it still exists.
-  denoiseComparePaths = denoiseComparePaths.map((path, index) =>
-    path && names.has(path) ? path : (index === 0 ? source : (variants[index - 1] || source))
-  );
+  // Preserve manual selections without repeating them when files disappear.
+  // The original is preferred in slot A and processed variants in B/C.
+  const used = new Set();
+  denoiseComparePaths = denoiseComparePaths.map((path, index) => {
+    const preferences = index === 0 ? [source, ...variants] : [...variants, source];
+    const current = path && names.has(path) && !used.has(path);
+    const selected = current ? path : (preferences.find(x => x && !used.has(x)) || source);
+    if (selected) used.add(selected);
+    return selected;
+  });
 }
 
 function drawDenoise(st, settings, expected, progress) {
