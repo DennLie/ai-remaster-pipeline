@@ -67,3 +67,39 @@ interactive browser A/B/C implementation.
 Next evaluate the effect of each noise-reduction choice on **DART's
 real masks and repaired frames**, once the separate DART research
 runner is available; do not optimize for merely smoother pictures.
+
+
+## First verified native-source results (November 1, 2026)
+
+The [GitHub Actions run #41357324909](https://github.com/DennLie/ai-remaster-pipeline/actions/runs/41357324909)
+completed **both unit-test and real digital-source experiment jobs** successfully.
+A previous identical-code experimental run #41357276847 had also
+succeeded. This is a 24-frame (0.8-second), 30fps clip at 960×720,
+from 00:05:00 of the 2016 Commons original uploaded WebM.
+
+Source WebM SHA-256:
+`029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966`.
+
+| Descriptive metric | Original | hqdn3d Gentle | NLMeans Gentle | BM3D Gentle |
+|---|---:|---:|---:|---:|
+| Mean absolute channel change from source (8-bit scale) | 0 | 0.0617958 | 0.6305905 | 0.0004066 |
+| Mean absolute spatial Laplacian | 12.2333814 | 12.2015616 | 10.1587062 | 12.2315088 |
+| Fraction newly clipped channels | 0 | 0.0002484 | 0.0019633 | 0.0000017 |
+| Pixels with any channel changed ≥ 8/255 | 0 | 0 | 0 | 0 |
+
+**Interpretation:** the preset strengths are not equivalent across
+algorithms. NLMeans has the biggest visible/quantitative effect in this
+sample. BM3D Gentle barely changes the source, raising the question
+whether that preset is meaningful for this specific film/codec.
+hqdn3d Gentle stays close to the source. A lower spatial Laplacian
+can also indicate *lost fine detail or film grain*, not just less
+noise. Do not rank restoration quality using these proxies alone.
+
+GitHub artifact `neighbors-native-denoising-four-method-comparison`
+contains a four-column synchronized MP4 preview, frame-indexed JPEG,
+JSON report and source checksum. The original film and all outputs
+remain separate; no DART model or neural denoiser was executed.
+
+**Next test:** longer excerpts with cuts, moving subjects and prominent
+grain; inspect matching frames at 100% and compare masked DART
+restoration with and without preprocessing on the RTX 4090.
