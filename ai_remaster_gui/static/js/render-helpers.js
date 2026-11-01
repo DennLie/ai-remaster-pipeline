@@ -52,7 +52,7 @@ const FIELD_DESCRIPTIONS = {
   'denoise.method':
     'Off leaves the source image unchanged. hqdn3d uses a 3D spatial/temporal filter, NLMeans uses similar image patches, and BM3D uses block matching. These are classical FFmpeg methods; trained AI models are not installed by this stage.',
   'detail.method':
-    'Off copies the original frames. Unsharp amplifies luminance edges, CAS selectively sharpens by local contrast, and Multiscale combines fine and broad unsharp filters. All are non-generative and may intensify scratches.',
+    'Off copies the original frames. Unsharp amplifies luminance edges, CAS adapts to local contrast, Multiscale combines two unsharp radii. Richardson-Lucy attempts true deconvolution with an assumed, NOT measured Gaussian point-spread function and can strongly amplify grain/scratches. No learned model is used.',
   'detail.preset':
     'Gentle, Balanced and Strong map to method-specific filter settings. More sharpness does not mean recovered original details.',
   'detail.mix':
