@@ -68,9 +68,11 @@ def temporal_defect_mask(previous: Any, current: Any, following: Any, sensitivit
     if h < 16 or w < 16:
         return zero
 
-    # Never interpolate a cut, strong fade, or scene transition.
-    if (float(np.median(cv2.absdiff(a, b))) > 35
-            or float(np.median(cv2.absdiff(b, c))) > 35):
+    # Conservative scene-cut abstention: real archival cuts can have median
+    # frame differences around 28-34, below the old threshold of 35. A missed
+    # true defect is preferable to reconstructing intact pixels across a cut.
+    if (float(np.median(cv2.absdiff(a, b))) >= 22
+            or float(np.median(cv2.absdiff(b, c))) >= 22):
         return zero
 
     before = aligned_neighbor(b, a).astype(np.float32)
