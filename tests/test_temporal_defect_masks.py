@@ -50,6 +50,15 @@ class TemporalFilmDefectTests(unittest.TestCase):
         mask = masks.temporal_defect_mask(before, current, after)
         self.assertFalse(np.any(mask))
 
+    def test_moderate_archival_cut_abstains_before_optical_flow(self):
+        before = texture()
+        after = np.clip(before.astype(np.int16) + 30, 0, 255).astype(np.uint8)
+        # A 30-level median luminance jump occurs at several hard cuts in
+        # archival footage. No motion estimation should cross this boundary.
+        with mock.patch.object(masks, 'aligned_neighbor', side_effect=AssertionError('flow across cut')):
+            result = masks.temporal_defect_mask(before, after, after)
+        self.assertFalse(np.any(result))
+
     def test_presentation_bars_and_borders_are_excluded(self):
         frame = texture()
         frame[:8] = 0
