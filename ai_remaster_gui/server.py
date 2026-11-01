@@ -2744,7 +2744,7 @@ class PipelineApp:
         return True, "Started upscale preview."
 
     def upscale_preview_clip_source(self, preview_seconds: float) -> tuple[Path, float, float, str]:
-        if not (self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
+        if not (self.denoise_enabled() or self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
             global_settings = self.settings.get("global", {})
             source_text = global_settings.get("source", "")
             source = resolve_video_source(source_text)
