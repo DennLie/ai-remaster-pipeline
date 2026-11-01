@@ -31,10 +31,12 @@ def frame_luma(frame: np.ndarray) -> tuple[float, np.ndarray]:
     valid = thumb[(thumb >= 18) & (thumb <= 242)]
     # For near-black or clipped-white frames, do not try to invent exposure.
     median = float(np.median(valid)) if valid.size >= thumb.size * 0.08 else 0.0
-    # Center contrast before comparing histograms: a global exposure flicker
-    # must NOT be mistaken for a cut solely because bins shift in luminance.
-    centered = thumb.astype(np.int16) - int(np.median(thumb))
-    hist = np.histogram(centered, bins=16, range=(-128, 128))[0].astype(np.float32)
+    # Standardize contrast before comparing histograms. A global exposure
+    # flicker changes both the mean and standard deviation of intensities,
+    # but should NOT be classified as a shot cut based on that change alone.
+    values = thumb.astype(np.float32)
+    standardized = (values - float(np.mean(values))) / max(1.0, float(np.std(values)))
+    hist = np.histogram(standardized, bins=16, range=(-4.0, 4.0))[0].astype(np.float32)
     hist /= max(1.0, float(hist.sum()))
     return median, hist
 
