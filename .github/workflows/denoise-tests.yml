@@ -9,6 +9,9 @@ on:
       - "tests/test_compare_denoising.py"
       - "docs/denoising-comparison.md"
       - "scripts/detail_enhance_video.py"
+      - "scripts/richardson_lucy_video.py"
+      - "tests/test_richardson_lucy.py"
+      - "docs/richardson-lucy-detail.md"
       - "tests/test_detail_enhancement.py"
       - "docs/detail-enhancement-implementation.md"
       - "tests/test_denoise_comparison_browser.test.cjs"
@@ -34,7 +37,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg
-          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
           ffmpeg -hide_banner -filters | grep -E 'hqdn3d|nlmeans|bm3d'
       - name: Compile all backend modules
         run: python -m compileall -q ai_remaster_gui scripts tests
@@ -45,6 +48,8 @@ jobs:
           while IFS= read -r -d '' file; do node --check "$file"; done < <(find ai_remaster_gui/static -name '*.js' -print0)
       - name: Test real video and GUI model settings
         run: python -m unittest -v tests.test_denoise_video
+      - name: Test Richardson–Lucy PSFs and controlled synthetic-blur recovery
+        run: python -m unittest -v tests.test_richardson_lucy
       - name: Test native 1x detail enhancement methods and GUI chain
         run: python -m unittest -v tests.test_detail_enhancement
       - name: Test synchronized A/B/C browser comparison contracts
@@ -67,7 +72,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg
-          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
           ffmpeg -hide_banner -filters | grep -E 'hqdn3d|nlmeans|bm3d'
 
       - name: Download original 960x720 Commons digital transfer
@@ -156,7 +161,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg
-          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
           ffmpeg -hide_banner -filters | grep -E 'unsharp|cas|blend'
       - name: Fetch verified native Neighbors transfer
         shell: bash
