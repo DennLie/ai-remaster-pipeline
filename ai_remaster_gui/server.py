@@ -1772,6 +1772,8 @@ class PipelineApp:
         output = cleanup_output_for(source, values) if source else ""
         cmd = [sys.executable, "-u", str(SCRIPTS / "cleanup_video.py"), "--source", source, "--output", output]
         cmd.extend(["--intermediate-profile", canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))])
+        if is_true(values, "light_deflicker"):
+            cmd.append("--light-deflicker")
         if is_true(values, "detect_defects"):
             cmd.append("--detect-defects")
         if is_true(values, "ai_descratch"):
@@ -1786,7 +1788,7 @@ class PipelineApp:
             cmd,
             values,
             (
-                "repair_device", "defect_sensitivity", "defect_mask_height", "scratch_sensitivity", "scratch_mask_dilate",
+                "repair_device", "deflicker_strength", "deflicker_max_correction", "defect_sensitivity", "defect_mask_height", "scratch_sensitivity", "scratch_mask_dilate",
                 "ai_descratch_height", "ai_chunk_frames", "dearchive_height", "chunk_seconds",
                 "overlap_frames", "source_fidelity", "prompt", "negative_prompt",
                 "lora_strength", "seed",
@@ -2162,12 +2164,13 @@ class PipelineApp:
                     return False, warning
         values = self.settings[stage_key]
         if stage_key == "cleanup" and not (
-            is_true(values, "detect_defects")
+            is_true(values, "light_deflicker")
+            or is_true(values, "detect_defects")
             or is_true(values, "ai_descratch")
             or is_true(values, "devignette")
             or is_true(values, "dearchive", "true")
         ):
-            return False, "Select at least one Clean Up operation: Detect Defects, AI DeScratch, DeVignette, or Dearchive."
+            return False, "Select at least one Clean Up operation: Light Deflicker, Detect Defects, AI DeScratch, DeVignette, or Dearchive."
         missing = [key for key in stage.required if not values.get(key)]
         if stage_key in {"cleanup", "stabilize", "outpaint"} and not self.settings.get("global", {}).get("source"):
             missing = ["source material on the Global tab"]
@@ -3230,6 +3233,9 @@ def cleanup_output_for(source_text: str, values: dict[str, str]) -> str:
         seed,
         source_fidelity=source_fidelity,
         ai_descratch=is_true(values, "ai_descratch"),
+        light_deflicker=is_true(values, "light_deflicker"),
+        deflicker_strength=float(values.get("deflicker_strength", "0.65") or 0.65),
+        deflicker_max_correction=float(values.get("deflicker_max_correction", "0.08") or 0.08),
         detect_defects=is_true(values, "detect_defects"),
         defect_sensitivity=float(values.get("defect_sensitivity", "0.65") or 0.65),
         defect_mask_height=values.get("defect_mask_height", "720"),
