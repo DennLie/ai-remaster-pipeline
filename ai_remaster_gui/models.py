@@ -54,6 +54,9 @@ STAGES = (
         ("intermediate/cleaned",),
         (
             ("compute", "Compute", "select:local|runpod", "local"),
+            ("detect_defects", "Detect film damage (mask only; no AI)", "checkbox", "false"),
+            ("defect_sensitivity", "Temporal defect sensitivity", "range:0|1|0.05", "0.65"),
+            ("defect_mask_height", "Defect mask resolution", "select:540|720|1080|source", "720"),
             ("ai_descratch", "AI DeScratch (ProPainter)", "checkbox", "false"),
             ("scratch_sensitivity", "Scratch detection sensitivity", "range:0|1|0.05", "0.65"),
             ("scratch_mask_dilate", "Scratch mask expansion", "range:0|12|1", "3"),
