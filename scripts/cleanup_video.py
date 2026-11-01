@@ -79,6 +79,9 @@ def cleanup_identity(source: Path, args: argparse.Namespace) -> dict[str, Any]:
         args.seed,
         source_fidelity=args.source_fidelity,
         ai_descratch=args.ai_descratch,
+        light_deflicker=args.light_deflicker,
+        deflicker_strength=args.deflicker_strength,
+        deflicker_max_correction=args.deflicker_max_correction,
         detect_defects=args.detect_defects,
         defect_sensitivity=args.defect_sensitivity,
         defect_mask_height=args.defect_mask_height,
@@ -1365,6 +1368,7 @@ def run_signature(source: Path, workflow: Path, args: argparse.Namespace, info: 
             "fps": float(info.get("fps") or 24.0), "frames": int(info.get("frames") or 0),
         },
         "ai_descratch_version": AI_DESCRATCH_VERSION if args.ai_descratch else 0,
+        "light_deflicker_version": 1 if args.light_deflicker else 0,
         "temporal_defect_mask_version": TEMPORAL_MASK_VERSION if args.detect_defects else 0,
         "devignette_version": DEVIGNETTE_VERSION if args.devignette else 0,
         "chunk_seconds": args.chunk_seconds,
@@ -1420,6 +1424,16 @@ def parse_source_fidelity(value: str) -> float:
     return fidelity
 
 
+def parse_max_deflicker_correction(value: str) -> float:
+    try:
+        limit = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not 0.0 <= limit <= 0.15:
+        raise argparse.ArgumentTypeError("must be between 0 and 0.15")
+    return limit
+
+
 def dearchive_chunk_frames(chunk_seconds: float, fps: float) -> int:
     """Round a requested duration to the nearest LTX-valid ``8n + 1`` frame count.
 
@@ -1448,6 +1462,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", required=True)
     parser.add_argument("--output")
     parser.add_argument("--workflow", default=str(DEFAULT_WORKFLOW))
+    parser.add_argument("--light-deflicker", action="store_true", help="Apply bounded, shot-aware whole-frame exposure corrections (no AI weights).")
+    parser.add_argument("--deflicker-strength", type=parse_source_fidelity, default=0.65, help="Temporal deflicker adjustment strength, 0 to 1.")
+    parser.add_argument("--deflicker-max-correction", type=parse_max_deflicker_correction, default=0.08, help="Maximum light-deflicker exposure correction per frame, between 0 and 0.15.")
     parser.add_argument("--detect-defects", action="store_true", help="Create motion-aligned film defect masks without modifying picture content (no AI models).")
     parser.add_argument("--defect-sensitivity", type=parse_source_fidelity, default=0.65, help="Conservative temporal defect-mask sensitivity, 0 to 1.")
     parser.add_argument("--defect-mask-height", choices=["540", "720", "1080", "source"], default="720")
@@ -1560,10 +1577,11 @@ def main() -> int:
     comfy_output_root = resolve_path(args.comfy_output_root) if args.comfy_output_root else comfy_dir / "output"
     if not source.is_file():
         raise FileNotFoundError(f"Clean Up source video not found: {source}")
-    if not (args.detect_defects or args.ai_descratch or args.devignette or args.dearchive):
-        raise ValueError("Select at least one Clean Up operation: Detect Defects, AI DeScratch, DeVignette, or Dearchive.")
+    if not (args.light_deflicker or args.detect_defects or args.ai_descratch or args.devignette or args.dearchive):
+        raise ValueError("Select at least one Clean Up operation: Light Deflicker, Detect Defects, AI DeScratch, DeVignette, or Dearchive.")
     print(
         "Clean Up operations: "
+        f"Light Deflicker={'on' if args.light_deflicker else 'off'}, "
         f"Detect Defects={'on' if args.detect_defects else 'off'}, "
         f"AI DeScratch={'on' if args.ai_descratch else 'off'}, "
         f"DeVignette={'on' if args.devignette else 'off'}, "
@@ -1594,7 +1612,11 @@ def main() -> int:
     ffmpeg = find_ffmpeg()
     identity_key = aid.artifact_key(cleanup_identity(source, args))
     work_dir = ROOT / ".cache" / "cleanup_chunks" / f"{safe_stem(source.name)}_{identity_key}"
-    repaired_source = prepare_devignette(ffmpeg, source, work_dir, info, args)
+    repaired_source = source
+    if args.light_deflicker:
+        from film_deflicker import prepare_light_deflicker
+        repaired_source = prepare_light_deflicker(ffmpeg, repaired_source, work_dir, info, args)
+    repaired_source = prepare_devignette(ffmpeg, repaired_source, work_dir, info, args)
     if args.detect_defects:
         prepare_temporal_defect_masks(ffmpeg, repaired_source, output, work_dir, info, args)
     scratch_mask_preview: Path | None = None
