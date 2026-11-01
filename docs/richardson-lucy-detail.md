@@ -68,3 +68,45 @@ https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restor
 
 The user may intentionally prefer a more modern, sharper remaster.
 That is an artistic choice, not a claim about the lost original.
+
+
+## Actual film comparison: 24 exact native frames (2026-11-02)
+
+[GitHub Actions test #41364274730](https://github.com/DennLie/ai-remaster-pipeline/actions/runs/41364274730) passed both
+the synthetic/GUI regression suite and the **real-source** deconvolution
+comparison job. The verified original Wikimedia digital transfer
+(SHA-256 `029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966`)
+was trimmed at source 05:00 to 24 contiguous frames at 960×720,
+30 fps. The four non-generative options used the `gentle` preset
+and 100% enhanced output mix, with the same source and lossless
+intermediates.
+
+| Descriptive native-frame metric | Original | Unsharp | CAS | Multiscale | Richardson–Lucy |
+|---|---:|---:|---:|---:|---:|
+| Mean absolute 8-bit channel delta vs original | 0 | 0.4445459 | 0.0890822 | 0.7667655 | **0.8203794** |
+| Mean absolute spatial Laplacian | 12.2333814 | 14.8964024 | 13.7182850 | 17.4294547 | 15.3074803 |
+| Newly clipped channel fraction | 0 | 0.0017411 | 0.0000043 | 0.0054038 | 0.0032763 |
+| Fraction pixels with ≥8 8-bit difference | 0 | 0 | 0.0000002 | 0.0000001 | 0.0095111 |
+
+The original/source and variants were all measured at 960×720.
+The **five-panel video preview** is downscaled to 288×216 per
+panel and H.264-compressed for viewing; its pixels must never be
+used as scientific ground truth.
+
+**Interpretation:** CAS is the least changed by average pixel
+difference in this particular short segment/preset; Richardson–Lucy
+changes the largest mean channel value, and around 0.95% of
+pixels cross the delta-of-8 threshold. Multiscale shows the
+greatest spatial high-frequency response. These are **not**
+proofs of restored original detail or proof that any algorithm
+is best. Their strengths are not perceptually matched. The
+Richardson–Lucy blur PSF is hypothesized, not measured; this
+method may emphasize defects, sharpen grain, or introduce ringing.
+Visual inspection at 100% resolution, diverse shots, fade/cut
+boundaries, temporal stability and known-blur ground-truth tests
+are still required.
+
+GitHub artifact:
+`neighbors-native-5way-deblur-real-source` with
+`Neighbors_native_detail_5way.mp4`, synchronized contact sheet,
+JSON metrics and methodology text.
