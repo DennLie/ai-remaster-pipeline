@@ -139,3 +139,44 @@ Research context: [Deflicker/Stabilization SOTA review](https://github.com/DennL
 FFmpeg upstream definitions:
 https://ffmpeg.org/ffmpeg-filters.html#deflicker
 https://ffmpeg.org/ffmpeg-filters.html#vidstabtransform
+
+
+## Verified 960×720 native-source experiment (November 1, 2026)
+
+[GitHub Actions run #41351939364](https://github.com/DennLie/ai-remaster-pipeline/actions/runs/41351939364)
+completed **both** jobs successfully (CPU regressions and an actual
+Wikimedia source comparison). The uploaded artifact
+`neighbors-native-light-deflicker-comparison` includes the three-way
+frame contact sheet and raw JSON report. The extraction was four seconds,
+**960×720, 30 fps, 120 decoded frames**, from the uploaded WebM digital
+transfer of *Neighbors* at 05:00, not a 35mm film-scanner master.
+
+With this script's **consistent central-crop median** metric, no
+annotated shot cuts excluded:
+
+| Measure | Original | ARP Deflicker | FFmpeg median Deflicker |
+|---|---:|---:|---:|
+| Mean absolute adjacent-frame median luminance | 3.28571 | 2.62185 | 2.77311 |
+| Mean absolute pixel/channel difference from original | N/A | 1.02658 | 4.48630 |
+| Newly clipped channel fraction | N/A | 0.0000000 | 0.0038279 |
+
+On this particular excerpt, ARP lowers the temporal luminance proxy by
+about **20.2%** versus original, while FFmpeg's baseline lowers it by
+about **15.6%**. ARP's measured per-channel difference from the
+original is considerably smaller. This is an encouraging
+**limited-scope diagnostic**, but *not a ground-truth quality ranking*:
+a lower variation can suppress intentional exposure changes, and
+the original may already contain both artistic lighting and
+post-scan artifacts.
+
+The previous PR #6 report's proxy (`2.61345 -> 1.84874`) uses a
+**different robust-luma estimation and crop policy**, so do **not**
+compare its numerical levels directly with this benchmark. The new
+three-way comparison uses one measurement function consistently.
+
+**Next acceptance gate:** visually inspect the first-frame sheet
+and full paired clip at several film shots; mark cuts and fades, and
+annotate areas with actually unwanted flicker before deciding whether
+to ship any deflicker as default. The stabilization run used synthetic
+known jitter; no real-archive residual gate-weave/valid-area
+measurement has been completed yet.
