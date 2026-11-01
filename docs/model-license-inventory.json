@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-11-01",
+  "policy": "no model is allowed solely based on a Hugging Face license badge; review exact blobs, checkpoint provenance and all dependencies",
+  "states": {
+    "restricted": "known restrictions incompatible with unconditional commercial use",
+    "incomplete": "incomplete evidence for end-to-end redistribution/SaaS",
+    "external_terms": "external service rather than unrestricted open-source license"
+  },
+  "entries": [
+    {
+      "id": "cleanup.ai_descratch.true",
+      "stage": "cleanup",
+      "field": "ai_descratch",
+      "value": "true",
+      "status": "restricted",
+      "reason": "ProPainter (NTU S-Lab License 1.0) prohibits commercial use",
+      "evidence": [
+        "https://github.com/sczhou/ProPainter"
+      ]
+    },
+    {
+      "id": "cleanup.dearchive.true",
+      "stage": "cleanup",
+      "field": "dearchive",
+      "value": "true",
+      "status": "restricted",
+      "reason": "LTX-2.3 model/LoRA subject to community license, revenue threshold and use restrictions",
+      "evidence": [
+        "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE"
+      ]
+    },
+    {
+      "id": "outpaint.outpaint_model.oumoumad",
+      "stage": "outpaint",
+      "field": "outpaint_model",
+      "value": "oumoumad",
+      "status": "restricted",
+      "reason": "LTX 2.3 with third-party outpaint LoRA; not unrestricted",
+      "evidence": [
+        "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE",
+        "https://huggingface.co/oumoumad/LTX-2.3-22b-IC-LoRA-Outpaint"
+      ]
+    },
+    {
+      "id": "outpaint.outpaint_model.official",
+      "stage": "outpaint",
+      "field": "outpaint_model",
+      "value": "official",
+      "status": "restricted",
+      "reason": "LTX 2.3 official in/outpaint LoRA inherits conditional LTX license",
+      "evidence": [
+        "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE"
+      ]
+    },
+    {
+      "id": "outpaint.outpaint_model.ltx25",
+      "stage": "outpaint",
+      "field": "outpaint_model",
+      "value": "ltx25",
+      "status": "restricted",
+      "reason": "LTX 2.5 bundle/compatibility with LTX 2.3 LoRA requires separate contractual review",
+      "evidence": [
+        "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE",
+        "https://huggingface.co/Lightricks/LTX-2.5"
+      ]
+    },
+    {
+      "id": "outpaint.outpaint_model.wanvace",
+      "stage": "outpaint",
+      "field": "outpaint_model",
+      "value": "wanvace",
+      "status": "incomplete",
+      "reason": "Wan VACE base and QuantStack GGUF Apache-2.0; Kijai-hosted step-distill LoRA, exact encoders and node set lack complete provenance audit",
+      "evidence": [
+        "https://huggingface.co/Wan-AI/Wan2.1-VACE-14B",
+        "https://huggingface.co/QuantStack/Wan2.1_14B_VACE-GGUF",
+        "https://huggingface.co/Kijai/WanVideo_comfy/tree/main/Lightx2v"
+      ]
+    },
+    {
+      "id": "outpaint.outpaint_model.h3",
+      "stage": "outpaint",
+      "field": "outpaint_model",
+      "value": "h3",
+      "status": "restricted",
+      "reason": "MiniMax H3 territorial/commercial conditions; not unrestricted",
+      "evidence": [
+        "https://huggingface.co/MiniMaxAI",
+        "https://github.com/DennLie/ai-remaster-pipeline/blob/main/docs/user-guide.md"
+      ]
+    },
+    {
+      "id": "references.method.qwen",
+      "stage": "references",
+      "field": "method",
+      "value": "qwen",
+      "status": "incomplete",
+      "reason": "Qwen 2511, Unsloth GGUF and lightx2v Lightning LoRA list Apache-2.0; exact workflow artifacts, notice chain and node dependencies require pins",
+      "evidence": [
+        "https://huggingface.co/Qwen/Qwen-Image-Edit-2511",
+        "https://huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF",
+        "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning"
+      ]
+    },
+    {
+      "id": "references.method.qwen21",
+      "stage": "references",
+      "field": "method",
+      "value": "qwen21",
+      "status": "restricted",
+      "reason": "Viggle-derived Qwen-Image-2.1 carries Qwen Research noncommercial license",
+      "evidence": [
+        "https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo/blob/main/README.md"
+      ]
+    },
+    {
+      "id": "references.method.openai",
+      "stage": "references",
+      "field": "method",
+      "value": "openai",
+      "status": "external_terms",
+      "reason": "Cloud service contract; cannot treat as unrestricted open-source component",
+      "evidence": [
+        "https://openai.com/policies/terms-of-use/"
+      ]
+    },
+    {
+      "id": "colour.method.deepexemplar",
+      "stage": "colour",
+      "field": "method",
+      "value": "deepexemplar",
+      "status": "incomplete",
+      "reason": "MIT source code; pretrained weights and full ComfyUI dependency chain not yet verified",
+      "evidence": [
+        "https://github.com/zhangmozhe/Deep-Exemplar-based-Video-Colorization/blob/main/LICENSE"
+      ]
+    },
+    {
+      "id": "colour.method.colormnet",
+      "stage": "colour",
+      "field": "method",
+      "value": "colormnet",
+      "status": "restricted",
+      "reason": "CC BY-NC-SA noncommercial code/license",
+      "evidence": [
+        "https://github.com/yyang181/colormnet/blob/main/LICENSES"
+      ]
+    },
+    {
+      "id": "colour.method.cmnet2",
+      "stage": "colour",
+      "field": "method",
+      "value": "cmnet2",
+      "status": "restricted",
+      "reason": "Extends ColorMNet, whose NC restrictions remain relevant; no independent complete grant verified",
+      "evidence": [
+        "https://github.com/dan64/cmnet2",
+        "https://github.com/yyang181/colormnet/blob/main/LICENSES"
+      ]
+    },
+    {
+      "id": "colour.method.ltx",
+      "stage": "colour",
+      "field": "method",
+      "value": "ltx",
+      "status": "restricted",
+      "reason": "LTX 2.3 Colorizer IC-LoRA community model restrictions",
+      "evidence": [
+        "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE"
+      ]
+    },
+    {
+      "id": "colour.method.openai",
+      "stage": "colour",
+      "field": "method",
+      "value": "openai",
+      "status": "external_terms",
+      "reason": "Commercial API governed by service terms, not an OSS weight grant",
+      "evidence": [
+        "https://openai.com/policies/terms-of-use/"
+      ]
+    },
+    {
+      "id": "colour.method.both",
+      "stage": "colour",
+      "field": "method",
+      "value": "both",
+      "status": "restricted",
+      "reason": "This option runs ColorMNet alongside Deep Exemplar; includes noncommercial code",
+      "evidence": [
+        "https://github.com/yyang181/colormnet/blob/main/LICENSES"
+      ]
+    },
+    {
+      "id": "audio.create_music.true",
+      "stage": "audio",
+      "field": "create_music",
+      "value": "true",
+      "status": "restricted",
+      "reason": "Stable Audio Open community license requires separate commercial/use review",
+      "evidence": [
+        "https://huggingface.co/stabilityai/stable-audio-open-1.0"
+      ]
+    },
+    {
+      "id": "audio.create_sfx.true",
+      "stage": "audio",
+      "field": "create_sfx",
+      "value": "true",
+      "status": "incomplete",
+      "reason": "MMAudio weights and full dependent model components require provenance review",
+      "evidence": [
+        "https://huggingface.co/Kijai/MMAudio_safetensors"
+      ]
+    },
+    {
+      "id": "upscale.method.flashvsr",
+      "stage": "upscale",
+      "field": "method",
+      "value": "flashvsr",
+      "status": "incomplete",
+      "reason": "Checkpoint, custom node, training derivatives and dependency rights unverified for exact ARP variant",
+      "evidence": [
+        "https://github.com/OpenImagingLab/FlashVSR"
+      ]
+    },
+    {
+      "id": "upscale.method.seedvr2",
+      "stage": "upscale",
+      "field": "method",
+      "value": "seedvr2",
+      "status": "incomplete",
+      "reason": "Checkpoint and modified quantized model rights unverified for exact ARP variant",
+      "evidence": [
+        "https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler"
+      ]
+    },
+    {
+      "id": "upscale.method.ltx25",
+      "stage": "upscale",
+      "field": "method",
+      "value": "ltx25",
+      "status": "restricted",
+      "reason": "LTX 2.5 based generative upscaler; conditional model rights",
+      "evidence": [
+        "https://huggingface.co/Lightricks/LTX-2.5",
+        "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE"
+      ]
+    },
+    {
+      "id": "upscale.method.ltx25cq",
+      "stage": "upscale",
+      "field": "method",
+      "value": "ltx25cq",
+      "status": "restricted",
+      "reason": "LTX 2.5 enhancer/LoRA with conditional base model rights",
+      "evidence": [
+        "https://huggingface.co/Lightricks/LTX-2.5",
+        "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE"
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "id": "dart",
+      "status": "blocked_provenance",
+      "summary": "MIT project contains adapted RTN sources from an upstream repository with no license file; cannot presume a commercial grant",
+      "evidence": [
+        "https://github.com/TytanMikJas/DART-Degradation-Aware-Recurrent-Transformer/blob/main/THIRD_PARTY_LICENSES.md"
+      ]
+    },
+    {
+      "id": "ddcolor",
+      "status": "promising_pending_full_stack",
+      "summary": "DDColor source and published weights tagged Apache-2.0; future ARP integration must pin checkpoint and dependencies",
+      "evidence": [
+        "https://github.com/piddnad/DDColor",
+        "https://huggingface.co/piddnad/DDColor-models"
+      ]
+    },
+    {
+      "id": "lvvcp",
+      "status": "promising_pending_full_stack",
+      "summary": "LVVCP own code MIT; project explicitly asks users to verify RAFT/VGG/ResNet third-party licenses",
+      "evidence": [
+        "https://github.com/VLOGroup/LVVCP"
+      ]
+    }
+  ]
+}
