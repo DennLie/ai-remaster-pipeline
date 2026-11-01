@@ -1814,6 +1814,7 @@ async function saveGlobalPipelineOptions() {
   await postJson('/api/settings', {
     stage: 'global',
     values: {
+      denoise: String(document.getElementById('globalDenoise').checked),
       cleanup: String(document.getElementById('globalCleanup').checked),
       stabilize: String(document.getElementById('globalStabilize').checked),
       expand_outpaint: String(document.getElementById('globalExpandOutpaint').checked),
