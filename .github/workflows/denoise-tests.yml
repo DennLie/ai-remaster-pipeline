@@ -8,6 +8,9 @@ on:
       - "scripts/compare_denoising.py"
       - "tests/test_compare_denoising.py"
       - "docs/denoising-comparison.md"
+      - "scripts/detail_enhance_video.py"
+      - "tests/test_detail_enhancement.py"
+      - "docs/detail-enhancement-implementation.md"
       - "tests/test_denoise_comparison_browser.test.cjs"
       - "ai_remaster_gui/**"
       - ".github/workflows/denoise-tests.yml"
@@ -42,6 +45,8 @@ jobs:
           while IFS= read -r -d '' file; do node --check "$file"; done < <(find ai_remaster_gui/static -name '*.js' -print0)
       - name: Test real video and GUI model settings
         run: python -m unittest -v tests.test_denoise_video
+      - name: Test native 1x detail enhancement methods and GUI chain
+        run: python -m unittest -v tests.test_detail_enhancement
       - name: Test synchronized A/B/C browser comparison contracts
         run: node --test tests/test_denoise_comparison_browser.test.cjs
       - name: Test frame-aligned denoising diagnostics
@@ -136,4 +141,77 @@ jobs:
         with:
           name: neighbors-native-denoising-four-method-comparison
           path: ${{ runner.temp }}/denoise_results/
+          retention-days: 30
+
+  neighbors-native-detail:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feature/native-detail-enhancement'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install FFmpeg for genuine film test
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml
+          ffmpeg -hide_banner -filters | grep -E 'unsharp|cas|blend'
+      - name: Fetch verified native Neighbors transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/film" "$RUNNER_TEMP/detail_results"
+          curl -fL --retry 3 --retry-all-errors --retry-delay 5 --connect-timeout 40 --max-time 660 \
+            -A "ARP archival-detail-compare (https://github.com/DennLie/ai-remaster-pipeline)" \
+            "https://upload.wikimedia.org/wikipedia/commons/2/27/Neighbors_%281920%29.webm" \
+            -o "$RUNNER_TEMP/film/Neighbors_original.webm"
+          printf '%s  %s\\n' "029c419a9323158ff3f1dcdaae04a2d696c3ba030a750460c01e68733f671966" "$RUNNER_TEMP/film/Neighbors_original.webm" | sha256sum --check
+          ffmpeg -hide_banner -loglevel error -y -ss 00:05:00 \
+            -i "$RUNNER_TEMP/film/Neighbors_original.webm" \
+            -frames:v 36 -map 0:v:0 -an -c:v ffv1 \
+            "$RUNNER_TEMP/film/neighbors_native.mkv"
+          test "$(ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of csv=p=0 "$RUNNER_TEMP/film/neighbors_native.mkv")" = 36
+      - name: Render equal-sized source and 1x detail candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          for method in unsharp cas multiscale; do
+            python scripts/detail_enhance_video.py \
+              --source "$RUNNER_TEMP/film/neighbors_native.mkv" \
+              --output "$RUNNER_TEMP/film/${method}_gentle.mkv" \
+              --method "$method" --preset gentle --mix 100 \
+              --intermediate-profile lossless
+          done
+          python scripts/compare_denoising.py \
+            --source "$RUNNER_TEMP/film/neighbors_native.mkv" \
+            --variant "unsharp=$RUNNER_TEMP/film/unsharp_gentle.mkv" \
+            --variant "cas=$RUNNER_TEMP/film/cas_gentle.mkv" \
+            --variant "multiscale=$RUNNER_TEMP/film/multiscale_gentle.mkv" \
+            --output-dir "$RUNNER_TEMP/detail_results"
+          cat "$RUNNER_TEMP/detail_results/denoising_comparison.json"
+      - name: Export actual same-frame four-way visual comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y \
+            -i "$RUNNER_TEMP/film/neighbors_native.mkv" \
+            -i "$RUNNER_TEMP/film/unsharp_gentle.mkv" \
+            -i "$RUNNER_TEMP/film/cas_gentle.mkv" \
+            -i "$RUNNER_TEMP/film/multiscale_gentle.mkv" \
+            -filter_complex "[0:v]scale=320:240[a];[1:v]scale=320:240[b];[2:v]scale=320:240[c];[3:v]scale=320:240[d];[a][b][c][d]hstack=inputs=4[out]" \
+            -map "[out]" -an -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p \
+            "$RUNNER_TEMP/detail_results/Neighbors_detail_4way.mp4"
+          {
+            echo "Original / Unsharp / CAS / Multiscale, gentle preset, each 1x native 960x720 before preview resize."
+            echo "36 frames, 30fps, Commons transfer from 00:05:00, not a verified original scan."
+            echo "A pixel difference is not evidence of restored detail; sharpening can amplify real grain and film damage."
+            echo "This research test uses no trained models or generative enhancement."
+            echo "US public-domain listing does not clear all German/EU rights or soundtrack rights."
+          } > "$RUNNER_TEMP/detail_results/README.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neighbors-native-detail-four-method-comparison
+          path: ${{ runner.temp }}/detail_results/
           retention-days: 30
