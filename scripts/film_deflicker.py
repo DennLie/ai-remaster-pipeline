@@ -246,3 +246,68 @@ def prepare_light_deflicker(ffmpeg: str, source: Path, work_dir: Path, info: dic
     replace_with_retry(partial, output, "Light Deflicker")
     write_signature(output, signature)
     return output
+
+
+def prepare_ffmpeg_median_deflicker(
+    ffmpeg: str, source: Path, work_dir: Path, info: dict[str, Any], args: Any
+) -> Path:
+    """Build an independently cached classical median deflicker comparison.
+
+    Unlike ARP's shot-aware gain model this is FFmpeg's temporal median filter.
+    It can alter intentional fades and scene transitions. No gain report is
+    fabricated because the filter does not apply one global per-frame gain.
+    """
+    from common import file_fingerprint, replace_with_retry, resumable_output, root_relative, write_signature
+    from intermediate_video import codec_args, container_args
+
+    window = int(args.deflicker_window)
+    if window not in (3, 5, 7, 9):
+        raise ValueError("FFmpeg Median window must be 3, 5, 7 or 9")
+    width, height = int(info["width"]), int(info["height"])
+    fps = float(info.get("fps") or 24.0)
+    signature = {
+        "tool": "film_deflicker.py/ffmpeg_median",
+        "version": 1,
+        "source": root_relative(source),
+        "source_fingerprint": file_fingerprint(source),
+        "geometry": [width, height],
+        "fps": fps,
+        "window": window,
+        "mode": "median",
+        "intermediate_profile": args.intermediate_profile,
+    }
+    key = hashlib.sha256(json.dumps(signature, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    output = work_dir / f"ffmpeg_median_{window}_{key}.mkv"
+    if not args.force and resumable_output(
+        output, signature, width=width, height=height, video_like=source
+    ):
+        print(f"Reuse FFmpeg Median Deflicker: {output}", flush=True)
+        return output
+    work_dir.mkdir(parents=True, exist_ok=True)
+    partial = output.with_suffix(".partial.mkv")
+    partial.unlink(missing_ok=True)
+    command = [
+        ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
+        "-i", str(source),
+        "-vf", f"deflicker=size={window}:mode=median",
+        "-an", "-r", f"{fps:.8f}",
+        *codec_args(args.intermediate_profile, fast=True),
+        *container_args(str(partial), args.intermediate_profile),
+        str(partial),
+    ]
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0 or not partial.is_file():
+            error = result.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(error or f"FFmpeg Median failed with exit code {result.returncode}")
+        replace_with_retry(partial, output, "FFmpeg Median Deflicker")
+        write_signature(output, signature)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    print(
+        f"FFmpeg Median Deflicker: {window}-frame temporal median; "
+        "not shot-aware, no global-gain analysis. Inspect cuts and fades.",
+        flush=True,
+    )
+    return output
