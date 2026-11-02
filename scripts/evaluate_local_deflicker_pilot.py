@@ -87,16 +87,17 @@ def mean_abs_error(reference: list[np.ndarray], images: list[np.ndarray],
 
 def evaluate(clean: list[np.ndarray], *, radius: int = 2, sigma: float = 18,
              strength: float = 0.6, cap: float = 0.08,
-             cut_frames: tuple[int, ...] = ()) -> dict:
+             cut_frames: tuple[int, ...] = (),
+             temporal_guard: str = "off") -> dict:
     damaged, _ = synthetic_exposure_damage(clean)
     recovered, run_report = local_deflicker_frames(
         damaged, radius=radius, sigma=sigma, strength=strength,
-        cap=cap, cut_frames=cut_frames
+        cap=cap, cut_frames=cut_frames, temporal_guard=temporal_guard
     )
     # Crucial negative control: does the same algorithm modify unaltered film?
     untouched_output, negative_report = local_deflicker_frames(
         clean, radius=radius, sigma=sigma, strength=strength,
-        cap=cap, cut_frames=cut_frames
+        cap=cap, cut_frames=cut_frames, temporal_guard=temporal_guard
     )
     width = clean[0].shape[1]
     inside = (0, max(1, width // 3))
@@ -105,6 +106,7 @@ def evaluate(clean: list[np.ndarray], *, radius: int = 2, sigma: float = 18,
     restored = mean_abs_error(clean, recovered, *inside)
     return {
         "method": "localized_blurred_luma_temporal_neighbor_mean_v1",
+        "temporal_guard": temporal_guard,
         "status": "research_only",
         "reference": "original digital frames before synthetic damage injection; NOT original film ground truth",
         "damage": "alternating 18% localized digital gain on left region with feathering",
@@ -135,15 +137,54 @@ def main() -> int:
     parser.add_argument("--strength", type=float, default=0.6)
     parser.add_argument("--cap", type=float, default=0.08)
     parser.add_argument("--cut-frame", type=int, action="append", default=[])
+    parser.add_argument("--compare-guards", action="store_true",
+                        help="Compare original research method vs experimental oscillation guard.")
     args = parser.parse_args()
     source = Path(args.source).resolve(strict=True)
     report_path = Path(args.report).resolve()
     if source == report_path or report_path.exists() or report_path.suffix.lower() != ".json":
         raise FileExistsError("Choose a new JSON report file; input and existing files are protected.")
     frames, fps = load_video(source, args.max_frames)
-    result = evaluate(frames, radius=args.radius, sigma=args.sigma,
-                      strength=args.strength, cap=args.cap,
-                      cut_frames=tuple(args.cut_frame))
+    base_settings = dict(
+        radius=args.radius, sigma=args.sigma, strength=args.strength,
+        cap=args.cap, cut_frames=tuple(args.cut_frame)
+    )
+    result = evaluate(frames, **base_settings, temporal_guard="off")
+    if args.compare_guards:
+        guarded = evaluate(frames, **base_settings, temporal_guard="oscillation")
+        result["guard_comparison"] = {
+            "baseline_temporal_guard": "off",
+            "candidate_temporal_guard": "oscillation",
+            "baseline": {
+                k: result[k] for k in (
+                    "damaged_inside_mae", "corrected_inside_mae",
+                    "inside_mae_improvement", "corrected_outside_mae",
+                    "untouched_original_modified_mae", "untouched_outside_modified_mae"
+                )
+            },
+            "oscillation_guard": {
+                k: guarded[k] for k in (
+                    "damaged_inside_mae", "corrected_inside_mae",
+                    "inside_mae_improvement", "corrected_outside_mae",
+                    "untouched_original_modified_mae", "untouched_outside_modified_mae"
+                )
+            },
+            "tradeoff": {
+                "change_in_inside_improvement": round(
+                    guarded["inside_mae_improvement"] - result["inside_mae_improvement"], 5
+                ),
+                "change_in_untouched_original_mae": round(
+                    guarded["untouched_original_modified_mae"] -
+                    result["untouched_original_modified_mae"], 5
+                ),
+                "change_in_untouched_outside_mae": round(
+                    guarded["untouched_outside_modified_mae"] -
+                    result["untouched_outside_modified_mae"], 5
+                ),
+            },
+            "claim": "Digital-reference test only, no historical-negative ground truth.",
+            "release_ready": False
+        }
     result["fps"] = fps
     result["source"] = str(source)
     result["source_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
