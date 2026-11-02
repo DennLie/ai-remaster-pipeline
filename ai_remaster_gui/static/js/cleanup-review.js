@@ -240,8 +240,11 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
 function setupCleanupExactWipe(player) {
   if (!player || player.dataset.cleanupExactWipeReady) return;
   player.dataset.cleanupExactWipeReady = 'true';
-  const card = document.createElement('section');
-  card.className = 'cleanup-exact-wipe';
+  // Keep the exact Wipe available on demand without forcing another tall panel.
+  const fold = document.createElement('details');
+  fold.className = 'cleanup-wipe-fold';
+  fold.innerHTML = '<summary><strong>Wischvergleich</strong><span>Exakter Vorher/Nachher-Schieber · bei Bedarf öffnen</span></summary><section class="cleanup-exact-wipe"></section>';
+  const card = fold.querySelector('.cleanup-exact-wipe');
   card.setAttribute('aria-label', 'Zusätzlicher Vorher-Nachher-Wischvergleich');
   card.innerHTML = `
     <div class="cleanup-exact-wipe-heading">
@@ -267,10 +270,13 @@ function setupCleanupExactWipe(player) {
       Die beiden oberen Einzelbilder bleiben weiterhin nebeneinander sichtbar.</p>`;
   const inspector = player.parentElement.querySelector('.frame-inspector[data-fi-stage="cleanup"]');
   if (!inspector) return;
-  inspector.appendChild(card);
-  // Visibility follows still inspection without interfering with video playback.
+  inspector.appendChild(fold);
+  // Wipe visibility is independent from video controls. Opening the details
+  // never switches playback mode or changes the selected frame.
   const updateWipeVisibility = () => {
-    card.classList.toggle('fi-visible', player.classList.contains('frame-inspector-active'));
+    const isInspecting = player.classList.contains('frame-inspector-active');
+    fold.hidden = !isInspecting;
+    card.classList.toggle('fi-visible', isInspecting);
   };
   inspector.querySelector('[data-fi-open]')?.addEventListener('click', () => setTimeout(updateWipeVisibility, 0));
   inspector.querySelector('[data-fi-close]')?.addEventListener('click', () => setTimeout(updateWipeVisibility, 0));
@@ -335,5 +341,6 @@ function setupCleanupExactWipe(player) {
   document.addEventListener('arp-frame-inspected', onFrame);
   const zoom = inspector.querySelector('[data-fi-zoom]');
   zoom?.addEventListener('change', update);
+  updateWipeVisibility();
   update();
 }
