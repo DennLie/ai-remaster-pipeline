@@ -13,6 +13,8 @@ import argparse
 import hashlib
 import json
 import math
+import sys
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -161,6 +163,48 @@ def evaluate(*, manifest: Path, candidate: Path | None,
     return report
 
 
+def run_arp(*, manifest: Path, output_dir: Path,
+            smoothing: int = 5, zoom: float = 1.0,
+            ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe") -> dict:
+    """Optional full ARP/libvidstab single-shot CPU test then evaluate it.
+
+    No silent skipping; requires FFmpeg with vidstabdetect/vidstabtransform.
+    Zoom and crop may bias reference metrics: report ROI separately.
+    """
+    manifest, output_dir = manifest.resolve(), output_dir.resolve()
+    m = json.loads(manifest.read_text())
+    if m.get("experiment") != "controlled_translation_jitter":
+        raise ValueError("Only explicit known synthetic jitter experiments supported")
+    jitter = manifest.parent / "jitter.mkv"
+    if not jitter.is_file() or ev.digest(jitter) != m["jitter_sha256"]:
+        raise ValueError("Synthetic jitter input SHA mismatch")
+    if output_dir.exists():
+        raise FileExistsError("Refusing to overwrite stabilization experiment")
+    if not 1 <= smoothing <= 100 or not math.isfinite(zoom) or not 0 <= zoom <= 10:
+        raise ValueError("Unsafe smoothing/zoom")
+    filters = subprocess.run([ffmpeg, "-hide_banner", "-filters"],
+                             check=True, capture_output=True, text=True).stdout
+    if "vidstabdetect" not in filters or "vidstabtransform" not in filters:
+        raise RuntimeError("FFmpeg is missing required libvidstab filters")
+    output_dir.mkdir(parents=True, exist_ok=False)
+    stabilized = output_dir / "stabilized.mkv"
+    args = [sys.executable, str(Path(__file__).resolve().parent / "stabilize_video.py"),
+            "--source", str(jitter), "--output", str(stabilized),
+            "--single-shot", "--smoothing", str(smoothing), "--zoom", f"{zoom:g}",
+            "--intermediate-profile", "lossless", "--ffmpeg", ffmpeg]
+    subprocess.run(args, check=True, timeout=240, capture_output=True, text=True)
+    scores = evaluate(manifest=manifest, candidate=stabilized,
+                      output_dir=output_dir / "evaluation", ffmpeg=ffmpeg, ffprobe=ffprobe)
+    record = {
+        "candidate": str(stabilized), "candidate_sha256": ev.digest(stabilized),
+        "jitter_sha256": m["jitter_sha256"],
+        "command": args, "evaluation": scores["metrics"],
+        "warning": "Actual ARP libvidstab result with synthetic jitter. No general guarantee of quality; source content motion and zoom can bias measured reference offsets.",
+    }
+    (output_dir / "run.json").write_text(json.dumps(record, indent=2) + "\n")
+    return record
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="action", required=True)
@@ -176,7 +220,12 @@ def main() -> None:
     b.add_argument("--candidate", type=Path)
     b.add_argument("--output-dir", type=Path, required=True)
     b.add_argument("--allow-unverified", action="store_true")
-    for subparser in (a, b):
+    c = sub.add_parser("run-arp", help="Actually run ARP's libvidstab and evaluate result")
+    c.add_argument("--manifest", type=Path, required=True)
+    c.add_argument("--output-dir", type=Path, required=True)
+    c.add_argument("--smoothing", type=int, default=5)
+    c.add_argument("--zoom", type=float, default=1.0)
+    for subparser in (a, b, c):
         subparser.add_argument("--ffmpeg", default="ffmpeg")
         subparser.add_argument("--ffprobe", default="ffprobe")
     args = p.parse_args()
@@ -185,10 +234,14 @@ def main() -> None:
                          film=args.film, scene=args.scene,
                          preset=args.preset, seed=args.seed,
                          ffmpeg=ev.find_binary(args.ffmpeg), ffprobe=ev.find_binary(args.ffprobe))
-    else:
+    elif args.action == "evaluate":
         result = evaluate(manifest=args.manifest, candidate=args.candidate,
                           output_dir=args.output_dir, allow_unverified=args.allow_unverified,
                           ffmpeg=ev.find_binary(args.ffmpeg), ffprobe=ev.find_binary(args.ffprobe))
+    else:
+        result = run_arp(manifest=args.manifest, output_dir=args.output_dir,
+                         smoothing=args.smoothing, zoom=args.zoom,
+                         ffmpeg=ev.find_binary(args.ffmpeg), ffprobe=ev.find_binary(args.ffprobe))
     print(json.dumps(result, indent=2))
 
 
