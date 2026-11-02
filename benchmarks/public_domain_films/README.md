@@ -17,8 +17,8 @@ Das bisherige *Neighbors*-Testmaterial bleibt als achte, gesondert dokumentierte
 | Film (Jahr) | Testszenen / Potenzial | Historischer Schwerpunkt | Quellenqualität / Rechtehinweis |
 |---|---|---|---|
 | [L'Arrivée d'un train en gare de La Ciotat (1896)](https://commons.wikimedia.org/wiki/File:L%27Arriv%C3%A9e_d%27un_train_en_gare_de_La_Ciotat_Completo.webm) | Annähernde Kamera-Bewegung, Menschen, Rauch | Sehr frühe dokumentarische Aufnahme | 540×360 YouTube-Digitalisierung |
-| [The Great Train Robbery (1903)](https://commons.wikimedia.org/wiki/File:The_Great_Train_Robbery_%281903%29.webm) | Bewegungs-/Kontrasttests | Mehrere Darsteller und Szenenwechsel | Library-of-Congress-Ausgangsmaterial; Commons-360p-Proxy |
-| [Le Voyage dans la Lune (1902)](https://commons.wikimedia.org/wiki/File:Le_Voyage_dans_la_Lune_%281902%29.webm) | Kulissen, feine Strukturen, Trickeffekte | Méliès, frühe visuelle Effekte | Commons-360p-Transcode, nicht der originale AV1-Upload |
+| [The Great Train Robbery (1903)](https://commons.wikimedia.org/wiki/File:The_Great_Train_Robbery_%281903%29.webm) | Bewegungs-/Kontrasttests | Mehrere Darsteller und Szenenwechsel | Library-of-Congress-Ausgangsmaterial; Commons-360p/480p-Proxy |
+| [Le Voyage dans la Lune (1902)](https://commons.wikimedia.org/wiki/File:Le_Voyage_dans_la_Lune_%281902%29.webm) | Kulissen, feine Strukturen, Trickeffekte | Méliès, frühe visuelle Effekte | Commons-360p/480p-Transcode, nicht der originale AV1-Upload |
 | [Das Cabinet des Dr. Caligari (1920)](https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr._Caligari.webm) | Kanten, schräge Bühnenarchitektur, Gesichter | Deutscher Expressionismus | Frühe Archive.org-Kopie; mögliches ungewöhnliches Bildformat |
 | [Gertie the Dinosaur (1914)](https://commons.wikimedia.org/wiki/File:Winsor_McCay_%281914%29Gertie_the_Dinosaur.webm) | Handgezeichnete Linien, Weißflächen, Flackern | Zeichentrick | 2004-DVD-Transfer! **Zusätzliche Rechteprüfung** |
 | [A Corner in Wheat (1909)](https://commons.wikimedia.org/wiki/File:Corner_in_Wheat.webm) | Innen-/Außenräume, Stoff, Flächen und Natur | Frühe US-Dramaturgie | 480×360 YouTube-Kopie |
@@ -57,7 +57,7 @@ python scripts/prepare_public_domain_films.py \
   --output-dir benchmarks/public_domain_films/generated/lumiere_train
 ```
 
-Die Anwendung ruft die Wikimedia-Commons-Videoinformationen ab, prüft die ermittelte Original-SHA-1, lädt nur den explizit gewählten Original-Download oder Commons-VP9-360p-Transcode, berechnet einen **lokalen SHA-256**, erstellt anschließend die ausgewählten Clips und löscht den heruntergeladenen vollständigen Film aus dem temporären Arbeitsverzeichnis. Bei nicht gefundenen Transcodes und nicht verfügbaren Medien wird abgebrochen, statt einen anderen Film oder unbemerkt den möglicherweise gigabytegroßen Master zu nehmen.
+Die Anwendung ruft die Wikimedia-Commons-Videoinformationen ab, prüft die ermittelte Original-SHA-1, lädt nur den explizit gewählten Original-Download oder Commons-VP9-360p/480p-Transcode, berechnet einen **lokalen SHA-256**, erstellt anschließend die ausgewählten Clips und löscht den heruntergeladenen vollständigen Film aus dem temporären Arbeitsverzeichnis. Bei nicht gefundenen Transcodes und nicht verfügbaren Medien wird abgebrochen, statt einen anderen Film oder unbemerkt den möglicherweise gigabytegroßen Master zu nehmen.
 
 ```bash
 # Nur Commons-Metadaten überprüfen, ohne Mediendownload
@@ -80,4 +80,4 @@ Voraussetzungen: FFmpeg/FFprobe und eine Python-Umgebung mit `numpy`, `opencv-py
 - Commons „gemeinfrei“ ≠ automatisch freie Rechte an **jeder** restaurierten Kopie, neuer Musik oder nachträglich hinzugefügten Anteilen. Besonders *Gertie* (DVD-Ausgabe 2004) und *Nosferatu* (Restaurierung 2006) müssen vor kommerzieller Weitergabe gesondert geprüft werden.
 - Keine künstliche Verbesserung als „wiederentdeckte echte historische Details“ interpretieren; klassische Schärfung kann Kratzer und Filmkorn verstärken.
 - GitHub-Artefakte sind **zeitlich befristet**; lokal gespeicherte Clips/Manifestdaten bleiben reproduzierbar über das Skript und überprüfbare Dateihashes.
-- Bei Wikimedia-Commons-360p-Proxys ist die tatsächliche Transferqualität **niedriger** als die des hochaufgelösten Masters. Für finale Qualitätsentscheidung zunächst einen zusätzlichen Benchmark mit geprüften Master-Kopien durchführen.
+- Bei Wikimedia-Commons-360p/480p-Proxys ist die tatsächliche Transferqualität **niedriger** als die des hochaufgelösten Masters. Für finale Qualitätsentscheidung zunächst einen zusätzlichen Benchmark mit geprüften Master-Kopien durchführen.
