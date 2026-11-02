@@ -66,8 +66,8 @@ STAGES = (
         (
             ("compute", "Compute", "select:local|runpod", "local"),
             ("light_deflicker", "Light Deflicker (no AI)", "checkbox", "false"),
-            ("deflicker_method", "Deflicker algorithm", "select:arp|ffmpeg_median", "arp"),
-            ("deflicker_window", "FFmpeg Median window (frames)", "select:3|5|7|9", "5"),
+            ("deflicker_method", "Deflicker algorithm", "select:arp|ffmpeg_median|ffmpeg_am", "arp"),
+            ("deflicker_window", "FFmpeg window (frames)", "select:3|5|7|9", "5"),
             ("deflicker_strength", "ARP correction strength", "range:0|1|0.05", "0.65"),
             ("deflicker_max_correction", "ARP maximum brightness correction", "range:0|0.15|0.01", "0.08"),
             ("detect_defects", "Detect film damage (mask only; no AI)", "checkbox", "false"),
