@@ -58,6 +58,22 @@ class LocalDeflickerPilotTests(unittest.TestCase):
         # Moving-object artifacts require review: do NOT assert 'success'.
         self.assertFalse(result["release_ready"])
 
+    def test_motion_guard_comparison_is_measured_not_assumed(self):
+        frames = clean_frames()
+        for i, frame in enumerate(frames):
+            x = 10 + i * 3
+            frame[10:35, x:x+9] = 225
+        baseline = evaluate(frames, sigma=9, temporal_guard="off")
+        guarded = evaluate(frames, sigma=9, temporal_guard="oscillation")
+        self.assertEqual(baseline["frames"], guarded["frames"])
+        self.assertEqual(guarded["temporal_guard"], "oscillation")
+        self.assertLessEqual(
+            guarded["untouched_original_modified_mae"],
+            baseline["untouched_original_modified_mae"]
+        )
+        self.assertFalse(guarded["release_ready"])
+        self.assertIn("corrected_inside_mae", guarded)
+
     def test_invalid_injection_amplitudes_fail_closed(self):
         with self.assertRaises(ValueError):
             synthetic_exposure_damage(clean_frames(), amplitude=0.9)
