@@ -25,8 +25,7 @@ function frameInspectorHtml(stage) {
   return `<section class="frame-inspector" data-fi-stage="${stage}" aria-label="Einzelbildanalyse">
     <div class="fi-heading"><strong>Frame Inspector</strong><small>Exakte Einzelbilder aus Original und Ergebnis (FFmpeg)</small></div>
     <div class="fi-buttons">
-      <button type="button" data-fi-open>${stage === 'cleanup' ? 'Einzelbilder anzeigen' : 'Einzelbildmodus starten'}</button>
-      <button type="button" data-fi-close disabled>${stage === 'cleanup' ? 'Einzelbilder ausblenden' : 'Zum Video zurück'}</button>
+      ${stage === 'cleanup' ? '' : '<button type="button" data-fi-open>Einzelbildmodus starten</button><button type="button" data-fi-close disabled>Zum Video zurück</button>'}
       <button type="button" data-fi-prev10 disabled>-10</button>
       <button type="button" data-fi-prev disabled>-1 Frame</button>
       <button type="button" data-fi-next disabled>+1 Frame</button>
@@ -86,10 +85,17 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
     img.src = url;
   })));
   async function showFrame(n, pausePreview = true) {
-    if (busy) { pendingFrame = n; return; }
     const requested = count
       ? clamp(Math.round(Number(n) || 0), 0, count - 1)
       : Math.max(0, Math.round(Number(n) || 0));
+    if (stage === 'cleanup' && pausePreview) {
+      // User-selected exact frames align both video elements immediately.
+      // The initial automatic inspection deliberately does not seek or pause.
+      document.dispatchEvent(new CustomEvent('arp-cleanup-seek-video', {
+        detail: {stage, frame: requested}
+      }));
+    }
+    if (busy) { pendingFrame = requested; return; }
     const requestId = ++epoch;
     busy = true;
     status.textContent = `Lade Frame ${requested+1} ...`;
@@ -133,7 +139,9 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
       start.max = end.max = String(count);
       if (Number(end.value) <= 1) end.value = String(count);
       for (const selector of ['prev','prev10','next','next10']) $(selector).disabled = false;
-      exact = true; close.disabled = false; open.disabled = true;
+      exact = true;
+      if (close) close.disabled = false;
+      if (open) open.disabled = true;
       player.classList.add('frame-inspector-active');
       syncClip(); applyZoom();
       status.textContent = `Exakt: Frame ${index+1} / ${count} · ${(index/fps).toFixed(3)} s · ${data.width}×${data.height}`;
@@ -157,10 +165,11 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
     if (!Number.isInteger(target) || target < 0) return;
     void showFrame(target);
   });
-  open.addEventListener('click', () => showFrame(index, false));
-  close.addEventListener('click', () => {
+  open?.addEventListener('click', () => showFrame(index, false));
+  close?.addEventListener('click', () => {
     ++epoch; pendingFrame = null; exact = false; player.classList.remove('frame-inspector-active');
-    open.disabled = false; close.disabled = true;
+    if (open) open.disabled = false;
+    close.disabled = true;
     if (workspace) workspace.hidden = true;
     status.textContent = 'Einzelbilder ausgeblendet. Video bleibt unabhängig bedienbar.';
     if (stage !== 'cleanup' && fps > 0) {
