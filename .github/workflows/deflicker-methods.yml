@@ -1,0 +1,44 @@
+name: ARP / FFmpeg Deflicker methods (CPU)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/artifact_ids.py'
+      - 'scripts/cleanup_video.py'
+      - 'scripts/film_deflicker.py'
+      - 'ai_remaster_gui/**'
+      - 'tests/test_light_deflicker.py'
+      - '.github/workflows/deflicker-methods.yml'
+  push:
+    branches:
+      - feature/cleanup-deflicker-method-selection
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deflicker-modes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install CPU dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
+          ffmpeg -hide_banner -filters | grep -E 'deflicker'
+      - name: Validate Python source
+        run: python -m compileall -q scripts ai_remaster_gui tests/test_light_deflicker.py
+      - name: Verify legacy and alternative variants with real FFmpeg video
+        run: python -m unittest -v tests.test_light_deflicker
+      - name: Verify browser code
+        run: |
+          node --check ai_remaster_gui/static/js/render-helpers.js
+          node --check ai_remaster_gui/static/js/cleanup-review.js
+          node --check ai_remaster_gui/static/js/frame-inspector.js
+          node --test tests/test_cleanup_workspace_browser.test.cjs
