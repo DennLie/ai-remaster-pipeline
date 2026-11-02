@@ -1848,6 +1848,10 @@ class PipelineApp:
                 values, "localized_confirm_single_shot"
             ):
                 cmd.append("--localized-confirm-single-shot")
+            if values.get("deflicker_method") == "localized_stream" and is_true(
+                values, "localized_confirm_film_experiment"
+            ):
+                cmd.append("--localized-confirm-film-experiment")
         if is_true(values, "detect_defects"):
             cmd.append("--detect-defects")
         if is_true(values, "ai_descratch"):

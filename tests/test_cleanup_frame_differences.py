@@ -97,6 +97,36 @@ class FFmpegFrameDifferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incompatible width"):
             differences._validate_pair(self.original, wrong)
 
+    def test_sparse_movie_chart_uses_real_exact_ffv1_samples(self):
+        # Generates 2,430 frames at tiny resolution; compares only 240 exact
+        # positions. Unlike short clips, it must not scan every decoded frame.
+        self._ffmpeg(
+            "-f", "lavfi", "-i",
+            "testsrc2=size=32x24:rate=30:duration=81",
+            "-an", "-c:v", "ffv1", self.original
+        )
+        self._ffmpeg(
+            "-i", self.original, "-vf", "eq=brightness=0.06",
+            "-an", "-c:v", "ffv1", self.processed
+        )
+        with patch.object(differences, "_CACHE", self.folder / "cache"), \
+             patch.object(differences, "_sources", return_value=(
+                 self.original, self.processed
+             )):
+            report = differences.cleanup_frame_differences(AppStub(method="localized_stream"))
+        self.assertEqual(report["frames"], 2430)
+        self.assertTrue(report["sampled"])
+        self.assertEqual(len(report["samples"]), 240)
+        self.assertEqual(report["samples"][0]["frame"], 0)
+        self.assertEqual(report["samples"][-1]["frame"], 2429)
+        self.assertGreater(report["mean_abs_luma"], 0)
+        self.assertIn("NOT full-film", report["sampling_note"])
+        self.assertTrue(all(
+            x["frame"] < y["frame"] for x,y in zip(
+                report["samples"], report["samples"][1:]
+            )
+        ))
+
     def test_refuse_same_file_and_bad_lengths(self):
         self._make_pair()
         with self.assertRaisesRegex(ValueError, "separate"):
@@ -104,8 +134,9 @@ class FFmpegFrameDifferenceTests(unittest.TestCase):
         with patch.object(differences, "_metadata", return_value={
             "width": 64, "height": 48, "fps_fraction": "10", "frames": 100000
         }):
-            with self.assertRaisesRegex(ValueError, "shorter source section"):
-                differences._validate_pair(self.original, self.processed)
+            self.assertEqual(differences._validate_pair(self.original, self.processed), 100000)
+            # Large films use verified, sparse frame samples instead of an
+            # arbitrary 2,400-frame rejection or full-film decode for the UI.
 
 
 if __name__ == "__main__":

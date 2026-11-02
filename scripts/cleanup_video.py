@@ -1375,6 +1375,7 @@ def run_signature(source: Path, workflow: Path, args: argparse.Namespace, info: 
             else 2 if args.light_deflicker and args.deflicker_method == "ffmpeg_median"
             else 3 if args.light_deflicker and args.deflicker_method == "ffmpeg_am"
             else 4 if args.light_deflicker and args.deflicker_method == "localized_research"
+            else 5 if args.light_deflicker and args.deflicker_method == "localized_stream"
             else 0
         ),
         "temporal_defect_mask_version": TEMPORAL_MASK_VERSION if args.detect_defects else 0,
@@ -1471,11 +1472,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output")
     parser.add_argument("--workflow", default=str(DEFAULT_WORKFLOW))
     parser.add_argument("--light-deflicker", action="store_true", help="Enable selected classical temporal deflicker (no AI weights).")
-    parser.add_argument("--deflicker-method", choices=["arp", "ffmpeg_median", "ffmpeg_am", "localized_research"], default="arp",
+    parser.add_argument("--deflicker-method", choices=["arp", "ffmpeg_median", "ffmpeg_am", "localized_research", "localized_stream"], default="arp",
                         help="ARP conservative gains (default), FFmpeg median, or FFmpeg arithmetic mean.")
     parser.add_argument("--localized-confirm-single-shot", action="store_true",
                         help="I confirm this short experimental local-Deflicker clip has no cuts, "
                              "transitions or intended exposure changes.")
+    parser.add_argument("--localized-confirm-film-experiment", action="store_true",
+                        help="Explicit research consent: automatic scene/fade guards are fallible; "
+                             "review film-length outputs for motion and lighting artifacts.")
     parser.add_argument("--deflicker-window", type=int, choices=[3, 5, 7, 9], default=5,
                         help="Temporal window size for FFmpeg Median (ignored by ARP).")
     parser.add_argument("--deflicker-strength", type=parse_source_fidelity, default=0.65, help="Temporal deflicker adjustment strength, 0 to 1.")
@@ -1610,6 +1614,9 @@ def main() -> int:
     if args.light_deflicker and args.deflicker_method == "localized_research":
         from localized_deflicker_backend import validate_localized_request
         validate_localized_request(args, info)
+    elif args.light_deflicker and args.deflicker_method == "localized_stream":
+        from localized_deflicker_stream import validate_stream_request
+        validate_stream_request(args, info)
     output = resolve_path(args.output) if args.output else default_output(source, args)
     sig = run_signature(source, workflow_path, args, info)
     delivery_width, delivery_height = (
@@ -1642,6 +1649,11 @@ def main() -> int:
         elif args.deflicker_method == "localized_research":
             from localized_deflicker_backend import prepare_localized_deflicker
             repaired_source = prepare_localized_deflicker(
+                ffmpeg, repaired_source, work_dir, info, args
+            )
+        elif args.deflicker_method == "localized_stream":
+            from localized_deflicker_stream import prepare_stream_localized_deflicker
+            repaired_source = prepare_stream_localized_deflicker(
                 ffmpeg, repaired_source, work_dir, info, args
             )
         else:

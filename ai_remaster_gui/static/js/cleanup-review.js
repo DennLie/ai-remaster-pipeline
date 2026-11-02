@@ -48,7 +48,7 @@ function cleanupDifferenceBarData(report) {
 
 function setupFFmpegDifferenceRail(slider, player, before) {
   const method = player.dataset.deflickerMethod;
-  if (!['ffmpeg_median', 'ffmpeg_am', 'localized_research'].includes(method)) return;
+  if (!['ffmpeg_median', 'ffmpeg_am', 'localized_research', 'localized_stream'].includes(method)) return;
   const rail = document.createElement('section');
   rail.className = 'cleanup-frame-rail cleanup-difference-rail';
   rail.setAttribute('aria-label', 'Aufhellungen und Abdunklungen je Frame');
@@ -129,7 +129,7 @@ function setupFFmpegDifferenceRail(slider, player, before) {
       const legend = rail.querySelector('.cleanup-diag-legend');
       if (legend) {
         const note = document.createElement('span');
-        note.textContent = `${data.sampled ? 'Stichprobe pro Block · ' : ''}Balkenhöhe je Farbe relativ zum größten sichtbaren Richtungswert.`;
+        note.textContent = `${data.sampled ? 'Bis zu 240 exakt angefahrene Einzelbilder, keine vollständige Filmmessung · ' : ''}Balkenhöhe je Farbe relativ zum größten sichtbaren Richtungswert.`;
         legend.appendChild(note);
       }
       highlight(selectedFrame);
@@ -150,7 +150,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   const plot = diagnostics?.querySelector('.cleanup-gain-plot');
   const legend = diagnostics?.querySelector('.cleanup-diag-legend');
   const readout = diagnostics?.querySelector('#cleanupGainReadout');
-  if (!plot && ['ffmpeg_median', 'ffmpeg_am', 'localized_research'].includes(player.dataset.deflickerMethod)) {
+  if (!plot && ['ffmpeg_median', 'ffmpeg_am', 'localized_research', 'localized_stream'].includes(player.dataset.deflickerMethod)) {
     setupFFmpegDifferenceRail(slider, player, before);
   }
   if (plot && legend && readout) {
@@ -176,7 +176,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   layout.className = 'cleanup-two-up-grid';
   const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFMPEG MEDIAN'
     : player.dataset.deflickerMethod === 'ffmpeg_am' ? 'FFMPEG ARITHMETIC MEAN'
-    : player.dataset.deflickerMethod === 'localized_research' ? 'LOCALIZED · EXPERIMENTELL'
+    : ['localized_research', 'localized_stream'].includes(player.dataset.deflickerMethod) ? 'LOCALIZED · EXPERIMENTELL'
     : player.dataset.deflickerMethod === 'arp' ? 'ARP CONSERVATIVE' : 'CLEAN-UP-ERGEBNIS';
   layout.innerHTML = `
     <div class="cleanup-side" data-compare-panel="before">
@@ -430,7 +430,7 @@ function setupCleanupExactWipe(player) {
   // Keep the exact Wipe available on demand without forcing another tall panel.
   const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFmpeg Median'
     : player.dataset.deflickerMethod === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean'
-    : player.dataset.deflickerMethod === 'localized_research' ? 'Localized · experimentell'
+    : ['localized_research', 'localized_stream'].includes(player.dataset.deflickerMethod) ? 'Localized · experimentell'
     : player.dataset.deflickerMethod === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const fold = document.createElement('details');
   fold.className = 'cleanup-wipe-fold';
