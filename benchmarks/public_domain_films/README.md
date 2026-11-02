@@ -19,9 +19,9 @@ Das bisherige *Neighbors*-Testmaterial bleibt als achte, gesondert dokumentierte
 | [L'Arrivée d'un train en gare de La Ciotat (1896)](https://commons.wikimedia.org/wiki/File:L%27Arriv%C3%A9e_d%27un_train_en_gare_de_La_Ciotat_Completo.webm) | Annähernde Kamera-Bewegung, Menschen, Rauch | Sehr frühe dokumentarische Aufnahme | 540×360 YouTube-Digitalisierung |
 | [The Great Train Robbery (1903)](https://commons.wikimedia.org/wiki/File:The_Great_Train_Robbery_%281903%29.webm) | Bewegungs-/Kontrasttests | Mehrere Darsteller und Szenenwechsel | Library-of-Congress-Ausgangsmaterial; Commons-360p/480p-Proxy |
 | [Le Voyage dans la Lune (1902)](https://commons.wikimedia.org/wiki/File:Le_Voyage_dans_la_Lune_%281902%29.webm) | Kulissen, feine Strukturen, Trickeffekte | Méliès, frühe visuelle Effekte | Commons-360p/480p-Transcode, nicht der originale AV1-Upload |
-| [Das Cabinet des Dr. Caligari (1920)](https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr._Caligari.webm) | Kanten, schräge Bühnenarchitektur, Gesichter | Deutscher Expressionismus | Frühe Archive.org-Kopie; mögliches ungewöhnliches Bildformat |
+| [Das Cabinet des Dr. Caligari (1920)](https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr._Caligari.webm) | Kanten, schräge Bühnenarchitektur, Gesichter | Deutscher Expressionismus | Internet-Archive-Kopie mit 576×448, bis 400 MiB für den Original-Download; ungewöhnliches Bildformat bleibt erhalten |
 | [Gertie the Dinosaur (1914)](https://commons.wikimedia.org/wiki/File:Winsor_McCay_%281914%29Gertie_the_Dinosaur.webm) | Handgezeichnete Linien, Weißflächen, Flackern | Zeichentrick | 2004-DVD-Transfer! **Zusätzliche Rechteprüfung** |
-| [A Corner in Wheat (1909)](https://commons.wikimedia.org/wiki/File:Corner_in_Wheat.webm) | Innen-/Außenräume, Stoff, Flächen und Natur | Frühe US-Dramaturgie | 480×360 YouTube-Kopie |
+| [A Corner in Wheat (1909)](https://commons.wikimedia.org/wiki/File:A_Corner_in_Wheat_%281909%29.webm) | Innen-/Außenräume, Stoff, Flächen und Natur | Frühe US-Dramaturgie | Library-of-Congress-Fassung als Commons-VP9-360p-/480p-Transcode (andere 480×360-Kopie lieferte unbrauchbare 1000-fps-Metadaten) |
 | [Nosferatu (1922)](https://commons.wikimedia.org/wiki/File:Nosferatu_%281922%29.webm) | Dunkle Flächen, Schatten, mögliche Tönung | Deutscher Horror-Stummfilm | 2006-Restaurierung! **Zusätzliche Rechteprüfung** |
 
 **Zeitmarken sind zunächst Proben:** Die zwölf plus zwei ausgewählten Fenster sind keine nach einer Sichtung bestätigten Film-Einstellungen. Es muss nach dem ersten Kontaktbogen kontrolliert werden, ob der Ausschnitt tatsächlich das angenommene Motiv, einen Schnitt, Vorspann oder einen Zwischentitel zeigt. Keine nicht überprüften Szenenbezeichnungen als Fakten behandeln.
@@ -73,7 +73,7 @@ python scripts/prepare_public_domain_films.py \
   --output-dir benchmarks/public_domain_films/generated/great_train_robbery
 ```
 
-Voraussetzungen: FFmpeg/FFprobe und eine Python-Umgebung mit `numpy`, `opencv-python-headless` und den ARP-Skripten. Der Download ist auf **250 MiB pro Film** begrenzt; eine Quellenvariante oberhalb dieser Grenze muss gezielt geprüft und anders bearbeitet werden, nicht einfach ohne Schranke geladen werden. Beim ersten Lauf wird der Commons-Original-SHA-1 gespeichert; für vollständig unveränderliche Downloads sollten die ermittelten Werte anschließend in `catalog.json` festgeschrieben werden.
+Voraussetzungen: FFmpeg/FFprobe und eine Python-Umgebung mit `numpy`, `opencv-python-headless` und den ARP-Skripten. Der Download ist auf **250 MiB pro Film; nur für den ausdrücklich ausgewählten Caligari-Originaltransfer gilt ein dokumentierter Höchstwert von 400 MiB** begrenzt; eine Quellenvariante oberhalb dieser Grenze muss gezielt geprüft und anders bearbeitet werden, nicht einfach ohne Schranke geladen werden. Beim ersten Lauf wird der Commons-Original-SHA-1 gespeichert; für vollständig unveränderliche Downloads sollten die ermittelten Werte anschließend in `catalog.json` festgeschrieben werden.
 
 ## Technische/ethische Grenzen
 
