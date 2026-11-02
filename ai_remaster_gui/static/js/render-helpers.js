@@ -854,19 +854,24 @@ function drawCleanup(st, s, expected, sp) {
     ? prefs.settings : (!hasOutput || Boolean(state.running));
   const analysisOpen = Boolean(prefs.analysis);
   const diagnosisSummary = d
-    ? `${Number(d.corrected)} / ${Number(d.frames)} Frames korrigiert · max. ${Number(d.max_gain_change_pct).toFixed(2)} %`
-    : 'Messwerte und Frame-Diagramm';
+    ? `${Number(d.corrected)} / ${Number(d.frames)} korrigiert · max. ${Number(d.max_gain_change_pct).toFixed(2)} %`
+    : 'Analysewerte nicht verfügbar';
   document.getElementById('app').innerHTML = `
-    <div class="editor-page cleanup-editor-page">
+    <div class="editor-page cleanup-editor-page" data-cleanup-density="${prefs.density === 'focus' ? 'focus' : 'compact'}">
       <section class="card editor-viewer cleanup-workspace-viewer">
         <div class="cleanup-workspace-heading">
-          <h2>${esc(comparison.title || 'Clean Up Comparison')}</h2>
-          <span>Video · Einzelbilder · Differenz</span>
+          <div class="cleanup-heading-title">
+            <h2>Clean Up · Vergleich</h2>
+            <span>${diagnosisSummary}</span>
+          </div>
+          <button type="button" class="cleanup-density-button" data-cleanup-density-toggle
+             aria-pressed="${prefs.density === 'focus' ? 'true' : 'false'}"
+             aria-label="Größere Vergleichsbilder umschalten">${prefs.density === 'focus' ? 'Kompaktansicht' : 'Großansicht'}</button>
         </div>
         ${cleanupComparisonHtml(comparison)}
         ${diagnostics.ready ? `
           <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
-            <summary><strong>Analyse und Frame-Diagramm</strong><span>${diagnosisSummary}</span></summary>
+            <summary><strong>Weitere Messwerte und Masken</strong><span>Auswertung des Verarbeitungslaufs</span></summary>
             ${cleanupDiagnosticsHtml(diagnostics)}
           </details>` : ''}
       </section>
@@ -899,6 +904,19 @@ function drawCleanup(st, s, expected, sp) {
       next[fold.dataset.cleanupFold] = fold.open;
       window.arpCleanupPanelPrefs = next;
     });
+  });
+  const densityButton = document.querySelector('[data-cleanup-density-toggle]');
+  densityButton?.addEventListener('click', () => {
+    const page = document.querySelector('.cleanup-editor-page');
+    const expanded = page?.dataset.cleanupDensity !== 'focus';
+    if (page) page.dataset.cleanupDensity = expanded ? 'focus' : 'compact';
+    densityButton.setAttribute('aria-pressed', String(expanded));
+    densityButton.textContent = expanded ? 'Kompaktansicht' : 'Großansicht';
+    if (typeof window !== 'undefined') {
+      const next = window.arpCleanupPanelPrefs || {};
+      next.density = expanded ? 'focus' : 'compact';
+      window.arpCleanupPanelPrefs = next;
+    }
   });
   bindStageFields('cleanup');
   bindCleanupComparison();
