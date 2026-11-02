@@ -20,7 +20,7 @@ from .config import ROOT
 from .frame_inspector import _metadata, _sources
 
 _CACHE = ROOT / ".cache" / "cleanup_frame_differences"
-_REPORT_VERSION = 1
+_REPORT_VERSION = 2
 _MAX_FRAMES = 2400
 _MAX_SECONDS = 30.0
 _MAX_BARS = 240
@@ -48,6 +48,20 @@ def _validate_pair(source: Path, output: Path) -> int:
     return count
 
 
+def _directional_luma(y_before: np.ndarray, y_after: np.ndarray) -> tuple[float, float]:
+    """Per-pixel brightening and darkening, each averaged over ALL frame pixels.
+
+    Both are nonnegative and can coexist within one frame. Their sum is mean
+    absolute luma change. Pixel values describe differences, not FFmpeg gains.
+    """
+    if y_before.shape != y_after.shape or y_before.dtype != np.uint8 or y_after.dtype != np.uint8:
+        raise ValueError("Expected aligned 8-bit grayscale frames.")
+    diff = y_after.astype(np.int16) - y_before.astype(np.int16)
+    bright = float(np.maximum(diff, 0).mean())
+    dark = float(np.maximum(-diff, 0).mean())
+    return bright, dark
+
+
 def _compare_frames(source: Path, output: Path, frames: int) -> dict:
     a, b = cv2.VideoCapture(str(source)), cv2.VideoCapture(str(output))
     try:
@@ -57,7 +71,11 @@ def _compare_frames(source: Path, output: Path, frames: int) -> dict:
         buckets: list[dict] = []
         current: dict | None = None
         total = 0.0
+        total_bright = 0.0
+        total_dark = 0.0
         largest = 0.0
+        largest_bright = 0.0
+        largest_dark = 0.0
         start = time.monotonic()
         for frame in range(frames):
             if time.monotonic() - start > _MAX_SECONDS:
@@ -72,15 +90,26 @@ def _compare_frames(source: Path, output: Path, frames: int) -> dict:
             # difference (BT.601 OpenCV 8-bit luma), units 0..255.
             y0 = cv2.cvtColor(im0, cv2.COLOR_BGR2GRAY)
             y1 = cv2.cvtColor(im1, cv2.COLOR_BGR2GRAY)
-            score = float(np.mean(cv2.absdiff(y0, y1)))
+            bright, dark = _directional_luma(y0, y1)
+            score = bright + dark
             total += score
+            total_bright += bright
+            total_dark += dark
             largest = max(largest, score)
+            largest_bright = max(largest_bright, bright)
+            largest_dark = max(largest_dark, dark)
+            candidate = {
+                "frame": frame,
+                "mean_abs_luma": round(score, 4),
+                "brighten_mean_luma": round(bright, 4),
+                "darken_mean_luma": round(dark, 4),
+            }
             if frame % stride == 0:
                 if current is not None:
                     buckets.append(current)
-                current = {"frame": frame, "mean_abs_luma": round(score, 4)}
+                current = candidate
             elif current is not None and score > current["mean_abs_luma"]:
-                current = {"frame": frame, "mean_abs_luma": round(score, 4)}
+                current = candidate
         if current is not None:
             buckets.append(current)
         # Reject hidden additional frames even if metadata was incorrect.
@@ -91,8 +120,12 @@ def _compare_frames(source: Path, output: Path, frames: int) -> dict:
             "samples": buckets,
             "sampled": stride > 1,
             "mean_abs_luma": round(total / frames, 4),
+            "mean_brighten_luma": round(total_bright / frames, 4),
+            "mean_darken_luma": round(total_dark / frames, 4),
             "max_mean_abs_luma": round(largest, 4),
-            "metric": "mean_abs_luma_8bit",
+            "max_brighten_luma": round(largest_bright, 4),
+            "max_darken_luma": round(largest_dark, 4),
+            "metric": "directional_mean_luma_8bit",
         }
     finally:
         a.release()
@@ -118,7 +151,7 @@ def cleanup_frame_differences(app) -> dict:
     if cache_path.is_file():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if cached.get("identity") == identity and cached.get("report", {}).get("metric") == "mean_abs_luma_8bit":
+            if cached.get("identity") == identity and cached.get("report", {}).get("metric") == "directional_mean_luma_8bit":
                 return cached["report"]
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             pass
