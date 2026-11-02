@@ -243,7 +243,7 @@ test('Localized research is opt-in and clearly identified as not production-read
   const models = fs.readFileSync(path.join(root, 'ai_remaster_gui/models.py'), 'utf8');
   assert.match(models, /select:arp\|ffmpeg_median\|ffmpeg_am\|localized_research/);
   assert.match(models, /localized_confirm_single_shot/);
-  assert.match(helpers, /Forschungstest \(nicht produktionsreif\)/);
+  assert.match(helpers, /Localized · Langfilm-Streaming \(experimentell\)/);
   assert.match(helpers, /data-deflicker-only="localized_research"/);
   assert.match(helpers, /Oscillation Guard aktiv/);
   assert.doesNotMatch(helpers, /value="localized_research" disabled/);
