@@ -847,54 +847,55 @@ function drawCleanup(st, s, expected, sp) {
   const comparison = state.cleanup_comparison || {};
   const diagnostics = state.cleanup_diagnostics || {};
   const d = diagnostics.deflicker;
-  const hasOutput = comparison.exists === 'true';
-  // Keep user-selected folding preferences when ARP refreshes its stage HTML.
   const prefs = typeof window !== 'undefined' ? (window.arpCleanupPanelPrefs || {}) : {};
-  const settingsOpen = typeof prefs.settings === 'boolean'
-    ? prefs.settings : (!hasOutput || Boolean(state.running));
   const analysisOpen = Boolean(prefs.analysis);
-  const diagnosisSummary = d
-    ? `${Number(d.corrected)} / ${Number(d.frames)} korrigiert · max. ${Number(d.max_gain_change_pct).toFixed(2)} %`
-    : 'Analysewerte nicht verfügbar';
+  const hasOutput = comparison.exists === 'true';
+  const summary = d
+    ? `<div class="cleanup-results-metrics" aria-label="Was wurde verändert?">
+        <span><strong>${d.corrected}/${d.frames}</strong> Frames korrigiert</span>
+        <span><strong>${Number(d.max_gain_change_pct).toFixed(2)} %</strong> Maximum</span>
+        <span><strong>${Number(d.mean_abs_gain_change_pct).toFixed(2)} %</strong> Ø Korrektur</span>
+        <span><strong>${d.cut_boundaries}</strong> Schnittgrenzen</span>
+      </div>`
+    : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
+
   document.getElementById('app').innerHTML = `
     <div class="editor-page cleanup-editor-page" data-cleanup-density="${prefs.density === 'focus' ? 'focus' : 'compact'}">
+      <aside class="card cleanup-settings-sidebar" aria-label="Clean Up Einstellungen">
+        <h2>${st.title}</h2>
+        <p>${st.description}</p>
+        ${progressHtml(sp.percent, sp.label)}
+        ${cleanupLicenseWarning(s)}
+        ${st.fields.map(f => fieldHtml(st, f)).join('')}
+        ${shotOutputList(expected, null)}
+        ${stageCheckboxes(s)}
+        <div class="actions">
+          <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
+          <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
+        </div>
+        <div class="command" id="cmd"></div>
+      </aside>
       <section class="card editor-viewer cleanup-workspace-viewer">
         <div class="cleanup-workspace-heading">
-          <div class="cleanup-heading-title">
-            <h2>Clean Up · Vergleich</h2>
-            <span>${diagnosisSummary}</span>
-          </div>
+          <div class="cleanup-heading-title"><h2>Clean Up · Vergleich</h2></div>
           <button type="button" class="cleanup-density-button" data-cleanup-density-toggle
              aria-pressed="${prefs.density === 'focus' ? 'true' : 'false'}"
              aria-label="Größere Vergleichsbilder umschalten">${prefs.density === 'focus' ? 'Kompaktansicht' : 'Großansicht'}</button>
         </div>
-        ${cleanupComparisonHtml(comparison)}
         ${diagnostics.ready ? `
-          <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
-            <summary><strong>Weitere Messwerte und Masken</strong><span>Auswertung des Verarbeitungslaufs</span></summary>
-            ${cleanupDiagnosticsHtml(diagnostics)}
-          </details>` : ''}
+          <section class="cleanup-results-overview" aria-label="Was wurde verändert?">
+            <div class="cleanup-results-heading">
+              <strong>Was wurde verändert?</strong>
+              <span>Light Deflicker · Verarbeitungsergebnis</span>
+            </div>
+            ${summary}
+            <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
+              <summary><strong>Weitere Messwerte und Masken</strong><span>Details einblenden</span></summary>
+              ${cleanupDiagnosticsHtml(diagnostics)}
+            </details>
+          </section>` : ''}
+        ${cleanupComparisonHtml(comparison)}
       </section>
-      <details class="cleanup-params-fold" data-cleanup-fold="settings" ${settingsOpen ? 'open' : ''}>
-        <summary>
-          <strong>Clean-Up-Einstellungen und Ausführung</strong>
-          <span>${hasOutput ? 'Vorhandenes Ergebnis · Parameter bei Bedarf bearbeiten' : 'Parameter einstellen und Verarbeitung starten'}</span>
-        </summary>
-        <section class="card cleanup-params-card">
-          <h2>${st.title}</h2>
-          <p>${st.description}</p>
-          ${progressHtml(sp.percent, sp.label)}
-          ${cleanupLicenseWarning(s)}
-          ${st.fields.map(f => fieldHtml(st, f)).join('')}
-          ${shotOutputList(expected, null)}
-          ${stageCheckboxes(s)}
-          <div class="actions">
-            <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
-            <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
-          </div>
-          <div class="command" id="cmd"></div>
-        </section>
-      </details>
     </div>
   `;
   document.querySelectorAll('[data-cleanup-fold]').forEach(fold => {
