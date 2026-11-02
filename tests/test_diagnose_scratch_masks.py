@@ -9,7 +9,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import cv2
 import numpy as np
+
+from cleanup_video import ai_scratch_mask
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -43,6 +46,15 @@ class ScratchMaskDiagnosticTests(unittest.TestCase):
         for invalid in ("0.65,0.65", "nan", "-0.1", "1.1", "x", "", "0.2,", "0.2," * 13):
             with self.assertRaises(ValueError):
                 audit.sensitivities_arg(invalid)
+
+    def test_default_detector_is_byte_identical_to_explicit_legacy_fallback(self):
+        rgb = np.random.default_rng(123).integers(4, 252, (120, 160, 3), np.uint8)
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        for sensitivity in (0.25, 0.45, 0.65, 0.85):
+            default = ai_scratch_mask(bgr, sensitivity=sensitivity)
+            explicit = ai_scratch_mask(bgr, sensitivity=sensitivity,
+                                       full_height_column_fallback=True)
+            np.testing.assert_array_equal(default, explicit)
 
     def test_lossless_real_video_masks_and_oracle_counterfactual(self):
         ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
@@ -85,6 +97,12 @@ class ScratchMaskDiagnosticTests(unittest.TestCase):
                 for path in item["visual_samples"]:
                     self.assertTrue((root / "audit" / path).is_file())
                 self.assertTrue(item["oracle_is_non_deployable"])
+                ablation = item["no_full_height_column_fallback_ablation"]
+                self.assertTrue(ablation["experimental_only"])
+                self.assertEqual(sum(ablation["mask_scores"][key] for key in
+                                     ("tp", "fp", "fn", "tn")), 96 * 72 * 12)
+                self.assertGreaterEqual(ablation["mask_scores"]["pixel_f1"], 0)
+                self.assertLessEqual(ablation["mask_scores"]["pixel_f1"], 1)
                 self.assertGreaterEqual(item["telea_using_oracle_gt_mask_known_scratch_mse"], 0.)
             with self.assertRaises(FileExistsError):
                 audit.diagnose(
