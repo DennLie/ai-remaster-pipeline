@@ -5,6 +5,8 @@ on:
     paths:
       - "scripts/restoration_evaluation.py"
       - "tests/test_restoration_evaluation.py"
+      - "scripts/run_scientific_classical_grid.py"
+      - "tests/test_scientific_classical_grid.py"
       - "docs/scientific-restoration-evaluation.md"
       - ".github/workflows/scientific-restoration-eval.yml"
   workflow_dispatch:
@@ -28,5 +30,7 @@ jobs:
           python -m pip install --disable-pip-version-check --quiet "numpy>=2,<3" "opencv-python-headless>=4.10,<5" "scikit-image>=0.25,<0.28"
       - name: Validate seeded damage and exact-reference FFV1 scores
         run: python -m unittest -v tests.test_restoration_evaluation
+      - name: Execute actual classical Off/CAS/Richardson-Lucy algorithms and evaluate synthetic recovery
+        run: python -m unittest -v tests.test_scientific_classical_grid
       - name: Validate prior frame/source benchmark guards
         run: python -m unittest -v tests.test_step3_benchmark
