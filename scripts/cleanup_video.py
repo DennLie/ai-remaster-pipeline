@@ -1372,7 +1372,9 @@ def run_signature(source: Path, workflow: Path, args: argparse.Namespace, info: 
         "ai_descratch_version": AI_DESCRATCH_VERSION if args.ai_descratch else 0,
         "light_deflicker_version": (
             1 if args.light_deflicker and args.deflicker_method == "arp"
-            else 2 if args.light_deflicker else 0
+            else 2 if args.light_deflicker and args.deflicker_method == "ffmpeg_median"
+            else 3 if args.light_deflicker and args.deflicker_method == "ffmpeg_am"
+            else 0
         ),
         "temporal_defect_mask_version": TEMPORAL_MASK_VERSION if args.detect_defects else 0,
         "devignette_version": DEVIGNETTE_VERSION if args.devignette else 0,
@@ -1468,8 +1470,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output")
     parser.add_argument("--workflow", default=str(DEFAULT_WORKFLOW))
     parser.add_argument("--light-deflicker", action="store_true", help="Enable selected classical temporal deflicker (no AI weights).")
-    parser.add_argument("--deflicker-method", choices=["arp", "ffmpeg_median"], default="arp",
-                        help="ARP conservative shot-aware gains (default), or FFmpeg median deflicker.")
+    parser.add_argument("--deflicker-method", choices=["arp", "ffmpeg_median", "ffmpeg_am"], default="arp",
+                        help="ARP conservative gains (default), FFmpeg median, or FFmpeg arithmetic mean.")
     parser.add_argument("--deflicker-window", type=int, choices=[3, 5, 7, 9], default=5,
                         help="Temporal window size for FFmpeg Median (ignored by ARP).")
     parser.add_argument("--deflicker-strength", type=parse_source_fidelity, default=0.65, help="Temporal deflicker adjustment strength, 0 to 1.")
@@ -1626,9 +1628,9 @@ def main() -> int:
         if args.deflicker_method == "arp":
             from film_deflicker import prepare_light_deflicker
             repaired_source = prepare_light_deflicker(ffmpeg, repaired_source, work_dir, info, args)
-        elif args.deflicker_method == "ffmpeg_median":
-            from film_deflicker import prepare_ffmpeg_median_deflicker
-            repaired_source = prepare_ffmpeg_median_deflicker(ffmpeg, repaired_source, work_dir, info, args)
+        elif args.deflicker_method in ("ffmpeg_median", "ffmpeg_am"):
+            from film_deflicker import prepare_ffmpeg_deflicker
+            repaired_source = prepare_ffmpeg_deflicker(ffmpeg, repaired_source, work_dir, info, args)
         else:
             raise ValueError(f"Unknown Deflicker method {args.deflicker_method!r}")
     repaired_source = prepare_devignette(ffmpeg, repaired_source, work_dir, info, args)
