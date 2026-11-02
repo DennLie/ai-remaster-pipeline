@@ -1,8 +1,9 @@
 """Research-only spatially varying illumination deflicker (CPU, non-generative).
 
-NOT A GUI BACKEND. Designed only for controlled, mostly static single-shot
-experiments. Motion/occlusions can create false positive exposure corrections.
-Writes a new, separate video; never overwrites the source or any ARP render.
+A bounded, explicitly confirmed experimental GUI adapter imports the numerical
+algorithm from this research module. It is NOT a production restoration backend:
+motion/occlusions can still cause false corrections. The standalone research CLI
+writes separate results and does not overwrite ARP renders.
 """
 from __future__ import annotations
 
