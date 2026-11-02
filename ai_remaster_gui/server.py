@@ -1844,6 +1844,10 @@ class PipelineApp:
         cmd.extend(["--intermediate-profile", canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))])
         if is_true(values, "light_deflicker"):
             cmd.append("--light-deflicker")
+            if values.get("deflicker_method") == "localized_research" and is_true(
+                values, "localized_confirm_single_shot"
+            ):
+                cmd.append("--localized-confirm-single-shot")
         if is_true(values, "detect_defects"):
             cmd.append("--detect-defects")
         if is_true(values, "ai_descratch"):
