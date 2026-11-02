@@ -797,3 +797,48 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   font-size:12px;
   font-variant-numeric:tabular-nums;
 }
+
+/* FFmpeg directional pixel differences: two independently measured bars per
+   clickable frame. A single frame may lighten AND darken distinct pixels. */
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference {
+  position:relative;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::after {
+  content:"";
+  position:absolute;bottom:0;
+  width:calc(50% - 1px);
+  min-height:0;pointer-events:none;
+  border-radius:2px 2px 0 0;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::before {
+  left:0;right:auto;
+  height:var(--bright-height,0%);
+  background:#4abfa5;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::after {
+  right:0;left:auto;
+  height:var(--dark-height,0%);
+  background:#e6a256;
+  box-shadow:none;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference.is-current {
+  outline:2px solid #c9e9f4;
+  outline-offset:0;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:hover::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:hover::after,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:focus-visible::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:focus-visible::after {
+  filter:brightness(1.25);
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-diag-legend {
+  display:flex;flex-wrap:wrap;gap:5px 14px;align-items:center;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-bright-key::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-dark-key::before {
+  content:"";display:inline-block;width:9px;height:9px;margin-right:5px;
+  border-radius:2px;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-bright-key::before {background:#4abfa5}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-dark-key::before {background:#e6a256}
