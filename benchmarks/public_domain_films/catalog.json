@@ -22,7 +22,7 @@
       "commons_file": "L'Arrivée d'un train en gare de La Ciotat Completo.webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:L%27Arriv%C3%A9e_d%27un_train_en_gare_de_La_Ciotat_Completo.webm",
       "acquire": "original",
-      "source_original_sha1": null,
+      "source_original_sha1": "0ae95baf34d5aa06f5754852dc79be07a020eb86",
       "right_status": "underlying_film_PD_claimed_US_and_life70; uploader transfer must be reviewed",
       "transfer_note": "Low-resolution YouTube-derived historical film transfer, original 540x360; no new soundtrack included",
       "tests": [
@@ -41,7 +41,8 @@
           "seconds": 25,
           "frames": 24
         }
-      ]
+      ],
+      "selected_media_sha256": "653527c6ad9df215580de278f471d35b290e1033a73e478e4adc3b5dc79d839f"
     },
     {
       "id": "great_train_robbery",
@@ -52,7 +53,7 @@
       "commons_file": "The Great Train Robbery (1903).webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:The_Great_Train_Robbery_%281903%29.webm",
       "acquire": "vp9_360_or_480",
-      "source_original_sha1": null,
+      "source_original_sha1": "b153f14393c84e489d2b5e893b988c851f47ce06",
       "right_status": "underlying_film_PD_claimed_US_and_life70; LoC transfer provenance to verify",
       "transfer_note": "Library of Congress film copy hosted on Commons; download Commons 360p VP9 transcode, not native high-resolution master",
       "tests": [
@@ -71,7 +72,8 @@
           "seconds": 480,
           "frames": 24
         }
-      ]
+      ],
+      "selected_media_sha256": "2fe29266a0c253addcda17b9591d020c7e4d343702be273097eeee89ebdfc5ce"
     },
     {
       "id": "melies_moon",
@@ -82,7 +84,7 @@
       "commons_file": "Le Voyage dans la Lune (1902).webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:Le_Voyage_dans_la_Lune_%281902%29.webm",
       "acquire": "vp9_360_or_480",
-      "source_original_sha1": null,
+      "source_original_sha1": "f44cf0b574ba346c110dbc83b5d20ea498872ab0",
       "right_status": "underlying_film_PD_claimed_US_and_life70; modern digitization rights review",
       "transfer_note": "Original Commons AV1 upload exceeds 2 GB; Commons 360p VP9 proxy used only for research; film may have been enhanced/processed",
       "tests": [
@@ -101,7 +103,8 @@
           "seconds": 485,
           "frames": 24
         }
-      ]
+      ],
+      "selected_media_sha256": "991a4cc1e126dad41ff828ce561dc02b36030d51dfc38ea6f28fd0ad965a1e94"
     },
     {
       "id": "caligari",
@@ -143,7 +146,7 @@
       "commons_file": "Winsor McCay (1914)Gertie the Dinosaur.webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:Winsor_McCay_%281914%29Gertie_the_Dinosaur.webm",
       "acquire": "vp9_360_or_480",
-      "source_original_sha1": null,
+      "source_original_sha1": "dc238d90908a7b096d32cb975fd5074a6b1ea09c",
       "right_status": "underlying_film_PD_claimed_US_and_life70; 2004 DVD transfer requires additional rights review",
       "transfer_note": "Commons copy sourced from 2004 DVD edition; no music redistributed; do not assume digital edition rights are cleared",
       "tests": [
@@ -162,7 +165,8 @@
           "seconds": 775,
           "frames": 24
         }
-      ]
+      ],
+      "selected_media_sha256": "98c4096821ad099d12afd25c725ba57d00a0b61f8842ff52e1c606838baedc13"
     },
     {
       "id": "corner_in_wheat",
@@ -200,12 +204,12 @@
       "year": 1922,
       "creator": "F. W. Murnau; screenplay Henrik Galeen",
       "creator_last_death": 1949,
-      "commons_file": "Nosferatu (1922).webm",
-      "source_page": "https://commons.wikimedia.org/wiki/File:Nosferatu_%281922%29.webm",
-      "acquire": "vp9_360_or_480",
+      "commons_file": "Nosferatu le vampire-Film Murnau 1922.webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Nosferatu_le_vampire-Film_Murnau_1922.webm",
+      "acquire": "original",
       "source_original_sha1": null,
-      "right_status": "underlying_film_PD_claimed_US_and_life70; 2006 restoration and new score require additional review",
-      "transfer_note": "2006 restored copy; rights for restoration elements and soundtrack require independent audit; all audio dropped",
+      "right_status": "underlying_film_PD_claimed_US_and_life70; uploader CC0 claim, exact transfer/reproduction rights require review",
+      "transfer_note": "Shorter 60m36s Internet Archive-derived 484x360 version; Commons page declares CC0, original copy about 323 MB, explicit 400 MiB bound. Different edit/cadence than 2006 restoration. No audio redistributed.",
       "tests": [
         "low-light contrast",
         "tinting",
@@ -222,7 +226,8 @@
           "seconds": 2920,
           "frames": 24
         }
-      ]
+      ],
+      "max_download_megabytes": 400
     }
   ]
 }
