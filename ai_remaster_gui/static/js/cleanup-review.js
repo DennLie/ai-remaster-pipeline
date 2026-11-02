@@ -44,13 +44,14 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   // decoders, and the pre-existing ARP stage binding retains its references.
   const layout = document.createElement('div');
   layout.className = 'cleanup-two-up-grid';
+  const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFMPEG MEDIAN' : 'ARP CONSERVATIVE';
   layout.innerHTML = `
     <div class="cleanup-side" data-compare-panel="before">
       <div class="cleanup-side-heading"><strong>ORIGINAL</strong><span>Vorher · unverändert</span></div>
       <div class="cleanup-side-media" data-compare-side="before"></div>
     </div>
     <div class="cleanup-side" data-compare-panel="after">
-      <div class="cleanup-side-heading"><strong>LIGHT DEFLICKER</strong><span>Nachher · bearbeitet</span></div>
+      <div class="cleanup-side-heading"><strong>${resultLabel}</strong><span>Nachher · bearbeitet</span></div>
       <div class="cleanup-side-media" data-compare-side="after"></div>
     </div>`;
   player.appendChild(layout);
