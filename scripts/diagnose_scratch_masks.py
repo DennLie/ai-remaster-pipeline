@@ -152,7 +152,8 @@ def diagnose(*, manifest: Path, output_dir: Path,
         stage = Path(td)
         for strength in settings:
             predictions, clean_detections, frame_confusions = [], [], []
-            detector_inpaint_error, oracle_inpaint_error = [], []
+            ablated_predictions, ablated_confusions, ablated_clean_coverage = [], [], []
+            detector_inpaint_error, oracle_inpaint_error, ablated_inpaint_error = [], [], []
             for i, (src, dst, gt) in enumerate(zip(original_frames, damaged_frames, truth)):
                 pred = ai_scratch_mask(cv2.cvtColor(dst, cv2.COLOR_RGB2BGR), sensitivity=strength)
                 if pred.shape != gt.shape or pred.dtype != np.uint8:
@@ -160,6 +161,15 @@ def diagnose(*, manifest: Path, output_dir: Path,
                 clean_pred = ai_scratch_mask(cv2.cvtColor(src, cv2.COLOR_RGB2BGR), sensitivity=strength)
                 if clean_pred.shape != gt.shape:
                     raise ValueError("Clean-transfer negative control shape mismatch")
+                ablated = ai_scratch_mask(
+                    cv2.cvtColor(dst, cv2.COLOR_RGB2BGR), sensitivity=strength,
+                    full_height_column_fallback=False)
+                ablated_clean = ai_scratch_mask(
+                    cv2.cvtColor(src, cv2.COLOR_RGB2BGR), sensitivity=strength,
+                    full_height_column_fallback=False)
+                ablated_predictions.append(ablated)
+                ablated_confusions.append(confusion(ablated, gt))
+                ablated_clean_coverage.append(float(np.mean(ablated_clean > 127)))
                 predictions.append(pred)
                 clean_detections.append(float(np.mean(clean_pred > 127)))
                 frame_confusions.append(confusion(pred, gt))
@@ -167,7 +177,11 @@ def diagnose(*, manifest: Path, output_dir: Path,
                                                           pred, 3, cv2.INPAINT_TELEA), cv2.COLOR_BGR2RGB)
                 oracle_repair = cv2.cvtColor(cv2.inpaint(cv2.cvtColor(dst, cv2.COLOR_RGB2BGR),
                                                         gt, 3, cv2.INPAINT_TELEA), cv2.COLOR_BGR2RGB)
+                ablated_repair = cv2.cvtColor(
+                    cv2.inpaint(cv2.cvtColor(dst, cv2.COLOR_RGB2BGR),
+                                ablated, 3, cv2.INPAINT_TELEA), cv2.COLOR_BGR2RGB)
                 detector_inpaint_error.append(ssim_psnr_roi(src, detector_repair, gt))
+                ablated_inpaint_error.append(ssim_psnr_roi(src, ablated_repair, gt))
                 oracle_inpaint_error.append(ssim_psnr_roi(src, oracle_repair, gt))
             aggregate = summarize_confusion(frame_confusions)
             label = f"sensitivity_{strength:.2f}"
@@ -182,6 +196,13 @@ def diagnose(*, manifest: Path, output_dir: Path,
                 if not cv2.imwrite(str(destination / f"overlay_{idx:06d}.png"),
                                    cv2.cvtColor(sheet, cv2.COLOR_RGB2BGR)):
                     raise IOError("Could not export scratch diagnostics")
+                if abs(strength - 0.65) < 1e-9:
+                    experimental = visualize(original_frames[idx], damaged_frames[idx],
+                                             truth[idx], ablated_predictions[idx],
+                                             title=f"{data['film']} / {data['scene']} | frame={idx} | column fallback OFF")
+                    if not cv2.imwrite(str(destination / f"no_column_fallback_{idx:06d}.png"),
+                                       cv2.cvtColor(experimental, cv2.COLOR_RGB2BGR)):
+                        raise IOError("Could not export column fallback ablation")
             def pooled_mse(values: list[dict], region: str) -> float | None:
                 pixels = sum(d[region + "_pixels"] for d in values)
                 return (sum(d[region + "_mse"] * d[region + "_pixels"] for d in values
@@ -190,6 +211,13 @@ def diagnose(*, manifest: Path, output_dir: Path,
                 "sensitivity": strength, "mask_scores": aggregate,
                 "clean_transfer_detector_coverage_fraction_mean": float(np.mean(clean_detections)),
                 "per_frame_confusion": frame_confusions,
+                "no_full_height_column_fallback_ablation": {
+                    "mask_scores": summarize_confusion(ablated_confusions),
+                    "clean_transfer_detector_coverage_fraction_mean": float(np.mean(ablated_clean_coverage)),
+                    "telea_known_scratch_mse": pooled_mse(ablated_inpaint_error, "known_scratch"),
+                    "telea_outside_gt_mse": pooled_mse(ablated_inpaint_error, "outside_known_scratch"),
+                    "experimental_only": True,
+                },
                 "telea_using_detector_mask_known_scratch_mse": pooled_mse(detector_inpaint_error, "known_scratch"),
                 "telea_using_oracle_gt_mask_known_scratch_mse": pooled_mse(oracle_inpaint_error, "known_scratch"),
                 "telea_using_detector_mask_outside_gt_mse": pooled_mse(detector_inpaint_error, "outside_known_scratch"),
