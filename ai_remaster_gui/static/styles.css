@@ -255,3 +255,51 @@ input#cleanupCompareSlider[hidden]{display:none !important}
 .comparison-player.cleanup-two-up .cleanup-exact-wipe-control input[type=range] {
   width:100%;margin:0;padding:0;cursor:ew-resize;
 }
+
+/* Unified Clean Up workspace: independent motion preview and exact stills. */
+.comparison-player.cleanup-two-up.frame-inspector-active .compare-before,
+.comparison-player.cleanup-two-up.frame-inspector-active .compare-after {
+  visibility:visible !important;
+}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-workspace[hidden],
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe:not(.fi-visible) {display:none !important}
+.fi-exact-workspace {margin:14px 0 12px}
+.fi-exact-heading {display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;margin-bottom:10px}
+.fi-exact-heading span,.fi-exact-panel small {color:var(--muted);font-size:12px}
+.fi-exact-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.fi-exact-panel {min-width:0;margin:0;padding:9px;border:1px solid var(--line);border-radius:7px;background:#0a1115}
+.fi-exact-panel figcaption {font-size:13px;font-weight:700;margin-bottom:7px}
+.fi-exact-panel small {display:block;line-height:1.35;margin-top:7px}
+.fi-exact-media {position:relative;aspect-ratio:4/3;overflow:hidden;border-radius:5px;background:#050607}
+.fi-exact-media img,.fi-exact-media canvas {display:block;width:100%;height:100%;object-fit:contain;background:#050607}
+.fi-exact-media img {transform:scale(var(--fi-zoom,1));transform-origin:center}
+.fi-difference-readout {display:block;font-size:12px;color:var(--text);margin-top:8px;font-variant-numeric:tabular-nums}
+@media(max-width:930px){.fi-exact-grid{grid-template-columns:1fr}.fi-exact-media{max-width:720px}}
+/* The additional wipe now sits below the three still panels, not over videos. */
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe.fi-visible {
+  display:grid;gap:9px;margin-top:18px;padding:13px;
+  background:#0c151a;border:1px solid var(--line);border-radius:9px
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image {
+  position:relative;aspect-ratio:4/3;width:100%;max-width:960px;
+  overflow:hidden;background:#050607;border-radius:6px;
+  cursor:ew-resize;touch-action:none;user-select:none
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image img {
+  position:absolute;inset:0;width:100%;height:100%;max-height:none;
+  object-fit:contain;border:0;border-radius:0;background:transparent;
+  transform:scale(var(--fi-zoom,1));transform-origin:center;
+  display:block !important;pointer-events:none
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image [data-wipe-before] {z-index:1;background:#050607}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image [data-wipe-after] {z-index:2}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-divider {
+  position:absolute;top:0;bottom:0;width:0;border-left:2px solid #e2f8ff;
+  z-index:3;pointer-events:none;filter:drop-shadow(0 0 2px #111)
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-control {
+  display:grid;gap:5px;font-size:12px;color:var(--text);max-width:960px
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-control input[type=range] {
+  width:100%;margin:0;padding:0;cursor:ew-resize
+}
