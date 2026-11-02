@@ -172,6 +172,7 @@ from .outpaint_guides import (
 )
 from .cache import cache_state, delete_cache_category, delete_cache_file, human_size
 from . import stage_stamps
+from .cleanup_diagnostics import cleanup_diagnostics_for
 from .runtime_settings import APP_VERSION, canonical_intermediate_profile, default_qwen_workflow, default_settings, load_settings, qwen_masked_workflow_for, qwen_workflow_for
 from .system_status import flashvsr_hardware_warning, system_status
 from .media import (
@@ -1050,6 +1051,7 @@ class PipelineApp:
                 "expected_outputs": {stage.key: self.expected_outputs(stage.key) for stage in (*self.active_stages(), output_stage())},
                 "existing_outputs": {stage.key: self.existing_outputs(stage.key) for stage in (*self.active_stages(), output_stage())},
                 "cleanup_comparison": self.cleanup_comparison_state(),
+                "cleanup_diagnostics": self.cleanup_diagnostics_state(),
                 "stabilization_comparison": self.stabilization_comparison_state(),
                 "detail_comparison": self.detail_comparison_state(),
                 "reference_luminance": {"enabled": False, "plan": [], "matched_shots": 0},
@@ -2692,6 +2694,14 @@ class PipelineApp:
         manifest = resolve(manifest_text) if manifest_text else None
         stale = bool(manifest and manifest.is_file() and output.stat().st_mtime_ns < manifest.stat().st_mtime_ns)
         return {"before": before, "after": after, "stale": "true" if stale else "false"}
+
+    def cleanup_diagnostics_state(self) -> dict:
+        source = pipeline_source_text(self.settings)
+        output = self.cleanup_output() if source else ""
+        return cleanup_diagnostics_for(
+            ROOT, resolve_video_source(source) if source else None,
+            resolve(output) if output else None, self.settings.get("cleanup", {})
+        )
 
     def cleanup_comparison_state(self) -> dict[str, str]:
         source = pipeline_source_text(self.settings)

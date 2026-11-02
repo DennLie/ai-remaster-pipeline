@@ -669,6 +669,77 @@ async function loadUpscaleShotComparison(card) {
 
 function bindCleanupComparison() {
   bindVideoComparison('cleanupCompareSlider');
+  bindCleanupDiagnostics();
+}
+
+function bindCleanupDiagnostics() {
+  const d = (state && state.cleanup_diagnostics && state.cleanup_diagnostics.deflicker) || null;
+  const mask = document.getElementById('cleanupDiagMaskVideo');
+  const slider = document.getElementById('cleanupCompareSlider');
+  const player = slider && slider.previousElementSibling;
+  const original = player && player.querySelector('.compare-before');
+  if (!original) return;
+  const readout = document.getElementById('cleanupGainReadout');
+  const samples = d && Array.isArray(d.samples) ? d.samples : [];
+  function update() {
+    // The exact inspector owns the readout while inspecting still frames.
+    if (player.classList.contains('frame-inspector-active')) return;
+    const total = d && Number(d.frames);
+    if (!total || !Number.isFinite(original.duration) || original.duration <= 0) return;
+    const index = Math.max(0, Math.min(total - 1,
+      Math.floor((original.currentTime / original.duration) * total)));
+    let closest = null;
+    for (const item of samples) {
+      if (item.frame <= index) closest = item;
+      else break;
+    }
+    if (readout && closest) {
+      const pct = 100 * (closest.gain - 1);
+      readout.textContent = `Frame ${index + 1}/${total}: ${pct >= 0 ? '+' : ''}${pct.toFixed(2)} % Helligkeitskorrektur${d.sampled ? ' (Stichprobe)' : ''}`;
+    }
+    if (mask && mask.readyState >= 1 && Math.abs(mask.currentTime - original.currentTime) > .15) {
+      try { mask.currentTime = original.currentTime; } catch (e) { /* video seeking may be unavailable */ }
+    }
+  }
+  const bars = Array.from(document.querySelectorAll('.cleanup-gain-bar'));
+  const markFrame = frame => {
+    for (const bar of bars) {
+      const active = Number(bar.dataset.cleanupFrame) === frame;
+      bar.classList.toggle('is-current', active);
+      bar.setAttribute('aria-pressed', String(active));
+    }
+  };
+  bars.forEach(bar => {
+    bar.addEventListener('click', () => {
+      if (!d) return;
+      const frame = Number(bar.dataset.cleanupFrame);
+      if (!Number.isInteger(frame) || frame < 0 || frame >= Number(d.frames)) return;
+      // The chosen frame, including neutral bars, is an exact decoded frame.
+      original.pause();
+      player.querySelector('.compare-after')?.pause();
+      markFrame(frame);
+      document.dispatchEvent(new CustomEvent('arp-request-exact-frame', {
+        detail: {stage: 'cleanup', frame}
+      }));
+      // The chart is below the video; reveal the actual frame after selection.
+      player.scrollIntoView?.({behavior: 'smooth', block: 'start'});
+    });
+  });
+  document.addEventListener('arp-frame-inspected', event => {
+    if (!player.isConnected || event.detail?.stage !== 'cleanup') return;
+    markFrame(Number(event.detail.frame));
+  });
+  original.addEventListener('timeupdate', update);
+  original.addEventListener('seeked', update);
+  original.addEventListener('loadedmetadata', update);
+  if (mask) {
+    mask.addEventListener('loadedmetadata', update);
+    original.addEventListener('play', () => { update(); mask.play().catch(() => {}); });
+    original.addEventListener('pause', () => mask.pause());
+    original.addEventListener('ratechange', () => { mask.playbackRate = original.playbackRate; });
+    original.addEventListener('seeking', update);
+  }
+  update();
 }
 
 function bindVideoComparison(sliderId) {
@@ -683,7 +754,9 @@ function bindVideoComparison(sliderId) {
   if (!before || !after || !mask || !handle) return;
 
   const setSplit = () => {
-    after.style.clipPath = `inset(0 ${100 - Number(slider.value)}% 0 0)`;
+    after.style.clipPath = sliderId === 'cleanupCompareSlider'
+      ? `inset(0 0 0 ${Number(slider.value)}%)`
+      : `inset(0 ${100 - Number(slider.value)}% 0 0)`;
     mask.style.width = slider.value + '%';
     handle.style.left = slider.value + '%';
   };
@@ -696,12 +769,45 @@ function bindVideoComparison(sliderId) {
   };
 
   slider.addEventListener('input', setSplit);
-  before.addEventListener('play', () => { sync(true); after.play().catch(() => {}); });
-  before.addEventListener('pause', () => after.pause());
-  before.addEventListener('seeking', () => sync(true));
-  before.addEventListener('timeupdate', () => sync(false));
-  before.addEventListener('ratechange', () => { after.playbackRate = before.playbackRate; });
+  if (sliderId === 'cleanupCompareSlider') {
+    player.classList.add('cleanup-compare-interactive');
+    player.insertAdjacentHTML('beforeend', `
+      <span class="cleanup-compare-label cleanup-compare-original">VORHER / ORIGINAL</span>
+      <span class="cleanup-compare-label cleanup-compare-restored">NACHHER / LIGHT DEFLICKER</span>
+    `);
+    const dragSplit = event => {
+      const bounds = player.getBoundingClientRect();
+      if (!bounds.width) return;
+      const percent = Math.max(0, Math.min(100,
+        100 * (event.clientX - bounds.left) / bounds.width));
+      slider.value = String(Math.round(percent));
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    handle.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      dragSplit(event);
+    });
+    handle.addEventListener('pointermove', event => {
+      if (handle.hasPointerCapture(event.pointerId)) dragSplit(event);
+    });
+    for (const type of ['pointerup', 'pointercancel']) {
+      handle.addEventListener(type, event => {
+        if (handle.hasPointerCapture(event.pointerId)) {
+          handle.releasePointerCapture(event.pointerId);
+        }
+      });
+    }
+  }
+  if (sliderId !== 'cleanupCompareSlider') before.addEventListener('play', () => { sync(true); after.play().catch(() => {}); });
+  if (sliderId !== 'cleanupCompareSlider') before.addEventListener('pause', () => after.pause());
+  if (sliderId !== 'cleanupCompareSlider') before.addEventListener('seeking', () => sync(true));
+  if (sliderId !== 'cleanupCompareSlider') before.addEventListener('timeupdate', () => sync(false));
+  if (sliderId !== 'cleanupCompareSlider') before.addEventListener('ratechange', () => { after.playbackRate = before.playbackRate; });
   setSplit();
+  setupFrameInspector(sliderId, player, before, after, slider);
+  setupCleanupReview(sliderId, player, before, after, slider);
 }
 
 function liveCompositeHtml(s) {

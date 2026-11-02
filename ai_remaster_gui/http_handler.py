@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import subprocess
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.error import URLError
@@ -9,6 +10,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from . import state
+from .frame_inspector import inspection as inspect_frame
 from .cache import delete_cache_category, delete_cache_file
 from .config import STATIC_DIR
 from .file_dialogs import browse_path, browse_source_paths
@@ -172,6 +174,15 @@ class Handler(BaseHTTPRequestHandler):
                     ],
                 }
             )
+        elif parsed.path == "/api/frame-inspector":
+            query = parse_qs(parsed.query)
+            try:
+                stage = query.get("stage", [""])[0]
+                frame = int(query.get("frame", ["0"])[0])
+                self.send_json({"ok": True, **inspect_frame(state.APP, stage, frame)})
+            except (ValueError, IndexError, FileNotFoundError, RuntimeError, OSError,
+                    subprocess.SubprocessError) as exc:
+                self.send_json({"ok": False, "error": str(exc)})
         elif parsed.path == "/api/state":
             query = parse_qs(parsed.query)
             self.send_json(state.APP.state(query.get("active", [""])[0], query.get("retry_section", [""])[0] == "1"))

@@ -864,6 +864,7 @@ function drawCleanup(st, s, expected, sp) {
       <section class="card editor-viewer">
         <h2>${esc(comparison.title || 'Clean Up Comparison')}</h2>
         ${cleanupComparisonHtml(comparison)}
+        ${cleanupDiagnosticsHtml(state.cleanup_diagnostics || {})}
       </section>
     </div>
   `;
@@ -922,6 +923,7 @@ function stabilizationComparisonHtml(comparison) {
       <div class="compare-handle" style="left:50%"></div>
     </div>
     <input id="stabilizationCompareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="Stabilization before after split">
+    ${frameInspectorHtml('stabilize')}
     <div class="source-info">
       <div><span>Before master</span><strong>${esc(comparison.master_source || before)}</strong></div>
       <div><span>After master</span><strong>${esc(comparison.master_output || after)}</strong></div>
@@ -939,6 +941,48 @@ function cleanupLicenseWarning(s) {
       <a href="https://github.com/sczhou/ProPainter/blob/main/LICENSE" target="_blank" rel="noopener">View licence</a>.
     </div>
   `;
+}
+
+function cleanupDiagnosticsHtml(diagnostics) {
+  if (!diagnostics.ready) return '';
+  const d = diagnostics.deflicker;
+  const mask = diagnostics.defect_mask || '';
+  const scratch = diagnostics.scratch_mask || '';
+  const cards = d ? `
+    <div class="cleanup-diag-metrics">
+      <div><small>Korrigierte Frames</small><strong>${d.corrected} / ${d.frames}</strong></div>
+      <div><small>Maximale Korrektur</small><strong>${Number(d.max_gain_change_pct).toFixed(2)} %</strong></div>
+      <div><small>Durchschnittliche absolute Korrektur</small><strong>${Number(d.mean_abs_gain_change_pct).toFixed(2)} %</strong></div>
+      <div><small>St\u00e4rke / Grenze</small><strong>${Number(d.strength).toFixed(2)} / \u00b1${Number(d.limit_pct).toFixed(1)} %</strong></div>
+      <div><small>Erkannte Schnittgrenzen</small><strong>${d.cut_boundaries}</strong></div>
+    </div>
+    <h4>Helligkeitsfaktor pro Frame</h4>
+    <div class="cleanup-gain-plot" role="group" aria-label="Gemessene Deflicker-Korrekturen nach Frame">
+      ${(d.samples || []).map(p => {
+        const delta = 100 * (p.gain - 1);
+        const height = Math.max(2, Math.min(100, 100 * Math.abs(delta) / Math.max(.01, d.limit_pct)));
+        const direction = delta > 0 ? 'bright' : delta < 0 ? 'dark' : 'neutral';
+        return `<button type="button" class="cleanup-gain-bar ${direction}"
+          data-cleanup-frame="${p.frame}" style="height:${height.toFixed(1)}%"
+          title="Frame ${p.frame + 1}: ${delta >= 0 ? '+' : ''}${delta.toFixed(2)}%" aria-label="Frame ${p.frame + 1}, Helligkeitskorrektur ${delta.toFixed(2)} Prozent"></button>`;
+      }).join('')}
+    </div>
+    <div class="cleanup-diag-legend"><span>T\u00fcrkis: aufhellen</span><span>Orange: abdunkeln</span><span>Grau: unver\u00e4ndert</span></div>
+    <p id="cleanupGainReadout" class="cleanup-diag-readout">W\u00e4hle einen Balken oder starte das Video, um den Frame-Wert zu sehen.</p>
+    ${d.sampled ? '<p class="shot-empty">Bei langen Videos werden pro Block nur die st\u00e4rksten Korrekturen als Stichprobe angezeigt.</p>' : ''}
+  ` : `<p class="shot-empty">F\u00fcr diese Clean-Up-Ausgabe ist kein passender Frame-Bericht vorhanden oder Light Deflicker war nicht aktiv.</p>`;
+  const maskBlock = mask ? `
+    <h4>Tempor\u00e4re Defektmaske (nur Erkennung)</h4>
+    <video id="cleanupDiagMaskVideo" src="${media(mask)}" muted playsinline preload="metadata"></video>
+    <p class="shot-empty">Wei\u00df markiert m\u00f6gliche Sch\u00e4den. Die Maske \u00e4ndert keine Pixel und ist keine DART-Reparatur. Sie l\u00e4uft ungef\u00e4hr synchron mit dem Originalvideo.</p>
+  ` : '<p class="shot-empty">Keine r\u00e4umliche Defektmaske f\u00fcr diesen Durchlauf: Beim Light Deflicker werden globale Helligkeitsfaktoren statt Pixelmasken angewandt. F\u00fcr eine Maske muss "Detect film damage" separat aktiviert und ausgef\u00fchrt werden.</p>';
+  return `<section class="cleanup-diagnostics" aria-label="Clean Up Analyse">
+    <h3>Was wurde ver\u00e4ndert?</h3>
+    ${cards}
+    ${maskBlock}
+    ${scratch ? `<p><a href="${media(scratch)}" target="_blank" rel="noopener">Gespeicherte AI-DeScratch-Maske \u00f6ffnen</a></p>` : ''}
+    <p class="shot-empty">Werte stammen aus dem gespeicherten ARP-Analysebericht, nicht aus einer Sch\u00e4tzung des Browsers. Sie beweisen keine bessere Bildqualit\u00e4t.</p>
+  </section>`;
 }
 
 function cleanupComparisonHtml(comparison) {
@@ -961,6 +1005,7 @@ function cleanupComparisonHtml(comparison) {
       <div class="compare-handle" style="left:50%"></div>
     </div>
     <input id="cleanupCompareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="Clean Up before after split">
+    ${frameInspectorHtml('cleanup')}
     <div class="source-info">
       <div><span>Before</span><strong>${esc(before)}</strong></div>
       <div><span>After</span><strong>${esc(after)}</strong></div>
