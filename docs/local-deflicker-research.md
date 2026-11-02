@@ -58,3 +58,38 @@ git switch --track origin/research/localized-deflicker-v1
 The report is stored only locally and is intentionally not committed to GitHub. To save another result, choose another filename; the pilot refuses overwrites. The application GUI is **not** switched to this research branch for normal Clean Up rendering.
 
 **CI scope:** synthetic static and moving-image negative controls, plus an FFmpeg-generated moving test clip in a deterministic video pilot. This is not a captured historical film. A multi-film genuine-defect blind review is still required before enabling a selectable Localized engine.
+
+## Measured Neighbors 72-frame pilot and guard follow-up (2026-11-02)
+
+The user ran `evaluation/Neighbors_72.mkv` (72 frames, 960×720, 30 fps) locally with the **unguarded** baseline. This is a *genuine digitized film transfer plus a deliberately injected synthetic exposure error*, **not** an observed restoration-quality outcome for authentic flicker. The reported measurements:
+
+| Quantity (mean absolute digital pixel error) | Baseline |
+|---|---:|
+| Synthetic-damage region BEFORE correction | 10.08461 |
+| Synthetic-damage region AFTER correction | 5.81619 |
+| Absolute improvement in damaged region | 4.26842 (42.3% relative) |
+| Unaffected outside region BEFORE correction | 0.00000 |
+| Unaffected outside region AFTER correction | 0.90662 |
+| False alteration of totally untouched original | 0.99839 |
+
+This is a **mixed result**. The candidate reduces an imposed local digital illumination defect, but it introduces alterations in unmodified areas and on unmodified frames. **Release is blocked**. In particular, motion, grain and intentional lighting changes are not yet proven to be safely handled.
+
+### Second, controlled comparison: experimental oscillation guard
+
+The prototype now offers an opt-in `--temporal-guard oscillation`, **off by default** to preserve the earlier baseline. This provisional gate only allows corrections when the immediately previous and next low-frequency luminance fields are similar to one another and the middle frame deviates by at least three luma units. It softens the gate spatially. It rejects many smooth ramps and some moving structures but is **not optical flow or full motion compensation**, and may miss real slow flicker or still harm moving pixels. Neither its benefit nor its superiority on `Neighbors` has been established.
+
+Run the same 72-frame source with **both versions**, producing a *new* comparison report:
+
+```powershell
+Set-Location I:\ai-remaster-pipeline
+git switch research/localized-deflicker-v1
+git pull --ff-only origin research/localized-deflicker-v1
+.\.venv\Scripts\python.exe scripts/evaluate_local_deflicker_pilot.py `
+  --source evaluation/Neighbors_72.mkv `
+  --report evaluation/Neighbors_72_local_guard_comparison.json `
+  --max-frames 120 --compare-guards
+```
+
+Do not reuse the first report filename: the evaluation refuses overwriting measured results. The report section `guard_comparison` contains *both* methods' inside, outside and original-unmodified errors plus their differences. Improvement in injected flicker **does not** compensate for unbounded false changes. Include separate motion/scene-cut/real-flicker negative controls before enabling any GUI backend.
+
+This pilot evaluates the same digital source with synthesized defects. A real-film unmodified-footage test measures unwanted changes, **not** authentic flicker correction efficacy.
