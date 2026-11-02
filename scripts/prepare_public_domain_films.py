@@ -352,6 +352,12 @@ def main() -> None:
             if film["acquire"] == "original" and metadata.get("commons_original_sha1"):
                 if hash_file(source, "sha1") != metadata["commons_original_sha1"]:
                     raise ValueError("Downloaded Commons original SHA-1 does not match Commons API")
+            pinned_media = film.get("selected_media_sha256")
+            if pinned_media is not None:
+                if not isinstance(pinned_media, str) or not re.fullmatch("[0-9a-fA-F]{64}", pinned_media):
+                    raise ValueError(f"Invalid selected_media_sha256 in catalog for {film['id']}")
+                if transfer["downloaded_sha256"] != pinned_media.lower():
+                    raise ValueError(f"Selected Commons file SHA-256 changed for {film['id']}")
         payload = render_one(
             catalog, film, source, args.output_dir,
             source_provenance={**metadata, **transfer}, ffmpeg=args.ffmpeg,
