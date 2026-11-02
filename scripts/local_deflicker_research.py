@@ -45,9 +45,11 @@ def local_deflicker_frames(
         f.shape != shape or f.dtype != np.uint8 for f in frames
     ):
         raise ValueError("Frames must be matching 8-bit BGR images.")
-    boundaries = [0, *sorted(set(cut_frames)), len(frames)]
-    if len(boundaries) != len(set(boundaries)) or any(x <= 0 or x >= len(frames) for x in cut_frames):
+    if len(set(cut_frames)) != len(cut_frames) or any(
+        not isinstance(x, int) or x <= 0 or x >= len(frames) for x in cut_frames
+    ):
         raise ValueError("Cut boundaries must be unique internal frame indices.")
+    boundaries = [0, *sorted(cut_frames), len(frames)]
     low_frequency = [
         cv2.GaussianBlur(cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32),
                          (0, 0), sigmaX=sigma, sigmaY=sigma)
