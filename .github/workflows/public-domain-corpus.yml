@@ -1,0 +1,87 @@
+name: Public domain multi-film restoration corpus
+
+on:
+  pull_request:
+    paths:
+      - "benchmarks/public_domain_films/**"
+      - "scripts/prepare_public_domain_films.py"
+      - "tests/test_prepare_public_domain_films.py"
+      - ".github/workflows/public-domain-corpus.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-synthetic-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install FFmpeg and classical image libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
+          ffmpeg -hide_banner -filters | grep -E 'unsharp|cas|gblur'
+      - name: Test curated film and derivative contracts using actual synthetic media
+        run: python -m unittest -v tests.test_prepare_public_domain_films
+
+  generate-real-film-clips:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'feature/multifilm-public-domain-corpus'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        film:
+          - lumiere_train
+          - great_train_robbery
+          - melies_moon
+          - caligari
+          - gertie
+          - corner_in_wheat
+          - nosferatu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install FFmpeg and minimal CPU-only analysis libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
+      - name: Build genuine source-aligned research excerpts and controlled variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/film_corpus"
+          python scripts/prepare_public_domain_films.py \
+            --film "${{ matrix.film }}" \
+            --output-dir "$RUNNER_TEMP/film_corpus/${{ matrix.film }}"
+          python -c '
+          import json, os, pathlib
+          folder = pathlib.Path(os.environ["RUNNER_TEMP"]) / "film_corpus" / "${{ matrix.film }}"
+          x = json.loads((folder / "corpus_manifest.json").read_text())
+          import sys
+          sys.path.insert(0, "scripts")
+          from prepare_public_domain_films import load_catalog
+          catalog = load_catalog(pathlib.Path("benchmarks/public_domain_films/catalog.json"))
+          entry = next(f for f in catalog["films"] if f["id"] == "${{ matrix.film }}")
+          assert len(x["clips"]) == len(entry["shots"])
+          assert [shot["name"] for shot in x["clips"]] == [shot["name"] for shot in entry["shots"]]
+          assert x["original_audio_redistributed"] is False
+          print(json.dumps({"title": x["title"], "source_checksum": x["source_provenance"]["downloaded_sha256"], "shots": [(v["name"],v["geometry"],len(v["files"])) for v in x["clips"]]}, indent=2))
+          '
+      - name: Upload one attributable research bundle per film (no full movie)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pd-film-scenes-${{ matrix.film }}
+          path: ${{ runner.temp }}/film_corpus/${{ matrix.film }}/
+          retention-days: 30
+          if-no-files-found: error
