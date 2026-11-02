@@ -11,6 +11,122 @@ function cleanupFrameTimestamp(frame, fps, totalFrames) {
   return Math.max(0, Math.min(frame, totalFrames - 1)) / fps;
 }
 
+
+// FFmpeg filters do not expose ARP's per-frame gain factors. Their bars show
+// measured mean absolute luminance change vs original instead, never "gain".
+function cleanupDifferenceBarData(report) {
+  const frames = Number(report?.frames);
+  const samples = report?.samples;
+  if (!Number.isInteger(frames) || frames < 1 || !Array.isArray(samples) ||
+      samples.length < 1 || samples.length > 240 ||
+      report?.metric !== 'mean_abs_luma_8bit') {
+    throw new Error('Ungültiger FFmpeg-Framebericht.');
+  }
+  let last = -1, largest = 0;
+  const values = samples.map(item => {
+    const frame = Number(item.frame), value = Number(item.mean_abs_luma);
+    if (!Number.isInteger(frame) || frame <= last || frame >= frames ||
+        !Number.isFinite(value) || value < 0 || value > 255) {
+      throw new Error('Inkonsistente Framewerte im FFmpeg-Bericht.');
+    }
+    last = frame;
+    largest = Math.max(largest, value);
+    return {frame, value};
+  });
+  return values.map(item => ({
+    ...item,
+    height: Math.max(2, Math.min(100, 100 * item.value / (largest || 1)))
+  }));
+}
+
+function setupFFmpegDifferenceRail(slider, player, before) {
+  const method = player.dataset.deflickerMethod;
+  if (method !== 'ffmpeg_median' && method !== 'ffmpeg_am') return;
+  const rail = document.createElement('section');
+  rail.className = 'cleanup-frame-rail cleanup-difference-rail';
+  rail.setAttribute('aria-label', 'Mittlere Pixelhelligkeitsänderung pro Frame');
+  rail.innerHTML = `
+    <div class="cleanup-frame-rail-heading">
+      <strong>Frame-Änderungen</strong>
+      <span>Original ↔ Ergebnis · Balken anklicken: Frame auswählen</span>
+    </div>
+    <div class="cleanup-gain-plot" role="group" aria-label="Gemessene Pixelhelligkeitsänderungen je Frame"></div>
+    <div class="cleanup-diag-legend">Balkenhöhe: Änderung relativ zum größten Wert dieses Clips · keine Deflicker-Gain-Werte</div>
+    <p class="cleanup-diag-readout" role="status">Berechne Pixelunterschiede aus den vorhandenen Videos …</p>`;
+  // Same location as ARP's existing gain chart: immediately below the videos.
+  slider.insertAdjacentElement('afterend', rail);
+  player.closest('.editor-viewer')?.classList.add('has-cleanup-frame-rail');
+  const plot = rail.querySelector('.cleanup-gain-plot');
+  const readout = rail.querySelector('.cleanup-diag-readout');
+  let bars = [], reportFrames = 0, selectedFrame = 0;
+  const highlight = frame => {
+    selectedFrame = frame;
+    for (const bar of bars) {
+      const active = Number(bar.dataset.cleanupFrame) === frame;
+      bar.classList.toggle('is-current', active);
+      bar.setAttribute('aria-pressed', String(active));
+    }
+    const match = bars.find(bar => Number(bar.dataset.cleanupFrame) === frame);
+    if (match) {
+      readout.textContent = `Frame ${frame+1}/${reportFrames}: mittlere absolute Helligkeitsänderung ${Number(match.dataset.diffValue).toFixed(2)} / 255`;
+    }
+  };
+  document.addEventListener('arp-frame-inspected', event => {
+    if (!rail.isConnected || event.detail?.stage !== 'cleanup') return;
+    highlight(Number(event.detail.frame));
+  });
+  // Video timeline uses its own clock. Do not auto-seek the pinned exact still.
+  before.addEventListener('timeupdate', () => {
+    if (!rail.isConnected || !(reportFrames > 0) || !(before.duration > 0) || before.paused) return;
+    const at = Math.min(reportFrames-1, Math.max(0, Math.floor(before.currentTime / before.duration * reportFrames)));
+    highlight(at);
+  });
+  fetch('/api/cleanup-frame-differences', {cache:'no-store'})
+    .then(response => {
+      if (!response.ok) throw new Error('Serverfehler ' + response.status);
+      return response.json();
+    })
+    .then(data => {
+      if (!rail.isConnected) return;
+      if (!data.ok) throw new Error(data.error || 'Analyse nicht verfügbar.');
+      const entries = cleanupDifferenceBarData(data);
+      reportFrames = data.frames;
+      const fragment = document.createDocumentFragment();
+      for (const entry of entries) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'cleanup-gain-bar difference';
+        button.dataset.cleanupFrame = String(entry.frame);
+        button.dataset.diffValue = String(entry.value);
+        button.style.setProperty('--correction-height', entry.height.toFixed(1) + '%');
+        button.title = `Frame ${entry.frame+1}: ${entry.value.toFixed(2)} / 255 Helligkeitsunterschied`;
+        button.setAttribute('aria-label', button.title);
+        button.setAttribute('aria-pressed', 'false');
+        button.addEventListener('click', () => {
+          highlight(entry.frame);
+          document.dispatchEvent(new CustomEvent('arp-request-exact-frame', {
+            detail: {stage:'cleanup', frame:entry.frame}
+          }));
+        });
+        fragment.appendChild(button);
+        bars.push(button);
+      }
+      plot.replaceChildren(fragment);
+      const prefix = data.sampled ? 'Stichprobe (je Block stärkste Differenz). ' : '';
+      const avg = Number(data.mean_abs_luma);
+      const max = Number(data.max_mean_abs_luma);
+      const legend = rail.querySelector('.cleanup-diag-legend');
+      if (legend && Number.isFinite(avg) && Number.isFinite(max)) {
+        legend.textContent = `${prefix}Ø ${avg.toFixed(2)} / 255 · Maximum ${max.toFixed(2)} / 255 · Pixeldifferenz, keine Deflicker-Gain-Werte.`;
+      }
+      highlight(selectedFrame);
+    }).catch(error => {
+      if (rail.isConnected) {
+        readout.textContent = 'Frame-Änderungen nicht verfügbar: ' + error.message;
+      }
+    });
+}
+
 function setupCleanupReview(sliderId, player, before, after, slider) {
   if (sliderId !== 'cleanupCompareSlider' || player.dataset.cleanupTwoUpReady) return;
   const inspector = player.parentElement?.querySelector('.frame-inspector[data-fi-stage="cleanup"]');
@@ -23,6 +139,9 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   const plot = diagnostics?.querySelector('.cleanup-gain-plot');
   const legend = diagnostics?.querySelector('.cleanup-diag-legend');
   const readout = diagnostics?.querySelector('#cleanupGainReadout');
+  if (!plot && ['ffmpeg_median', 'ffmpeg_am'].includes(player.dataset.deflickerMethod)) {
+    setupFFmpegDifferenceRail(slider, player, before);
+  }
   if (plot && legend && readout) {
     const oldTitle = plot.previousElementSibling;
     if (oldTitle?.tagName === 'H4') oldTitle.remove();
