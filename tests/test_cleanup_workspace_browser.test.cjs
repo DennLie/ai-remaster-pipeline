@@ -25,7 +25,8 @@ test('Clean Up provides permanent three-up exact frame inspection; stabilization
   assert.match(cleanup, /data-fi-still-after/);
   assert.match(cleanup, /data-fi-difference/);
   assert.match(cleanup, /PIXELDIFFERENZ ×8/);
-  assert.match(cleanup, /Einzelbilder ausblenden/);
+  assert.doesNotMatch(cleanup, /Einzelbilder (anzeigen|ausblenden)/);
+  assert.doesNotMatch(cleanup, /data-fi-open|data-fi-close/);
   const stabilize = api.frameInspectorHtml('stabilize');
   assert.doesNotMatch(stabilize, /data-fi-difference/);
   assert.match(stabilize, /Zum Video zurück/);
@@ -65,19 +66,23 @@ test('cleanup playback has no mode lock and the exact wipe uses inspector stills
   assert.match(css, /\.comparison-player\.cleanup-two-up\.frame-inspector-active \.compare-before,[\s\S]*?visibility:visible !important;/);
 });
 
-test('comparison workspace appears before collapsed settings and full diagnostics', () => {
+test('Clean Up settings are a permanent left sidebar and metrics are above the video', () => {
   const start = helpers.indexOf('function drawCleanup(');
   const end = helpers.indexOf('function drawStabilization(', start);
   assert.ok(start >= 0 && end > start);
   const markup = helpers.slice(start, end);
   assert.match(markup, /class="editor-page cleanup-editor-page"/);
+  assert.match(markup, /class="card cleanup-settings-sidebar"/);
   assert.match(markup, /class="card editor-viewer cleanup-workspace-viewer"/);
-  assert.match(markup, /class="cleanup-params-fold"/);
+  assert.match(markup, /class="cleanup-results-overview"/);
+  assert.match(markup, /class="cleanup-results-metrics"/);
+  assert.match(markup, /Was wurde verändert\?/);
   assert.match(markup, /data-cleanup-fold="analysis"/);
-  assert.match(markup, /data-cleanup-fold="settings"/);
-  assert.ok(markup.indexOf('cleanup-workspace-viewer') < markup.indexOf('cleanup-params-fold'));
-  assert.match(markup, /const settingsOpen = typeof prefs\.settings === 'boolean'/);
-  assert.match(markup, /comparison\.exists === 'true'/);
+  assert.doesNotMatch(markup, /cleanup-params-fold/);
+  assert.ok(markup.indexOf('cleanup-settings-sidebar') < markup.indexOf('cleanup-workspace-viewer'));
+  assert.ok(markup.indexOf('cleanup-results-overview') < markup.indexOf('cleanupComparisonHtml(comparison)'));
+  assert.match(css, /grid-template-columns:clamp\(302px,22vw,370px\) minmax\(0,1fr\)/);
+  assert.match(css, /\.cleanup-settings-sidebar\s*\{[\s\S]*?position:sticky/);
 });
 
 test('compact layout removes oversized video and still rows', () => {
@@ -107,11 +112,12 @@ test('Impeccable hierarchy: report status and density toggle share the review he
   assert.match(markup, /page\.dataset\.cleanupDensity/);
   assert.match(markup, /next\.density = expanded \? 'focus' : 'compact'/);
   assert.match(markup, /Weitere Messwerte und Masken/);
+  assert.match(markup, /cleanup-results-overview/);
 });
 
 test('Frame correction rail is adjacent to the inspector, not buried in advanced analysis', () => {
   assert.match(review, /className = 'cleanup-frame-rail'/);
-  assert.match(review, /inspector\.insertAdjacentElement\('afterend', rail\)/);
+  assert.match(review, /slider\.insertAdjacentElement\('afterend', rail\)/);
   assert.match(review, /rail\.append\(plot, legend, readout\)/);
   assert.match(review, /classList\.add\('has-cleanup-frame-rail'\)/);
   assert.match(css, /\.cleanup-frame-rail \.cleanup-gain-plot/);
@@ -137,4 +143,26 @@ test('correction bars have full-height click target while color encodes amplitud
   assert.match(css, /min-height:100%;height:100%/);
   assert.match(css, /\.cleanup-frame-rail \.cleanup-gain-bar\.bright::after/);
   assert.match(css, /\.cleanup-frame-rail \.cleanup-gain-bar\.dark::after/);
+});
+
+test('correction bar and still inspector seek both videos using a shared frame clock', () => {
+  const context = {document:{addEventListener() {}}, Uint8ClampedArray};
+  vm.createContext(context);
+  vm.runInContext(review, context, {filename: 'cleanup-review.js'});
+  assert.equal(context.cleanupFrameTimestamp(39, 30, 72), 1.3);
+  assert.equal(context.cleanupFrameTimestamp(0, 30, 72), 0);
+  assert.equal(context.cleanupFrameTimestamp(71, 30, 72), 71/30);
+  assert.equal(context.cleanupFrameTimestamp(72, 30, 72), 71/30);
+  assert.equal(context.cleanupFrameTimestamp(2, 0, 72), null);
+  assert.match(inspector, /arp-cleanup-seek-video/);
+  assert.match(review, /document\.addEventListener\('arp-cleanup-seek-video'/);
+  assert.match(review, /pauseBoth\(\);\s*moveBoth\(seconds\)/);
+  assert.match(review, /seek\.addEventListener\('change',[\s\S]*?arp-request-exact-frame/);
+  assert.match(css, /\.cleanup-results-overview/);
+});
+test('chart keeps scroll position while selecting frames', () => {
+  const recomp = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/render-recomp.js'), 'utf8');
+  const clickHandler = recomp.slice(recomp.indexOf("bars.forEach(bar =>"), recomp.indexOf("document.addEventListener('arp-frame-inspected'", recomp.indexOf("bars.forEach(bar =>")));
+  assert.doesNotMatch(clickHandler, /scrollIntoView/);
+  assert.match(clickHandler, /arp-request-exact-frame/);
 });
