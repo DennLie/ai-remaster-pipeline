@@ -65,11 +65,58 @@ class LocalizedDeflickerTests(unittest.TestCase):
         self.assertEqual(data["corrected_frames"], 0)
         self.assertTrue(all(np.array_equal(a,b) for a,b in zip(frames, fixed)))
 
+    def test_optional_guard_preserves_static_frames(self):
+        original = base_frame()
+        result, report = local_deflicker_frames(
+            [original.copy() for _ in range(11)], temporal_guard="oscillation"
+        )
+        self.assertEqual(report["corrected_frames"], 0)
+        self.assertEqual(report["temporal_guard"], "oscillation")
+        self.assertTrue(all(np.array_equal(f, original) for f in result))
+
+    def test_optional_guard_responds_to_known_alternating_exposure(self):
+        base = base_frame()
+        source = []
+        for i in range(21):
+            current = base.astype(np.float32)
+            current[:, :40] *= 0.72 if i % 2 else 1.22
+            source.append(np.clip(np.rint(current), 0, 255).astype(np.uint8))
+        fixed, report = local_deflicker_frames(
+            source, radius=2, sigma=6, strength=0.8, cap=0.12,
+            temporal_guard="oscillation"
+        )
+        before = np.std([f[20:44, 7:27].mean() for f in source])
+        after = np.std([f[20:44, 7:27].mean() for f in fixed])
+        self.assertLess(after, before)
+        self.assertGreater(report["corrected_frames"], 0)
+
+    def test_optional_guard_reduces_unwanted_motion_changes_vs_unguarded(self):
+        base = base_frame()
+        moving = []
+        for i in range(19):
+            f = base.copy()
+            x = 12 + i * 3
+            f[10:36, x:x+10] = 230
+            moving.append(f)
+        baseline, _ = local_deflicker_frames(
+            moving, sigma=8, temporal_guard="off"
+        )
+        guarded, _ = local_deflicker_frames(
+            moving, sigma=8, temporal_guard="oscillation"
+        )
+        mean_err = lambda output: float(np.mean([
+            np.abs(a.astype(np.int16)-b.astype(np.int16)).mean()
+            for a, b in zip(moving, output)
+        ]))
+        self.assertLessEqual(mean_err(guarded), mean_err(baseline))
+        self.assertGreater(mean_err(baseline), 0)
+
     def test_fail_closed_invalid_inputs(self):
         good = base_frame()
         for kwargs in ({"cap": 0.9}, {"sigma": 0}, {"radius": 0},
                        {"strength": -1}, {"cut_frames": (0,)},
-                       {"cut_frames": (12,)}, {"cut_frames": (4,4)}):
+                       {"cut_frames": (12,)}, {"cut_frames": (4,4)},
+                       {"temporal_guard": "unknown"}):
             with self.subTest(kwargs=kwargs):
                 with self.assertRaises(ValueError):
                     local_deflicker_frames([good]*9, **kwargs)
