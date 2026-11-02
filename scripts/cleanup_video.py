@@ -603,7 +603,7 @@ def ai_descratch_dimensions(info: dict[str, Any], requested_height: str | int) -
     return width, height
 
 
-def ai_scratch_mask(frame: Any, sensitivity: float = 0.65) -> Any:
+def ai_scratch_mask(frame: Any, sensitivity: float = 0.65, *, full_height_column_fallback: bool = True) -> Any:
     """Detect long, narrow light/dark damage without granting an AI access to the full frame.
 
     The detector looks for horizontal luminance outliers which remain coherent through a tall
@@ -657,15 +657,18 @@ def ai_scratch_mask(frame: Any, sensitivity: float = 0.65) -> Any:
         ):
             clean[labels == label] = 255
 
-    # Whole-height column evidence catches scratches interrupted by similarly toned picture areas.
-    column = np.percentile(strength, 70, axis=0)
-    col_centre = float(np.median(column))
-    col_mad = float(np.median(np.abs(column - col_centre)))
-    column_threshold = max(threshold * 0.72, col_centre + (4.8 - 2.8 * sensitivity) * max(col_mad, 0.12))
-    candidates = column >= column_threshold
-    for start, end in _contiguous_true_runs(candidates):
-        if end - start <= max_width:
-            clean[:, start:end] = 255
+    # Experimental ablation: disable full-height extrapolation to isolate its false positives.
+    # The default remains True and reproduces the existing production detector exactly.
+    if full_height_column_fallback:
+        # Whole-height column evidence catches scratches interrupted by similarly toned picture areas.
+        column = np.percentile(strength, 70, axis=0)
+        col_centre = float(np.median(column))
+        col_mad = float(np.median(np.abs(column - col_centre)))
+        column_threshold = max(threshold * 0.72, col_centre + (4.8 - 2.8 * sensitivity) * max(col_mad, 0.12))
+        candidates = column >= column_threshold
+        for start, end in _contiguous_true_runs(candidates):
+            if end - start <= max_width:
+                clean[:, start:end] = 255
 
     # Do not let presentation bars or a detector failure turn into invented imagery.
     picture = gray > max(4.0, float(np.percentile(gray, 92)) * 0.025)
