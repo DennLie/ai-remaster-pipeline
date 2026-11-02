@@ -669,6 +669,7 @@ async function loadUpscaleShotComparison(card) {
 
 function bindCleanupComparison() {
   bindVideoComparison('cleanupCompareSlider');
+  setupCleanupSourceInspector();
   bindCleanupDiagnostics();
 }
 
