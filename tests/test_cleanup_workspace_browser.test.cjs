@@ -176,3 +176,25 @@ test('sidebar execution actions stay visible near the top of lengthy settings', 
   assert.ok(markup.indexOf('cleanup-primary-actions') < markup.indexOf('st.fields.map('));
   assert.match(css, /\.cleanup-settings-sidebar \.cleanup-primary-actions\s*\{[\s\S]*?position:sticky/);
 });
+
+test('source-only exact frame UI remains available without a processed output', () => {
+  const api = browserFunctions();
+  const sourceHtml = api.cleanupSourceInspectorHtml();
+  assert.match(sourceHtml, /Original · Einzelbildansicht/);
+  assert.match(sourceHtml, /data-source-prev10/);
+  assert.match(sourceHtml, /data-source-next/);
+  assert.match(sourceHtml, /data-source-zoom/);
+  assert.match(sourceHtml, /data-source-timeline/);
+  assert.doesNotMatch(sourceHtml, /data-fi-difference/);
+  assert.match(helpers, /cleanupSourceInspectorHtml\(\)/);
+  assert.match(helpers, /cleanup-source-video/);
+  const recomp = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/render-recomp.js'), 'utf8');
+  assert.match(recomp, /setupCleanupSourceInspector\(\)/);
+});
+
+test('variant labels distinguish FFmpeg arithmetic mean from median and ARP', () => {
+  assert.match(helpers, /FFmpeg Arithmetic Mean/);
+  assert.match(helpers, /ffmpeg_am/);
+  assert.match(review, /FFMPEG ARITHMETIC MEAN/);
+  assert.match(review, /FFmpeg Arithmetic Mean/);
+});
