@@ -6,6 +6,10 @@ on:
       - 'scripts/artifact_ids.py'
       - 'scripts/cleanup_video.py'
       - 'scripts/film_deflicker.py'
+      - 'scripts/localized_deflicker_backend.py'
+      - 'scripts/local_deflicker_research.py'
+      - 'tests/test_localized_cleanup_integration.py'
+      - 'tests/test_local_deflicker_research.py'
       - 'ai_remaster_gui/**'
       - 'tests/test_light_deflicker.py'
       - 'tests/test_cleanup_source_exact.py'
@@ -15,6 +19,7 @@ on:
   push:
     branches:
       - feature/cleanup-deflicker-method-selection
+      - feature/cleanup-localized-experimental-gui
   workflow_dispatch:
 
 permissions:
@@ -38,7 +43,7 @@ jobs:
       - name: Validate Python source
         run: python -m compileall -q scripts ai_remaster_gui tests/test_light_deflicker.py
       - name: Verify legacy and alternative variants with real FFmpeg video
-        run: python -m unittest -v tests.test_light_deflicker tests.test_cleanup_source_exact tests.test_cleanup_frame_differences
+        run: python -m unittest -v tests.test_light_deflicker tests.test_cleanup_source_exact tests.test_cleanup_frame_differences tests.test_localized_cleanup_integration tests.test_local_deflicker_research
       - name: Verify browser code
         run: |
           node --check ai_remaster_gui/static/js/render-helpers.js
