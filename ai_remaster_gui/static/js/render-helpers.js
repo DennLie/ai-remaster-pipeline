@@ -1047,7 +1047,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
     ${d.sampled ? '<p class="shot-empty">Bei langen Videos werden pro Block nur die st\u00e4rksten Korrekturen als Stichprobe angezeigt.</p>' : ''}
   ` : ffmpegSelected
     ? `<p class="shot-empty">FFmpeg liefert keine ARP-Helligkeitsfaktoren. Das Diagramm mit gemessenen Pixelhelligkeitsänderungen steht direkt unter den Videos.</p>`
-    : `<p class="shot-empty">F\\u00fcr diese Clean-Up-Ausgabe ist kein passender Frame-Bericht vorhanden oder Light Deflicker war nicht aktiv.</p>`;
+    : `<p class="shot-empty">Für diese Clean-Up-Ausgabe ist kein passender Frame-Bericht vorhanden oder Light Deflicker war nicht aktiv.</p>`;
   const maskBlock = mask ? `
     <h4>Tempor\u00e4re Defektmaske (nur Erkennung)</h4>
     <video id="cleanupDiagMaskVideo" src="${media(mask)}" muted playsinline preload="metadata"></video>
