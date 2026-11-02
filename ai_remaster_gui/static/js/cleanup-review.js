@@ -44,7 +44,8 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   // decoders, and the pre-existing ARP stage binding retains its references.
   const layout = document.createElement('div');
   layout.className = 'cleanup-two-up-grid';
-  const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFMPEG MEDIAN' : 'ARP CONSERVATIVE';
+  const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFMPEG MEDIAN'
+    : player.dataset.deflickerMethod === 'arp' ? 'ARP CONSERVATIVE' : 'CLEAN-UP-ERGEBNIS';
   layout.innerHTML = `
     <div class="cleanup-side" data-compare-panel="before">
       <div class="cleanup-side-heading"><strong>ORIGINAL</strong><span>Vorher · unverändert</span></div>
@@ -295,6 +296,8 @@ function setupCleanupExactWipe(player) {
   if (!player || player.dataset.cleanupExactWipeReady) return;
   player.dataset.cleanupExactWipeReady = 'true';
   // Keep the exact Wipe available on demand without forcing another tall panel.
+  const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFmpeg Median'
+    : player.dataset.deflickerMethod === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const fold = document.createElement('details');
   fold.className = 'cleanup-wipe-fold';
   fold.innerHTML = '<summary><strong>Wischvergleich</strong><span>Exakter Vorher/Nachher-Schieber · bei Bedarf öffnen</span></summary><section class="cleanup-exact-wipe"></section>';
@@ -305,12 +308,12 @@ function setupCleanupExactWipe(player) {
       <strong>Einzelbild: Wischvergleich</strong>
       <span>Dasselbe Einzelbild aus beiden Videos</span>
     </div>
-    <p>Links <strong>ORIGINAL</strong>, rechts <strong>LIGHT DEFLICKER</strong>.
+    <p>Links <strong>ORIGINAL</strong>, rechts <strong>${resultLabel}</strong>.
       Ziehe die senkrechte Linie im Bild oder benutze den Schieber darunter.</p>
     <div class="cleanup-exact-wipe-image" data-wipe-picture
          aria-label="Wischvergleich von Original und bearbeitetem Einzelbild">
       <img data-wipe-before alt="Original, unberührter Frame">
-      <img data-wipe-after alt="Derselbe Frame nach Light Deflicker">
+      <img data-wipe-after alt="Derselbe Frame nach ${resultLabel}">
       <div class="cleanup-exact-wipe-divider" data-wipe-divider aria-hidden="true">
         <span class="cleanup-exact-wipe-handle"></span>
       </div>
