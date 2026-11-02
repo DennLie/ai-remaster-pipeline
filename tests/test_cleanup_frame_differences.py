@@ -54,11 +54,31 @@ class FFmpegFrameDifferenceTests(unittest.TestCase):
             self.assertEqual([s["frame"] for s in first["samples"]], list(range(12)))
             self.assertTrue(all(0 <= s["mean_abs_luma"] <= 255 for s in first["samples"]))
             self.assertGreater(first["mean_abs_luma"], 0)
-            self.assertEqual(first["metric"], "mean_abs_luma_8bit")
+            self.assertEqual(first["metric"], "directional_mean_luma_8bit")
+            self.assertGreater(first["mean_brighten_luma"], 0)
+            self.assertTrue(all("brighten_mean_luma" in sample and "darken_mean_luma" in sample
+                                for sample in first["samples"]))
+            for sample in first["samples"]:
+                self.assertAlmostEqual(sample["mean_abs_luma"],
+                                       sample["brighten_mean_luma"] + sample["darken_mean_luma"],
+                                       places=3)
             with patch.object(differences, "_compare_frames", side_effect=AssertionError("cache missed")):
                 again = differences.cleanup_frame_differences(app)
             self.assertEqual(first, again)
             self.assertTrue(list((self.folder / "cache").glob("*.json")))
+
+    def test_directional_luma_does_not_cancel_mixed_brightening_and_darkening(self):
+        import numpy as np
+        original = np.array([[100, 100], [100, 100]], dtype=np.uint8)
+        processed = np.array([[140, 60], [130, 70]], dtype=np.uint8)
+        up, down = differences._directional_luma(original, processed)
+        self.assertEqual(up, 17.5)
+        self.assertEqual(down, 17.5)
+        self.assertEqual(up + down, 35.0)
+        zero, zero_down = differences._directional_luma(original, original)
+        self.assertEqual((zero, zero_down), (0.0, 0.0))
+        with self.assertRaises(ValueError):
+            differences._directional_luma(original, original[:1])
 
     def test_method_gate_does_not_allow_arbitrary_source(self):
         with self.assertRaises((FileNotFoundError, ValueError)):
