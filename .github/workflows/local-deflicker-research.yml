@@ -1,0 +1,35 @@
+name: Localized Deflicker research (CPU)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/local_deflicker_research.py'
+      - 'tests/test_local_deflicker_research.py'
+      - 'docs/local-deflicker-research.md'
+      - '.github/workflows/local-deflicker-research.yml'
+  push:
+    branches:
+      - research/localized-deflicker-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controlled-defect-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install lightweight CPU libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless
+      - name: Compile prototype and tests
+        run: python -m py_compile scripts/local_deflicker_research.py tests/test_local_deflicker_research.py
+      - name: Synthetic controls
+        run: python -m unittest -v tests.test_local_deflicker_research
