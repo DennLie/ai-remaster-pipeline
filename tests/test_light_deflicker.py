@@ -102,10 +102,13 @@ class LightDeflickerUnitTests(unittest.TestCase):
         arp = ids.cleanup_identity(**common, **base, deflicker_method="arp", deflicker_window=9)
         median = ids.cleanup_identity(**common, **base, deflicker_method="ffmpeg_median", deflicker_window=5)
         median9 = ids.cleanup_identity(**common, **base, deflicker_method="ffmpeg_median", deflicker_window=9)
+        mean = ids.cleanup_identity(**common, **base, deflicker_method="ffmpeg_am", deflicker_window=5)
         self.assertEqual(old, arp, "Old ARP filenames must remain unchanged")
         self.assertNotEqual(ids.artifact_key(arp), ids.artifact_key(median))
         self.assertNotEqual(ids.artifact_key(median), ids.artifact_key(median9))
         self.assertEqual(median["deflicker_algorithm"], "ffmpeg_median_v1")
+        self.assertEqual(mean["deflicker_algorithm"], "ffmpeg_am_v1")
+        self.assertNotEqual(ids.artifact_key(median), ids.artifact_key(mean))
         self.assertNotIn("deflicker_strength", median)
         with self.assertRaises(ValueError):
             ids.cleanup_identity(**common, **base, deflicker_method="ffmpeg_median", deflicker_window=11)
@@ -139,6 +142,32 @@ class LightDeflickerUnitTests(unittest.TestCase):
             )
         finally:
             app.APP.settings = old_settings
+
+    def test_gui_arithmetic_mean_command_and_distinct_output(self):
+        settings = base_settings()
+        settings["global"].update({"source": "input/film.mp4", "cleanup": "true"})
+        settings["cleanup"].update({
+            "light_deflicker": "true",
+            "deflicker_method": "ffmpeg_am",
+            "deflicker_window": "9",
+            "dearchive": "false",
+            "ai_descratch": "false",
+        })
+        prior = app.APP.settings
+        try:
+            app.APP.settings = settings
+            command = app.APP.command_for("cleanup")
+            args = cleanup_video.build_parser().parse_args(command[3:])
+            self.assertEqual(args.deflicker_method, "ffmpeg_am")
+            self.assertEqual(args.deflicker_window, 9)
+            predicted = Path(app.cleanup_output_for("input/film.mp4", settings["cleanup"])).name
+            actual = cleanup_video.default_output(Path(args.source), args).name
+            self.assertEqual(predicted, actual)
+            self.assertNotEqual(predicted, Path(app.cleanup_output_for(
+                "input/film.mp4", dict(settings["cleanup"], deflicker_method="ffmpeg_median")
+            )).name)
+        finally:
+            app.APP.settings = prior
 
     def test_cleanup_gui_command_identity_and_commercial_guard(self):
         settings = base_settings()
@@ -252,6 +281,34 @@ class LightDeflickerVideoSmokeTests(unittest.TestCase):
             )
             self.assertEqual(second_median.returncode, 0)
             self.assertIn("Reuse Clean Up output", second_median.stdout)
+
+            mean = work / "mean.mkv"
+            cmd_mean = [
+                sys.executable, str(ROOT / "scripts" / "cleanup_video.py"),
+                "--source", str(source), "--output", str(mean),
+                "--light-deflicker", "--deflicker-method", "ffmpeg_am",
+                "--deflicker-window", "5", "--no-dearchive",
+                "--intermediate-profile", "lossless",
+            ]
+            first_mean = subprocess.run(
+                cmd_mean, cwd=ROOT, capture_output=True, text=True, timeout=150
+            )
+            self.assertEqual(
+                first_mean.returncode, 0,
+                first_mean.stdout[-2500:] + first_mean.stderr[-2500:],
+            )
+            self.assertTrue(mean.is_file())
+            self.assertIn("FFmpeg Arithmetic Mean Deflicker", first_mean.stdout)
+            capture = cv2.VideoCapture(str(mean))
+            try:
+                self.assertEqual(int(capture.get(cv2.CAP_PROP_FRAME_COUNT)), 18)
+            finally:
+                capture.release()
+            self.assertTrue(median.is_file())
+            self.assertTrue(output.is_file())
+            again = subprocess.run(cmd_mean, cwd=ROOT, capture_output=True, text=True, timeout=80)
+            self.assertEqual(again.returncode, 0)
+            self.assertIn("Reuse Clean Up output", again.stdout)
 
 
 if __name__ == "__main__":
