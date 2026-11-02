@@ -1,0 +1,159 @@
+name: Research temporal ridge scratches - dev versus holdout
+
+on:
+  pull_request:
+    paths:
+      - "scripts/temporal_ridge_scratch_research.py"
+      - "tests/test_temporal_ridge_scratch_research.py"
+      - "docs/temporal-ridge-scratch-research.md"
+      - ".github/workflows/temporal-ridge-scratch-research.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-reproducibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install FFmpeg + numerical/image libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet "numpy>=2,<3" "opencv-python-headless>=4.10,<5" "scikit-image>=0.25,<0.28" pillow pyyaml
+      - name: Source integrity, static-edge negative controls, real FFV1 test
+        run: python -m unittest -v tests.test_temporal_ridge_scratch_research
+
+  development-films:
+    needs: offline-reproducibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - film: lumiere_train
+            clip_index: 0
+          - film: great_train_robbery
+            clip_index: 0
+          - film: melies_moon
+            clip_index: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install deterministic CPU research dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet "numpy>=2,<3" "opencv-python-headless>=4.10,<5" "scikit-image>=0.25,<0.28" pillow pyyaml
+      - name: Prepare verified archival source and benchmark against existing detector
+        env:
+          FILM: ${{ matrix.film }}
+          CLIP_INDEX: ${{ matrix.clip_index }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/prepare_public_domain_films.py --film "$FILM" --no-classical --output-dir "$RUNNER_TEMP/film"
+          python - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          doc = json.loads((root / "film/corpus_manifest.json").read_text())
+          scene = doc["clips"][int(os.environ["CLIP_INDEX"])]["name"]
+          (root / "shot.txt").write_text(scene)
+          print("SOURCE", doc["id"], scene, doc["source_provenance"]["downloaded_sha256"])
+          PY
+          scene="$(cat "$RUNNER_TEMP/shot.txt")"
+          python scripts/restoration_evaluation.py synthesize \
+            --source "$RUNNER_TEMP/film/$scene/original_native.mkv" \
+            --film "$FILM" --scene "$scene" --kind vertical_scratches \
+            --preset gentle --seed 2026 --output-dir "$RUNNER_TEMP/synthetic"
+          python scripts/temporal_ridge_scratch_research.py \
+            --manifest "$RUNNER_TEMP/synthetic/manifest.json" \
+            --split development --sensitivity 0.65 \
+            --output-dir "$RUNNER_TEMP/research"
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "research/comparison.json"
+          d = json.loads(p.read_text())
+          for name, item in d["methods"].items():
+              print(d["film"], d["scene"], name, item["mask_metrics"])
+          PY
+      - name: Upload JSON and sample contact sheets (not movie masters)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ridge-development-${{ matrix.film }}
+          path: ${{ runner.temp }}/research/
+          retention-days: 30
+          if-no-files-found: error
+
+  independent-holdout:
+    needs: development-films
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - film: caligari
+            clip_index: 1
+          - film: gertie
+            clip_index: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install FFmpeg and independent holdout dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet "numpy>=2,<3" "opencv-python-headless>=4.10,<5" "scikit-image>=0.25,<0.28" pillow pyyaml
+      - name: Score fixed algorithm on held-out films - no tuning or automatic promotion
+        env:
+          FILM: ${{ matrix.film }}
+          CLIP_INDEX: ${{ matrix.clip_index }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/prepare_public_domain_films.py --film "$FILM" --no-classical --output-dir "$RUNNER_TEMP/film"
+          python - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          doc = json.loads((root / "film/corpus_manifest.json").read_text())
+          scene = doc["clips"][int(os.environ["CLIP_INDEX"])]["name"]
+          (root / "shot.txt").write_text(scene)
+          print("HELD-OUT SOURCE", doc["id"], scene, doc["source_provenance"]["downloaded_sha256"])
+          PY
+          scene="$(cat "$RUNNER_TEMP/shot.txt")"
+          python scripts/restoration_evaluation.py synthesize \
+            --source "$RUNNER_TEMP/film/$scene/original_native.mkv" \
+            --film "$FILM" --scene "$scene" --kind vertical_scratches \
+            --preset gentle --seed 2026 --output-dir "$RUNNER_TEMP/synthetic"
+          python scripts/temporal_ridge_scratch_research.py \
+            --manifest "$RUNNER_TEMP/synthetic/manifest.json" \
+            --split holdout --sensitivity 0.65 \
+            --output-dir "$RUNNER_TEMP/research"
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "research/comparison.json"
+          d = json.loads(p.read_text())
+          assert d["split"] == "holdout"
+          for name, item in d["methods"].items():
+              print("HOLDOUT", d["film"], d["scene"], name, item["mask_metrics"])
+          PY
+      - name: Upload independent holdout diagnostics, no source clips
+        uses: actions/upload-artifact@v4
+        with:
+          name: ridge-holdout-${{ matrix.film }}
+          path: ${{ runner.temp }}/research/
+          retention-days: 30
+          if-no-files-found: error
