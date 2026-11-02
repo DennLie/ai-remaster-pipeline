@@ -27,6 +27,18 @@ on:
       - "scripts/assess_stabilization.py"
       - "tests/test_assess_stabilization.py"
       - "docs/pre-dart-baseline-comparison.md"
+      - "scripts/benchmark_defect_masks.py"
+      - "tests/test_defect_mask_benchmark.py"
+      - "docs/dart-vs-temporal-mask-benchmark.md"
+      - ".github/workflows/neighbors-source-resolution.yml"
+      - "scripts/compare_source_resolution.py"
+      - "tests/test_source_resolution_comparison.py"
+      - "docs/neighbors-source-resolution-test.md"
+      - "scripts/assess_dart_exports.py"
+      - "scripts/run_dart_research.py"
+      - "tests/test_dart_exports.py"
+      - "tests/test_dart_pinned_runner.py"
+      - "docs/dart-external-research-evaluation.md"
   workflow_dispatch:
 
 permissions:
@@ -62,6 +74,15 @@ jobs:
       - name: Run temporal film defect tests
         run: python -m unittest -v tests.test_temporal_defect_masks
 
+      - name: Test source-resolution analysis on synthetic video
+        run: python -m unittest -v tests.test_source_resolution_comparison
+
+      - name: Validate DART external-mask and repair evaluation (no DART dependency)
+        run: python -m unittest -v tests.test_dart_exports tests.test_dart_pinned_runner
+
+      - name: Run film defect mask benchmark tests
+        run: python -m unittest -v tests.test_defect_mask_benchmark
+
       - name: Install FFmpeg for end-to-end video tests
         run: |
           sudo apt-get update -qq
@@ -91,3 +112,8 @@ jobs:
     # Run the real 960x720 source test only on the Light Deflicker draft PR.
     if: github.event_name == 'pull_request' && (github.head_ref == 'feature/light-deflicker-cpu' || github.head_ref == 'feature/pre-dart-baseline-ablation')
     uses: ./.github/workflows/neighbors-light-deflicker.yml
+
+  original-source-resolution:
+    # The Commons download is deliberately on demand; real-video trial completed in run 41339842192.
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/neighbors-source-resolution.yml
