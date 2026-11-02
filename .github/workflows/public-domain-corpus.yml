@@ -68,7 +68,13 @@ jobs:
           import json, os, pathlib
           folder = pathlib.Path(os.environ["RUNNER_TEMP"]) / "film_corpus" / "${{ matrix.film }}"
           x = json.loads((folder / "corpus_manifest.json").read_text())
-          assert len(x["clips"]) == 2
+          import sys
+          sys.path.insert(0, "scripts")
+          from prepare_public_domain_films import load_catalog
+          catalog = load_catalog(pathlib.Path("benchmarks/public_domain_films/catalog.json"))
+          entry = next(f for f in catalog["films"] if f["id"] == "${{ matrix.film }}")
+          assert len(x["clips"]) == len(entry["shots"])
+          assert [shot["name"] for shot in x["clips"]] == [shot["name"] for shot in entry["shots"]]
           assert x["original_audio_redistributed"] is False
           print(json.dumps({"title": x["title"], "source_checksum": x["source_provenance"]["downloaded_sha256"], "shots": [(v["name"],v["geometry"],len(v["files"])) for v in x["clips"]]}, indent=2))
           '
