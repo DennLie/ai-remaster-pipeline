@@ -91,6 +91,55 @@ class LightDeflickerUnitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             flicker.calculate_gains([90], [hist]*2)
 
+    def test_deflicker_methods_are_separate_and_default_identity_is_preserved(self):
+        from scripts import artifact_ids as ids
+        base = dict(light_deflicker=True, deflicker_strength=0.65, deflicker_max_correction=0.08)
+        common = dict(
+            source_name="film.mkv", lora="dearchive.safetensors", prompt="",
+            negative_prompt="", strength=1.0, seed=42, dearchive=False,
+        )
+        old = ids.cleanup_identity(**common, **base)
+        arp = ids.cleanup_identity(**common, **base, deflicker_method="arp", deflicker_window=9)
+        median = ids.cleanup_identity(**common, **base, deflicker_method="ffmpeg_median", deflicker_window=5)
+        median9 = ids.cleanup_identity(**common, **base, deflicker_method="ffmpeg_median", deflicker_window=9)
+        self.assertEqual(old, arp, "Old ARP filenames must remain unchanged")
+        self.assertNotEqual(ids.artifact_key(arp), ids.artifact_key(median))
+        self.assertNotEqual(ids.artifact_key(median), ids.artifact_key(median9))
+        self.assertEqual(median["deflicker_algorithm"], "ffmpeg_median_v1")
+        self.assertNotIn("deflicker_strength", median)
+        with self.assertRaises(ValueError):
+            ids.cleanup_identity(**common, **base, deflicker_method="ffmpeg_median", deflicker_window=11)
+
+    def test_gui_ffmpeg_method_command_matches_cli_artifact(self):
+        settings = base_settings()
+        settings["global"].update({"source": "input/film.mp4", "cleanup": "true"})
+        settings["cleanup"].update({
+            "light_deflicker": "true",
+            "deflicker_method": "ffmpeg_median",
+            "deflicker_window": "5",
+            "dearchive": "false",
+            "ai_descratch": "false",
+        })
+        old_settings = app.APP.settings
+        try:
+            app.APP.settings = settings
+            command = app.APP.command_for("cleanup")
+            self.assertEqual(command[command.index("--deflicker-method") + 1], "ffmpeg_median")
+            self.assertEqual(command[command.index("--deflicker-window") + 1], "5")
+            args = cleanup_video.build_parser().parse_args(command[3:])
+            self.assertEqual(args.deflicker_method, "ffmpeg_median")
+            self.assertEqual(args.deflicker_window, 5)
+            name = Path(app.cleanup_output_for("input/film.mp4", settings["cleanup"])).name
+            self.assertEqual(name, cleanup_video.default_output(Path(args.source), args).name)
+            self.assertNotEqual(
+                name,
+                Path(app.cleanup_output_for("input/film.mp4", dict(
+                    settings["cleanup"], deflicker_method="arp"
+                ))).name,
+            )
+        finally:
+            app.APP.settings = old_settings
+
     def test_cleanup_gui_command_identity_and_commercial_guard(self):
         settings = base_settings()
         settings["global"].update({"source": "input/film.mp4", "cleanup": "true",
@@ -173,6 +222,36 @@ class LightDeflickerVideoSmokeTests(unittest.TestCase):
             report = json.loads(report_files[-1].read_text())
             self.assertEqual(report["frames"], 18)
             self.assertGreater(report["nonneutral_frames"], 0)
+
+            # FFmpeg comparison uses the *same* source, independent output and cache.
+            median = work / "median.mkv"
+            cmd_median = [
+                sys.executable, str(ROOT / "scripts" / "cleanup_video.py"),
+                "--source", str(source), "--output", str(median),
+                "--light-deflicker", "--deflicker-method", "ffmpeg_median",
+                "--deflicker-window", "5", "--no-dearchive",
+                "--intermediate-profile", "lossless",
+            ]
+            first_median = subprocess.run(
+                cmd_median, cwd=ROOT, capture_output=True, text=True, timeout=150
+            )
+            self.assertEqual(
+                first_median.returncode, 0,
+                first_median.stdout[-2500:] + first_median.stderr[-2500:],
+            )
+            self.assertTrue(median.is_file())
+            self.assertIn("FFmpeg Median Deflicker", first_median.stdout)
+            self.assertTrue(output.is_file(), "ARP variant must still exist")
+            cap = cv2.VideoCapture(str(median))
+            try:
+                self.assertEqual(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), 18)
+            finally:
+                cap.release()
+            second_median = subprocess.run(
+                cmd_median, cwd=ROOT, capture_output=True, text=True, timeout=80
+            )
+            self.assertEqual(second_median.returncode, 0)
+            self.assertIn("Reuse Clean Up output", second_median.stdout)
 
 
 if __name__ == "__main__":
