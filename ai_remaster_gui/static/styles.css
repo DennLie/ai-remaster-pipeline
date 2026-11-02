@@ -726,3 +726,14 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   }
   .cleanup-results-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+/* Keep execution controls reachable while scrolling long processing parameters. */
+.cleanup-editor-page .cleanup-settings-sidebar .cleanup-primary-actions {
+  position:sticky;
+  top:0;
+  z-index:1;
+  margin:10px -2px;
+  padding:8px 2px;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+}
