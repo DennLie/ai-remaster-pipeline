@@ -239,10 +239,15 @@ test('FFmpeg bar shows turquoise brightening and orange darkening in the same fr
   assert.match(handler, /parsed\.path == "\/api\/cleanup-frame-differences"/);
 });
 
-test('Localized research is visible but disabled until authentic-film validation', () => {
-  assert.match(helpers, /value="localized_research" disabled/);
-  assert.match(helpers, /Localized Deflicker \(Forschung/);
+test('Localized research is opt-in and clearly identified as not production-ready', () => {
   const models = fs.readFileSync(path.join(root, 'ai_remaster_gui/models.py'), 'utf8');
-  assert.match(models, /select:arp\|ffmpeg_median\|ffmpeg_am/);
-  assert.doesNotMatch(models, /select:arp\|ffmpeg_median\|ffmpeg_am\|localized_research/);
+  assert.match(models, /select:arp\|ffmpeg_median\|ffmpeg_am\|localized_research/);
+  assert.match(models, /localized_confirm_single_shot/);
+  assert.match(helpers, /Forschungstest \(nicht produktionsreif\)/);
+  assert.match(helpers, /data-deflicker-only="localized_research"/);
+  assert.match(helpers, /Oscillation Guard aktiv/);
+  assert.doesNotMatch(helpers, /value="localized_research" disabled/);
+  assert.match(review, /LOCALIZED · EXPERIMENTELL/);
+  assert.match(review, /setupFFmpegDifferenceRail/);
+  assert.match(review, /'localized_research'\]\/.includes\(method\)/);
 });
