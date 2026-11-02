@@ -38,8 +38,8 @@ jobs:
       - name: Short FFmpeg-generated motion clip (NOT authentic film)
         run: |
           ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=128x96:rate=12:duration=2 -an -c:v ffv1 -y /tmp/local_research_input.mkv
-          python scripts/evaluate_local_deflicker_pilot.py --source /tmp/local_research_input.mkv --report /tmp/local_research_pilot.json --max-frames 30 --sigma 8
-          python -c 'import json; d=json.load(open("/tmp/local_research_pilot.json")); assert d["frames"]==24 and d["release_ready"] is False; assert "untouched_original_modified_mae" in d'
+          python scripts/evaluate_local_deflicker_pilot.py --source /tmp/local_research_input.mkv --report /tmp/local_research_pilot.json --max-frames 30 --sigma 8 --compare-guards
+          python -c 'import json; d=json.load(open("/tmp/local_research_pilot.json")); assert d["frames"]==24 and d["release_ready"] is False; assert "untouched_original_modified_mae" in d and "guard_comparison" in d; assert d["guard_comparison"]["release_ready"] is False'
       - name: Upload research-only benchmark report
         uses: actions/upload-artifact@v4
         with:
