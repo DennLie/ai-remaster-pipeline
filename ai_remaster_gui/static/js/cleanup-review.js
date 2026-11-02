@@ -108,17 +108,16 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     clock.textContent = `${t.toFixed(3)} s / ${duration.toFixed(3)} s`;
   }
   function updateButtons() {
-    const inspecting = exact();
-    play.disabled = inspecting;
-    pause.disabled = inspecting;
-    rewind.disabled = inspecting;
-    seek.disabled = inspecting;
-    mode.textContent = inspecting
-      ? 'Exakte Einzelbilder: links und rechts haben dieselbe Frame-Nummer. Zum Abspielen zuerst „Zum Video zurück“ wählen.'
-      : 'Beide Videos gleichzeitig sichtbar. Gemeinsame Wiedergabe ist näherungsweise synchron; exakte Unterschiede nur im Einzelbildmodus beurteilen.';
+    // Playback must never depend on whether exact stills are displayed.
+    play.disabled = false;
+    pause.disabled = false;
+    rewind.disabled = false;
+    seek.disabled = false;
+    mode.textContent = exact()
+      ? 'Beide Videos sind abspielbar. Die Einzelbilder darunter bleiben auf dem ausgewählten Frame stehen (exakt per FFmpeg).'
+      : 'Beide Videos gleichzeitig sichtbar. Gemeinsame Wiedergabe ist näherungsweise synchron; exakte Unterschiede im Frame Inspector beurteilen.';
   }
   async function playBoth() {
-    if (exact()) return;
     const l = loop?.checked ? limits() : null;
     if (l && (currentTime() < l.start || currentTime() >= l.end - 0.010)) moveBoth(l.start);
     before.playbackRate = after.playbackRate = Number(speed?.value) || 1;
@@ -149,14 +148,14 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     moveBoth(Number(seek.value));
   });
   function checkLoop() {
-    if (exact() || !loop?.checked || before.paused) return;
+    if (!loop?.checked || before.paused) return;
     const bounds = limits();
     if (bounds && currentTime() >= bounds.end - 0.015) moveBoth(bounds.start);
   }
   before.addEventListener('timeupdate', () => {
     updateClock();
     checkLoop();
-    if (syncing || after.readyState < 1 || exact()) return;
+    if (syncing || after.readyState < 1) return;
     const skew = Math.abs((after.currentTime || 0) - currentTime());
     if (skew > 0.08) {
       syncing = true;
@@ -165,17 +164,17 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     }
   });
   before.addEventListener('seeked', () => {
-    if (exact() || after.readyState < 1) return;
+    if (after.readyState < 1) return;
     try { after.currentTime = currentTime(); } catch (_) {}
   });
   before.addEventListener('ended', () => {
-    if (!loop?.checked || exact() || !limits()) {after.pause(); return;}
+    if (!loop?.checked || !limits()) {after.pause(); return;}
     moveBoth(limits().start);
     playBoth();
   });
   after.addEventListener('ended', () => {
     // Only the original is the playback clock and decides loop bounds.
-    if (!before.paused && !exact() && after.readyState >= 1) {
+    if (!before.paused && after.readyState >= 1) {
       try {after.currentTime = currentTime(); after.play().catch(() => {});} catch (_) {}
     }
   });
@@ -266,7 +265,15 @@ function setupCleanupExactWipe(player) {
     <output data-wipe-status aria-live="polite">50 % Original links · 50 % Ergebnis rechts</output>
     <p class="cleanup-exact-wipe-hint">Ganz links = nur Ergebnis. Ganz rechts = nur Original.
       Die beiden oberen Einzelbilder bleiben weiterhin nebeneinander sichtbar.</p>`;
-  player.appendChild(card);
+  const inspector = player.parentElement.querySelector('.frame-inspector[data-fi-stage="cleanup"]');
+  if (!inspector) return;
+  inspector.appendChild(card);
+  // Visibility follows still inspection without interfering with video playback.
+  const updateWipeVisibility = () => {
+    card.classList.toggle('fi-visible', player.classList.contains('frame-inspector-active'));
+  };
+  inspector.querySelector('[data-fi-open]')?.addEventListener('click', () => setTimeout(updateWipeVisibility, 0));
+  inspector.querySelector('[data-fi-close]')?.addEventListener('click', () => setTimeout(updateWipeVisibility, 0));
   const picture = card.querySelector('[data-wipe-picture]');
   const original = card.querySelector('[data-wipe-before]');
   const result = card.querySelector('[data-wipe-after]');
@@ -314,8 +321,9 @@ function setupCleanupExactWipe(player) {
       return;
     }
     if (event.detail?.stage !== 'cleanup') return;
-    const srcBefore = player.querySelector('.fi-photo-before');
-    const srcAfter = player.querySelector('.fi-photo-after');
+    updateWipeVisibility();
+    const srcBefore = inspector.querySelector('.fi-photo-before');
+    const srcAfter = inspector.querySelector('.fi-photo-after');
     if (!srcBefore?.src || !srcAfter?.src) return;
     original.src = srcBefore.src;
     result.src = srcAfter.src;
@@ -325,7 +333,7 @@ function setupCleanupExactWipe(player) {
     update();
   };
   document.addEventListener('arp-frame-inspected', onFrame);
-  const zoom = player.parentElement?.querySelector('.frame-inspector[data-fi-stage="cleanup"] [data-fi-zoom]');
+  const zoom = inspector.querySelector('[data-fi-zoom]');
   zoom?.addEventListener('change', update);
   update();
 }
