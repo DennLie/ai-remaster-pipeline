@@ -296,7 +296,8 @@ def _metrics(reference: list, variant: list, mask_dir: Path | None = None) -> di
     mse = mse_sum / n
     result = {
         "mse_rgb_linear_0_1_range": mse,
-        "psnr_rgb_db": None if mse == 0 else float(10 * math.log10(1 / mse)),
+        "psnr_rgb_db": float(10 * math.log10(1 / max(mse, 1e-12))),
+        "psnr_capped_at_120db_for_exact_match": mse < 1e-12,
         "perfect_rgb_match": mse == 0,
         "ssim_rgb": ssim_sum / n,
         "temporal_reference_error_rmse": (
