@@ -20,7 +20,7 @@ from .config import ROOT
 from .frame_inspector import _metadata, _sources
 
 _CACHE = ROOT / ".cache" / "cleanup_frame_differences"
-_REPORT_VERSION = 2
+_REPORT_VERSION = 3
 _MAX_FRAMES = 2400
 _MAX_SECONDS = 30.0
 _MAX_BARS = 240
@@ -40,11 +40,8 @@ def _validate_pair(source: Path, output: Path) -> int:
         if before[key] != after[key]:
             raise ValueError(f"Frame-difference videos have incompatible {key}.")
     count = int(before["frames"])
-    if count < 1 or count > _MAX_FRAMES:
-        raise ValueError(
-            f"Frame-difference plot currently supports 1–{_MAX_FRAMES} exact frames; "
-            "select a shorter source section."
-        )
+    if count < 1:
+        raise ValueError("Cannot analyze a video with no verified frames.")
     return count
 
 
@@ -132,6 +129,68 @@ def _compare_frames(source: Path, output: Path, frames: int) -> dict:
         b.release()
 
 
+def _compare_sampled_frames(source: Path, output: Path, frames: int) -> dict:
+    """Sample up to 240 exact frame ordinals, never decode the whole film.
+
+    A sparse chart is not a per-frame maximum or a full-film mean.
+    Fail closed if backend random seek cannot verify the requested ordinal.
+    """
+    if frames <= _MAX_FRAMES:
+        return _compare_frames(source, output, frames)
+    positions = sorted({round(i * (frames-1) / (_MAX_BARS-1)) for i in range(_MAX_BARS)})
+    a, b = cv2.VideoCapture(str(source)), cv2.VideoCapture(str(output))
+    samples = []
+    start = time.monotonic()
+    try:
+        if not a.isOpened() or not b.isOpened():
+            raise RuntimeError("Unable to open videos for sampled frame analysis.")
+        for index in positions:
+            if time.monotonic() - start > 300:
+                raise RuntimeError("Sampled film chart exceeded compute budget; try a short section.")
+            images = []
+            for capture in (a,b):
+                if not capture.set(cv2.CAP_PROP_POS_FRAMES, index):
+                    raise RuntimeError("Frame-accurate seek is not supported by the selected video.")
+                ok, image = capture.read()
+                if not ok or image is None:
+                    raise ValueError(f"Cannot decode chart sample {index+1}/{frames}.")
+                # OpenCV reports the *next* frame position after decoding. Skip
+                # this sample rather than silently compare wrong timestamps.
+                after = capture.get(cv2.CAP_PROP_POS_FRAMES)
+                if not math.isfinite(after) or abs(after-(index+1)) > 0.5:
+                    raise ValueError(
+                        f"Video seek did not resolve exact frame {index} (position {after})."
+                    )
+                images.append(image)
+            im0, im1 = images
+            if im0.shape != im1.shape:
+                raise ValueError(f"Different video shapes at frame {index}.")
+            y0 = cv2.cvtColor(im0, cv2.COLOR_BGR2GRAY)
+            y1 = cv2.cvtColor(im1, cv2.COLOR_BGR2GRAY)
+            bright, dark = _directional_luma(y0, y1)
+            samples.append({
+                "frame": index,
+                "mean_abs_luma": round(bright+dark,4),
+                "brighten_mean_luma": round(bright,4),
+                "darken_mean_luma": round(dark,4)
+            })
+        return {
+            "frames":frames, "samples":samples, "sampled":True,
+            "sample_count":len(samples),
+            "sampling_note":"Sparse exact frame samples; NOT full-film statistics or within-block maxima.",
+            "mean_abs_luma":round(sum(x["mean_abs_luma"] for x in samples)/len(samples),4),
+            "mean_brighten_luma":round(sum(x["brighten_mean_luma"] for x in samples)/len(samples),4),
+            "mean_darken_luma":round(sum(x["darken_mean_luma"] for x in samples)/len(samples),4),
+            "max_mean_abs_luma":max(x["mean_abs_luma"] for x in samples),
+            "max_brighten_luma":max(x["brighten_mean_luma"] for x in samples),
+            "max_darken_luma":max(x["darken_mean_luma"] for x in samples),
+            "metric":"directional_mean_luma_8bit",
+        }
+    finally:
+        a.release()
+        b.release()
+
+
 def cleanup_frame_differences(app) -> dict:
     """Measure only the app-selected cleanup result; never accept client paths."""
     comparison = app.cleanup_comparison_state()
@@ -156,7 +215,7 @@ def cleanup_frame_differences(app) -> dict:
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             pass
     count = _validate_pair(source, output)
-    report = _compare_frames(source, output, count)
+    report = _compare_sampled_frames(source, output, count)
     _CACHE.mkdir(parents=True, exist_ok=True)
     temp = _CACHE / f"{token}.{os.getpid()}.tmp"
     try:
