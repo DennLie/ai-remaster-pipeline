@@ -52,9 +52,9 @@ const FIELD_DESCRIPTIONS = {
   'cleanup.light_deflicker':
     'Reduce rapid whole-frame exposure flicker using bounded per-shot gain adjustments, with no AI model and no blur. Disabled by default. Cuts, long fades and intentional illumination transitions are protected as far as possible; compare the preview before publishing.',
   'cleanup.deflicker_method':
-    'ARP Conservative uses cut-aware bounded whole-frame gains (default). FFmpeg Median is a classical temporal median benchmark that can alter cuts and intended fades. Both methods run without AI weights.',
+    'ARP Conservative uses cut-aware bounded gains (default). FFmpeg Median and Arithmetic Mean are classical temporal baselines that may alter intended lighting changes. No AI weights.',
   'cleanup.deflicker_window':
-    'FFmpeg Median only: temporal filter window in frames, default 5. Larger windows can change motion and lighting transitions. This is NOT ARP strength.',
+    'FFmpeg Median/Arithmetic Mean only: temporal window in frames, default 5. Large windows can change fades and cuts. This is NOT ARP correction strength.',
   'cleanup.deflicker_strength':
     'ARP Conservative only. Fraction of the estimated correction to apply. Zero leaves frames unchanged; 0.65 is conservative.',
   'cleanup.deflicker_max_correction':
@@ -449,6 +449,7 @@ function selectFieldHtml(key, label, kind, value, tooltip = '') {
 function selectOptionLabel(key, option) {
   if (key === 'deflicker_method' && option === 'arp') return 'ARP Conservative (recommended)';
   if (key === 'deflicker_method' && option === 'ffmpeg_median') return 'FFmpeg Median (experimental)';
+  if (key === 'deflicker_method' && option === 'ffmpeg_am') return 'FFmpeg Arithmetic Mean (experimental)';
   if (key === 'compute' && option === 'local') return 'This computer';
   if (key === 'compute' && option === 'runpod') return 'RunPod cloud worker';
   if (key === 'outpaint_model' && option === 'official') return '2.3 - Official LoRA';
@@ -863,8 +864,8 @@ function drawCleanup(st, s, expected, sp) {
         <span><strong>${Number(d.mean_abs_gain_change_pct).toFixed(2)} %</strong> Ø Korrektur</span>
         <span><strong>${d.cut_boundaries}</strong> Schnittgrenzen</span>
       </div>`
-    : comparison.method === 'ffmpeg_median' && comparison.exists === 'true'
-      ? '<p class="cleanup-results-empty">FFmpeg Median: zeitlicher Medianfilter. Keine globalen Gain-Werte; Änderungen im exakten Pixeldifferenzbild prüfen.</p>'
+    : ['ffmpeg_median', 'ffmpeg_am'].includes(comparison.method) && comparison.exists === 'true'
+      ? '<p class="cleanup-results-empty">FFmpeg: zeitlicher Filter ohne globale Gain-Werte. Änderungen im exakten Pixeldifferenzbild prüfen.</p>'
       : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
 
   document.getElementById('app').innerHTML = `
@@ -880,7 +881,7 @@ function drawCleanup(st, s, expected, sp) {
         ${cleanupLicenseWarning(s)}
         ${st.fields.map(f => {
           const only = ['deflicker_strength', 'deflicker_max_correction'].includes(f[0]) ? 'arp'
-            : f[0] === 'deflicker_window' ? 'ffmpeg_median' : '';
+            : f[0] === 'deflicker_window' ? 'ffmpeg' : '';
           return only ? `<div data-deflicker-only="${only}">${fieldHtml(st, f)}</div>` : fieldHtml(st, f);
         }).join('')}
         ${shotOutputList(expected, null)}
@@ -898,7 +899,7 @@ function drawCleanup(st, s, expected, sp) {
           <section class="cleanup-results-overview" aria-label="Was wurde verändert?">
             <div class="cleanup-results-heading">
               <strong>Was wurde verändert?</strong>
-              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis'} · Verarbeitungsergebnis</span>
+              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis'} · Verarbeitungsergebnis</span>
             </div>
             ${summary}
             <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
@@ -934,7 +935,9 @@ function drawCleanup(st, s, expected, sp) {
   const updateMethodFields = () => {
     const method = document.querySelector('.cleanup-settings-sidebar [data-field="deflicker_method"]')?.value || 'arp';
     document.querySelectorAll('.cleanup-settings-sidebar [data-deflicker-only]').forEach(el => {
-      el.hidden = el.dataset.deflickerOnly !== method;
+      el.hidden = el.dataset.deflickerOnly === 'ffmpeg'
+        ? !['ffmpeg_median', 'ffmpeg_am'].includes(method)
+        : el.dataset.deflickerOnly !== method;
     });
   };
   updateMethodFields();
@@ -1057,7 +1060,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
 }
 
 function cleanupComparisonHtml(comparison) {
-  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
+  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const before = comparison.source || '';
   const after = comparison.exists === 'true' ? comparison.output : '';
   if (!before || comparison.source_exists !== 'true') {
