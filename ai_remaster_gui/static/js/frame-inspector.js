@@ -11,7 +11,7 @@ function frameInspectorHtml(stage) {
           <div class="fi-exact-media" data-fi-still-before></div>
         </figure>
         <figure class="fi-exact-panel">
-          <figcaption>LIGHT DEFLICKER – Einzelbild</figcaption>
+          <figcaption>ERGEBNIS – Einzelbild</figcaption>
           <div class="fi-exact-media" data-fi-still-after></div>
         </figure>
         <figure class="fi-exact-panel">
