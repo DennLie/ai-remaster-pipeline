@@ -95,7 +95,7 @@ class EvaluatingSteps1To5(unittest.TestCase):
                 stage.assert_experiment(missing, "scratch_masks", "ffprobe")
             with self.assertRaisesRegex(ValueError, "Unsupported"):
                 stage.assert_experiment(missing, "magic", "ffprobe")
-            with self.assertRaisesRegex(ValueError, "same"):
+            with self.assertRaisesRegex(ValueError, "mismatch"):
                 stage.residual_alignment([], [None])
 
 
