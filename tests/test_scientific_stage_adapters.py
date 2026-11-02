@@ -143,6 +143,19 @@ class ScientificStageAdapterTests(unittest.TestCase):
             self.assertLess(report["metrics"]["candidate"]["reference_roi_mse_rgb"],
                             report["metrics"]["damaged_baseline"]["reference_roi_mse_rgb"])
             self.assertAlmostEqual(report["metrics"]["candidate"]["reference_roi_mse_rgb"], 0.)
+            available_filters = subprocess.run(
+                [ffmpeg, "-hide_banner", "-filters"], capture_output=True, text=True, check=True).stdout
+            if "vidstabdetect" in available_filters and "vidstabtransform" in available_filters:
+                # Actual ARP stabilizer, not just a hand-made perfect
+                # answer. No claim it necessarily improves this clip.
+                tested = motion.run_arp(
+                    manifest=one / "manifest.json", output_dir=root / "arp_real",
+                    smoothing=3, zoom=1., ffmpeg=ffmpeg, ffprobe=ffprobe)
+                self.assertTrue((root / "arp_real" / "stabilized.mkv").is_file())
+                self.assertEqual(tested["evaluation"]["candidate"]["frames"], 24)
+                self.assertEqual(tested["jitter_sha256"], m["jitter_sha256"])
+                self.assertIn("estimated_translation_rmse_pixels",
+                              tested["evaluation"]["candidate"])
             corrected.with_suffix(".mkv.sig.json").write_text(json.dumps(
                 {"source_fingerprint": {"sha256": "0" * 64}}))
             with self.assertRaisesRegex(ValueError, "source SHA mismatch"):
