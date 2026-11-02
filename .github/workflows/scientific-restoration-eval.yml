@@ -7,6 +7,10 @@ on:
       - "tests/test_restoration_evaluation.py"
       - "scripts/run_scientific_classical_grid.py"
       - "tests/test_scientific_classical_grid.py"
+      - "scripts/evaluate_steps_1to5.py"
+      - "scripts/film_deflicker.py"
+      - "tests/test_evaluate_steps_1to5.py"
+      - "docs/evaluate-steps-1-to-5.md"
       - "docs/scientific-restoration-evaluation.md"
       - ".github/workflows/scientific-restoration-eval.yml"
   workflow_dispatch:
@@ -32,5 +36,12 @@ jobs:
         run: python -m unittest -v tests.test_restoration_evaluation
       - name: Execute actual classical Off/CAS/Richardson-Lucy algorithms and evaluate synthetic recovery
         run: python -m unittest -v tests.test_scientific_classical_grid
+      - name: Verify FFmpeg stabilization/denoise backends exist
+        run: |
+          ffmpeg -hide_banner -filters | grep vidstabdetect
+          ffmpeg -hide_banner -filters | grep vidstabtransform
+          ffmpeg -hide_banner -filters | grep bm3d
+      - name: Exercise actual CPU stages 1, 2, 4, 5 on known synthetic damage
+        run: python -m unittest -v tests.test_evaluate_steps_1to5
       - name: Validate prior frame/source benchmark guards
         run: python -m unittest -v tests.test_step3_benchmark
