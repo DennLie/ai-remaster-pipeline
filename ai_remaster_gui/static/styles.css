@@ -419,3 +419,169 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   .comparison-player.cleanup-two-up .cleanup-side-media {height:clamp(210px,40vh,440px)}
   .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {height:clamp(200px,42vh,400px)}
 }
+
+/* Impeccable / Operate: the picture is the product; analysis is one scan away.
+   Keep the existing ARP dark palette and platform controls. No decorative UI. */
+.cleanup-editor-page {
+  --cleanup-space-1:4px;
+  --cleanup-space-2:8px;
+  --cleanup-space-3:12px;
+  --cleanup-space-4:16px;
+  --cleanup-compact-video:clamp(160px,25vh,285px);
+  --cleanup-compact-still:clamp(160px,23vh,260px);
+}
+.cleanup-editor-page[data-cleanup-density="focus"] {
+  --cleanup-compact-video:clamp(280px,44vh,590px);
+  --cleanup-compact-still:clamp(240px,38vh,460px);
+}
+.cleanup-workspace-heading {
+  align-items:center;
+  padding-bottom:var(--cleanup-space-2);
+  border-bottom:1px solid var(--line);
+}
+.cleanup-heading-title {
+  display:flex;align-items:baseline;gap:var(--cleanup-space-3);
+  min-width:0;flex-wrap:wrap
+}
+.cleanup-heading-title h2 {
+  font-size:18px;
+  font-weight:750;
+  line-height:1.2;
+}
+.cleanup-heading-title > span {
+  font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;
+}
+.cleanup-editor-page .cleanup-density-button {
+  flex:0 0 auto;font-size:12px;font-weight:600;
+  padding:7px 12px;min-height:36px;
+  background:transparent;color:var(--text);border:1px solid var(--line)
+}
+.cleanup-editor-page .cleanup-density-button:hover {background:#1a2a30}
+.cleanup-editor-page .cleanup-density-button[aria-pressed="true"] {
+  border-color:var(--accent);
+}
+.cleanup-editor-page button:focus-visible,
+.cleanup-editor-page summary:focus-visible,
+.cleanup-editor-page input:focus-visible,
+.cleanup-editor-page select:focus-visible {
+  outline:2px solid #93dbca;
+  outline-offset:3px;
+}
+.cleanup-editor-page details > summary:hover {background:#142127}
+.cleanup-editor-page details > summary:focus-visible {border-radius:6px}
+.cleanup-editor-page .cleanup-two-up-tools button {
+  min-height:36px;font-size:13px;padding:7px 12px
+}
+.cleanup-editor-page [data-two-play] {
+  background:var(--accent);color:#fff;border-color:var(--accent);font-weight:650;
+}
+.cleanup-editor-page [data-two-play]:hover {filter:brightness(1.08)}
+.cleanup-editor-page .cleanup-two-up-controls {gap:var(--cleanup-space-2)}
+.cleanup-editor-page .cleanup-two-up-controls [data-two-seek] {accent-color:var(--accent)}
+.cleanup-editor-page .cleanup-side {
+  border:0;
+  border-radius:0;
+  background:transparent;
+  padding:0;
+}
+.cleanup-editor-page .cleanup-side-heading {
+  align-items:center;
+  padding:3px 0 5px;
+  margin-bottom:0;
+}
+.cleanup-editor-page .cleanup-side-heading strong,
+.cleanup-editor-page .fi-exact-panel figcaption {
+  font-size:12px;
+  letter-spacing:.025em;
+  font-weight:700;
+}
+.cleanup-editor-page .comparison-player.cleanup-two-up .cleanup-side-media {
+  height:var(--cleanup-compact-video);
+  border:1px solid var(--line);
+  border-radius:5px;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] {
+  background:transparent;
+  border:0;
+  border-top:1px solid var(--line);
+  border-radius:0;
+  margin-top:var(--cleanup-space-3);
+  padding:var(--cleanup-space-2) 0 0;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-panel {
+  border:0;background:transparent;border-radius:0;padding:0;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {
+  height:var(--cleanup-compact-still);
+  border:1px solid var(--line);
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-buttons button {
+  min-height:34px;padding:6px 10px;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-heading {
+  display:flex;align-items:baseline;flex-wrap:wrap;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-heading strong,
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-heading strong {
+  font-size:13px;letter-spacing:.01em
+}
+.cleanup-editor-page .fi-exact-panel small {
+  font-size:11px;line-height:1.4;
+}
+.cleanup-editor-page .cleanup-frame-rail {
+  margin-top:var(--cleanup-space-3);
+  padding:var(--cleanup-space-3) 0 0;
+  border-top:1px solid var(--line);
+}
+.cleanup-frame-rail-heading {
+  display:flex;align-items:baseline;justify-content:space-between;
+  gap:6px 14px;flex-wrap:wrap;margin:0 0 6px
+}
+.cleanup-frame-rail-heading strong {font-size:13px}
+.cleanup-frame-rail-heading span {font-size:12px;color:var(--muted)}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-plot {
+  height:72px;gap:2px;overflow-x:auto;
+  padding:7px 6px 5px;border-radius:5px;
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar {
+  min-width:4px;min-height:3px;
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-diag-legend {margin-top:6px}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-diag-readout {margin-top:4px}
+.cleanup-editor-page .has-cleanup-frame-rail [data-two-gain] {display:none}
+.cleanup-editor-page .cleanup-diagnostics-fold > summary,
+.cleanup-editor-page .cleanup-params-fold > summary {
+  min-height:44px;
+}
+.cleanup-editor-page .cleanup-media-fold > summary,
+.cleanup-editor-page .cleanup-wipe-fold > summary {
+  min-height:38px;
+}
+@media(max-width:870px) {
+  .cleanup-editor-page .comparison-player.cleanup-two-up .cleanup-side-media {
+    height:var(--cleanup-compact-video);
+  }
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {
+    height:var(--cleanup-compact-still);
+  }
+}
+@media(min-width:700px) and (max-width:1050px) {
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-grid {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-panel:last-child {
+    grid-column:1 / -1;
+  }
+}
+@media(max-width:699px) {
+  .cleanup-editor-page .cleanup-heading-title {display:grid;gap:3px}
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-grid {
+    grid-template-columns:1fr;
+  }
+  .cleanup-editor-page .cleanup-workspace-viewer {padding:10px}
+}
+@media(pointer:coarse) {
+  .cleanup-editor-page .cleanup-two-up-tools button,
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-buttons button,
+  .cleanup-editor-page .cleanup-density-button {min-height:44px}
+}
