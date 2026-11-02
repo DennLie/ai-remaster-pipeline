@@ -31,7 +31,7 @@ class Step3BenchmarkTests(unittest.TestCase):
             bench.validate_geometry(original, 512, 512)
         with self.assertRaisesRegex(ValueError, "multiples of 128"):
             bench.validate_geometry(original, 500, 384)
-        with self.assertRaisesRegex(ValueError, "variant"):
+        with self.assertRaisesRegex(ValueError, "Variant"):
             bench.parse_variants(["unknown"])
 
     def test_manifest_protects_against_path_traversal(self):
