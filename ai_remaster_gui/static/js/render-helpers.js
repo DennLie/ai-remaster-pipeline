@@ -845,30 +845,80 @@ function drawStage(st) {
 
 function drawCleanup(st, s, expected, sp) {
   const comparison = state.cleanup_comparison || {};
+  const diagnostics = state.cleanup_diagnostics || {};
+  const d = diagnostics.deflicker;
+  const prefs = typeof window !== 'undefined' ? (window.arpCleanupPanelPrefs || {}) : {};
+  const analysisOpen = Boolean(prefs.analysis);
+  const hasOutput = comparison.exists === 'true';
+  const summary = d
+    ? `<div class="cleanup-results-metrics" aria-label="Was wurde verändert?">
+        <span><strong>${d.corrected}/${d.frames}</strong> Frames korrigiert</span>
+        <span><strong>${Number(d.max_gain_change_pct).toFixed(2)} %</strong> Maximum</span>
+        <span><strong>${Number(d.mean_abs_gain_change_pct).toFixed(2)} %</strong> Ø Korrektur</span>
+        <span><strong>${d.cut_boundaries}</strong> Schnittgrenzen</span>
+      </div>`
+    : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
+
   document.getElementById('app').innerHTML = `
-    <div class="editor-page">
-      <section class="card">
+    <div class="editor-page cleanup-editor-page" data-cleanup-density="${prefs.density === 'focus' ? 'focus' : 'compact'}">
+      <aside class="card cleanup-settings-sidebar" aria-label="Clean Up Einstellungen">
         <h2>${st.title}</h2>
         <p>${st.description}</p>
         ${progressHtml(sp.percent, sp.label)}
+        <div class="actions cleanup-primary-actions">
+          <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
+          <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
+        </div>
         ${cleanupLicenseWarning(s)}
         ${st.fields.map(f => fieldHtml(st, f)).join('')}
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(s)}
-        <div class="actions">
-          <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
-          <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
-        </div>
         <div class="command" id="cmd"></div>
-      </section>
-      <section class="card editor-viewer">
-        <h2>${esc(comparison.title || 'Clean Up Comparison')}</h2>
+      </aside>
+      <section class="card editor-viewer cleanup-workspace-viewer">
+        <div class="cleanup-workspace-heading">
+          <div class="cleanup-heading-title"><h2>Clean Up · Vergleich</h2></div>
+          <button type="button" class="cleanup-density-button" data-cleanup-density-toggle
+             aria-pressed="${prefs.density === 'focus' ? 'true' : 'false'}"
+             aria-label="Größere Vergleichsbilder umschalten">${prefs.density === 'focus' ? 'Kompaktansicht' : 'Großansicht'}</button>
+        </div>
+        ${diagnostics.ready ? `
+          <section class="cleanup-results-overview" aria-label="Was wurde verändert?">
+            <div class="cleanup-results-heading">
+              <strong>Was wurde verändert?</strong>
+              <span>Light Deflicker · Verarbeitungsergebnis</span>
+            </div>
+            ${summary}
+            <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
+              <summary><strong>Weitere Messwerte und Masken</strong><span>Details einblenden</span></summary>
+              ${cleanupDiagnosticsHtml(diagnostics)}
+            </details>
+          </section>` : ''}
         ${cleanupComparisonHtml(comparison)}
-        ${cleanupDiagnosticsHtml(state.cleanup_diagnostics || {})}
       </section>
     </div>
   `;
-
+  document.querySelectorAll('[data-cleanup-fold]').forEach(fold => {
+    fold.addEventListener('toggle', () => {
+      if (typeof window === 'undefined') return;
+      const next = window.arpCleanupPanelPrefs || {};
+      next[fold.dataset.cleanupFold] = fold.open;
+      window.arpCleanupPanelPrefs = next;
+    });
+  });
+  const densityButton = document.querySelector('[data-cleanup-density-toggle]');
+  densityButton?.addEventListener('click', () => {
+    const page = document.querySelector('.cleanup-editor-page');
+    const expanded = page?.dataset.cleanupDensity !== 'focus';
+    if (page) page.dataset.cleanupDensity = expanded ? 'focus' : 'compact';
+    densityButton.setAttribute('aria-pressed', String(expanded));
+    densityButton.textContent = expanded ? 'Kompaktansicht' : 'Großansicht';
+    if (typeof window !== 'undefined') {
+      const next = window.arpCleanupPanelPrefs || {};
+      next.density = expanded ? 'focus' : 'compact';
+      window.arpCleanupPanelPrefs = next;
+    }
+  });
   bindStageFields('cleanup');
   bindCleanupComparison();
   showCommand('cleanup');
@@ -963,7 +1013,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
         const height = Math.max(2, Math.min(100, 100 * Math.abs(delta) / Math.max(.01, d.limit_pct)));
         const direction = delta > 0 ? 'bright' : delta < 0 ? 'dark' : 'neutral';
         return `<button type="button" class="cleanup-gain-bar ${direction}"
-          data-cleanup-frame="${p.frame}" style="height:${height.toFixed(1)}%"
+          data-cleanup-frame="${p.frame}" style="--correction-height:${height.toFixed(1)}%"
           title="Frame ${p.frame + 1}: ${delta >= 0 ? '+' : ''}${delta.toFixed(2)}%" aria-label="Frame ${p.frame + 1}, Helligkeitskorrektur ${delta.toFixed(2)} Prozent"></button>`;
       }).join('')}
     </div>
@@ -1006,10 +1056,13 @@ function cleanupComparisonHtml(comparison) {
     </div>
     <input id="cleanupCompareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="Clean Up before after split">
     ${frameInspectorHtml('cleanup')}
-    <div class="source-info">
-      <div><span>Before</span><strong>${esc(before)}</strong></div>
-      <div><span>After</span><strong>${esc(after)}</strong></div>
-    </div>
+    <details class="cleanup-media-fold">
+      <summary>Quelldateien und Ausgabe anzeigen</summary>
+      <div class="source-info">
+        <div><span>Original</span><strong>${esc(before)}</strong></div>
+        <div><span>Light Deflicker</span><strong>${esc(after)}</strong></div>
+      </div>
+    </details>
   `;
 }
 

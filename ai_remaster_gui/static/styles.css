@@ -255,3 +255,485 @@ input#cleanupCompareSlider[hidden]{display:none !important}
 .comparison-player.cleanup-two-up .cleanup-exact-wipe-control input[type=range] {
   width:100%;margin:0;padding:0;cursor:ew-resize;
 }
+
+/* Unified Clean Up workspace: independent motion preview and exact stills. */
+.comparison-player.cleanup-two-up.frame-inspector-active .compare-before,
+.comparison-player.cleanup-two-up.frame-inspector-active .compare-after {
+  visibility:visible !important;
+}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-workspace[hidden],
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe:not(.fi-visible) {display:none !important}
+.fi-exact-workspace {margin:14px 0 12px}
+.fi-exact-heading {display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;margin-bottom:10px}
+.fi-exact-heading span,.fi-exact-panel small {color:var(--muted);font-size:12px}
+.fi-exact-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.fi-exact-panel {min-width:0;margin:0;padding:9px;border:1px solid var(--line);border-radius:7px;background:#0a1115}
+.fi-exact-panel figcaption {font-size:13px;font-weight:700;margin-bottom:7px}
+.fi-exact-panel small {display:block;line-height:1.35;margin-top:7px}
+.fi-exact-media {position:relative;aspect-ratio:4/3;overflow:hidden;border-radius:5px;background:#050607}
+.fi-exact-media img,.fi-exact-media canvas {display:block;width:100%;height:100%;object-fit:contain;background:#050607}
+.fi-exact-media img {transform:scale(var(--fi-zoom,1));transform-origin:center}
+.fi-difference-readout {display:block;font-size:12px;color:var(--text);margin-top:8px;font-variant-numeric:tabular-nums}
+@media(max-width:930px){.fi-exact-grid{grid-template-columns:1fr}.fi-exact-media{max-width:720px}}
+/* The additional wipe now sits below the three still panels, not over videos. */
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe.fi-visible {
+  display:grid;gap:9px;margin-top:18px;padding:13px;
+  background:#0c151a;border:1px solid var(--line);border-radius:9px
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image {
+  position:relative;aspect-ratio:4/3;width:100%;max-width:960px;
+  overflow:hidden;background:#050607;border-radius:6px;
+  cursor:ew-resize;touch-action:none;user-select:none
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image img {
+  position:absolute;inset:0;width:100%;height:100%;max-height:none;
+  object-fit:contain;border:0;border-radius:0;background:transparent;
+  transform:scale(var(--fi-zoom,1));transform-origin:center;
+  display:block !important;pointer-events:none
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image [data-wipe-before] {z-index:1;background:#050607}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image [data-wipe-after] {z-index:2}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-divider {
+  position:absolute;top:0;bottom:0;width:0;border-left:2px solid #e2f8ff;
+  z-index:3;pointer-events:none;filter:drop-shadow(0 0 2px #111)
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-control {
+  display:grid;gap:5px;font-size:12px;color:var(--text);max-width:960px
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-control input[type=range] {
+  width:100%;margin:0;padding:0;cursor:ew-resize
+}
+
+/* Zoom is shared by all three separate still panels, including pixel difference. */
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-media canvas {
+  transform:scale(var(--fi-zoom,1));transform-origin:center;
+}
+
+/* Compact Clean Up review, scoped so all other ARP stages keep their layouts. */
+.editor-page.cleanup-editor-page {
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:12px;
+  align-items:start;
+}
+.cleanup-editor-page > .cleanup-workspace-viewer,
+.cleanup-editor-page > .cleanup-params-fold {
+  grid-column:1 / -1;
+  min-width:0;
+  width:100%;
+}
+.cleanup-editor-page .cleanup-workspace-viewer {padding:13px 15px}
+.cleanup-workspace-heading {
+  display:flex;flex-wrap:wrap;justify-content:space-between;
+  gap:4px 14px;align-items:baseline;margin:0 0 8px
+}
+.cleanup-workspace-heading h2 {margin:0}
+.cleanup-workspace-heading > span {font-size:12px;color:var(--muted)}
+.cleanup-editor-page details > summary {
+  display:flex;align-items:center;flex-wrap:wrap;
+  gap:6px 14px;cursor:pointer;list-style:none;
+  color:var(--text);font-size:13px
+}
+.cleanup-editor-page details > summary::-webkit-details-marker {display:none}
+.cleanup-editor-page details > summary::before {
+  content:"▸";color:var(--accent);font-size:15px;line-height:1
+}
+.cleanup-editor-page details[open] > summary::before {content:"▾"}
+.cleanup-editor-page details > summary span {color:var(--muted);font-size:12px}
+.cleanup-params-fold,
+.cleanup-diagnostics-fold,
+.cleanup-media-fold,
+.cleanup-wipe-fold {
+  background:#0c151a;border:1px solid var(--line);
+  border-radius:8px;min-width:0
+}
+.cleanup-params-fold > summary,
+.cleanup-diagnostics-fold > summary,
+.cleanup-media-fold > summary,
+.cleanup-wipe-fold > summary {padding:11px 13px}
+.cleanup-params-fold .cleanup-params-card {
+  margin:0;border:0;border-top:1px solid var(--line);border-radius:0;
+  box-shadow:none;max-width:950px
+}
+.cleanup-diagnostics-fold {margin-top:12px}
+.cleanup-diagnostics-fold .cleanup-diagnostics {
+  margin:0;padding:12px;border:0;border-top:1px solid var(--line);
+  background:transparent;border-radius:0
+}
+.cleanup-media-fold {margin:10px 0 0}
+.cleanup-media-fold .source-info {margin:0;padding:0 11px 11px}
+.cleanup-two-up-controls {gap:5px;margin:0 0 9px}
+.cleanup-two-up-tools {gap:6px}
+.cleanup-two-up-tools button {padding:6px 10px;font-size:12px}
+.cleanup-two-up-seek-label {font-size:11px}
+.cleanup-two-up-controls p[data-two-mode] {font-size:11px;line-height:1.3}
+.cleanup-two-up-grid {gap:10px}
+.cleanup-side {padding:7px}
+.cleanup-side-heading {margin:0 0 5px}
+.cleanup-side-heading strong {font-size:12px}
+.cleanup-side-heading span {font-size:11px}
+.comparison-player.cleanup-two-up .cleanup-side-media {
+  height:clamp(190px,31vh,340px);
+  aspect-ratio:auto !important;
+}
+.frame-inspector[data-fi-stage="cleanup"] {
+  padding:10px 11px;margin:10px 0 0
+}
+.frame-inspector[data-fi-stage="cleanup"] .fi-heading {margin:0 0 5px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-buttons {gap:6px;margin:6px 0}
+.frame-inspector[data-fi-stage="cleanup"] .fi-buttons button {padding:5px 8px;font-size:12px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-heading small {font-size:11px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-status {padding:3px 0;font-size:11px}
+.frame-inspector[data-fi-stage="cleanup"] input[data-fi-timeline] {margin:5px 0}
+.frame-inspector[data-fi-stage="cleanup"] .fi-playback {margin:8px 0}
+.frame-inspector[data-fi-stage="cleanup"] > .shot-empty {display:none}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-workspace {margin:9px 0 8px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-heading {margin:0 0 7px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-grid {gap:9px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-panel {padding:7px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-panel figcaption {font-size:12px;margin:0 0 5px}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {
+  height:clamp(175px,27vh,285px);
+  aspect-ratio:auto;
+}
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-panel small {
+  font-size:10px;line-height:1.2;margin-top:5px
+}
+.frame-inspector[data-fi-stage="cleanup"] .fi-difference-readout {
+  font-size:11px;line-height:1.4;margin-top:6px
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-wipe-fold {margin-top:8px}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-wipe-fold[hidden],
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-wipe-fold:not([open]) .cleanup-exact-wipe {
+  display:none !important
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe.fi-visible {
+  padding:10px;margin-top:0;border-radius:0;border:0;border-top:1px solid var(--line)
+}
+.frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-image {
+  width:min(100%,650px);max-width:650px;aspect-ratio:4/3
+}
+@media(max-width:870px){
+  .cleanup-two-up-grid {grid-template-columns:1fr}
+  .frame-inspector[data-fi-stage="cleanup"] .fi-exact-grid {grid-template-columns:1fr}
+  .comparison-player.cleanup-two-up .cleanup-side-media {height:clamp(210px,40vh,440px)}
+  .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {height:clamp(200px,42vh,400px)}
+}
+
+/* Impeccable / Operate: the picture is the product; analysis is one scan away.
+   Keep the existing ARP dark palette and platform controls. No decorative UI. */
+.cleanup-editor-page {
+  --cleanup-space-1:4px;
+  --cleanup-space-2:8px;
+  --cleanup-space-3:12px;
+  --cleanup-space-4:16px;
+  --cleanup-compact-video:clamp(160px,25vh,285px);
+  --cleanup-compact-still:clamp(160px,23vh,260px);
+}
+.cleanup-editor-page[data-cleanup-density="focus"] {
+  --cleanup-compact-video:clamp(280px,44vh,590px);
+  --cleanup-compact-still:clamp(240px,38vh,460px);
+}
+.cleanup-workspace-heading {
+  align-items:center;
+  padding-bottom:var(--cleanup-space-2);
+  border-bottom:1px solid var(--line);
+}
+.cleanup-heading-title {
+  display:flex;align-items:baseline;gap:var(--cleanup-space-3);
+  min-width:0;flex-wrap:wrap
+}
+.cleanup-heading-title h2 {
+  font-size:18px;
+  font-weight:750;
+  line-height:1.2;
+}
+.cleanup-heading-title > span {
+  font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;
+}
+.cleanup-editor-page .cleanup-density-button {
+  flex:0 0 auto;font-size:12px;font-weight:600;
+  padding:7px 12px;min-height:36px;
+  background:transparent;color:var(--text);border:1px solid var(--line)
+}
+.cleanup-editor-page .cleanup-density-button:hover {background:#1a2a30}
+.cleanup-editor-page .cleanup-density-button[aria-pressed="true"] {
+  border-color:var(--accent);
+}
+.cleanup-editor-page button:focus-visible,
+.cleanup-editor-page summary:focus-visible,
+.cleanup-editor-page input:focus-visible,
+.cleanup-editor-page select:focus-visible {
+  outline:2px solid #93dbca;
+  outline-offset:3px;
+}
+.cleanup-editor-page details > summary:hover {background:#142127}
+.cleanup-editor-page details > summary:focus-visible {border-radius:6px}
+.cleanup-editor-page .cleanup-two-up-tools button {
+  min-height:36px;font-size:13px;padding:7px 12px
+}
+.cleanup-editor-page [data-two-play] {
+  background:var(--accent);color:#fff;border-color:var(--accent);font-weight:650;
+}
+.cleanup-editor-page [data-two-play]:hover {filter:brightness(1.08)}
+.cleanup-editor-page .cleanup-two-up-controls {gap:var(--cleanup-space-2)}
+.cleanup-editor-page .cleanup-two-up-controls [data-two-seek] {accent-color:var(--accent)}
+.cleanup-editor-page .cleanup-side {
+  border:0;
+  border-radius:0;
+  background:transparent;
+  padding:0;
+}
+.cleanup-editor-page .cleanup-side-heading {
+  align-items:center;
+  padding:3px 0 5px;
+  margin-bottom:0;
+}
+.cleanup-editor-page .cleanup-side-heading strong,
+.cleanup-editor-page .fi-exact-panel figcaption {
+  font-size:12px;
+  letter-spacing:.025em;
+  font-weight:700;
+}
+.cleanup-editor-page .comparison-player.cleanup-two-up .cleanup-side-media {
+  height:var(--cleanup-compact-video);
+  border:1px solid var(--line);
+  border-radius:5px;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] {
+  background:transparent;
+  border:0;
+  border-top:1px solid var(--line);
+  border-radius:0;
+  margin-top:var(--cleanup-space-3);
+  padding:var(--cleanup-space-2) 0 0;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-panel {
+  border:0;background:transparent;border-radius:0;padding:0;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {
+  height:var(--cleanup-compact-still);
+  border:1px solid var(--line);
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-buttons button {
+  min-height:34px;padding:6px 10px;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-heading {
+  display:flex;align-items:baseline;flex-wrap:wrap;
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-heading strong,
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-heading strong {
+  font-size:13px;letter-spacing:.01em
+}
+.cleanup-editor-page .fi-exact-panel small {
+  font-size:11px;line-height:1.4;
+}
+.cleanup-editor-page .cleanup-frame-rail {
+  margin-top:var(--cleanup-space-3);
+  padding:var(--cleanup-space-3) 0 0;
+  border-top:1px solid var(--line);
+}
+.cleanup-frame-rail-heading {
+  display:flex;align-items:baseline;justify-content:space-between;
+  gap:6px 14px;flex-wrap:wrap;margin:0 0 6px
+}
+.cleanup-frame-rail-heading strong {font-size:13px}
+.cleanup-frame-rail-heading span {font-size:12px;color:var(--muted)}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-plot {
+  height:72px;gap:2px;overflow-x:auto;
+  padding:7px 6px 5px;border-radius:5px;
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar {
+  /* Full column is the pointer/keyboard target; only the inner mark encodes
+     magnitude. A near-zero correction must still be selectable. */
+  position:relative;min-width:8px;min-height:100%;height:100%;
+  flex:1 0 8px;background:transparent;border-radius:0;
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar::after {
+  content:"";position:absolute;left:0;right:0;bottom:0;
+  height:var(--correction-height,2%);min-height:2px;
+  background:#52646d;border-radius:2px 2px 0 0;
+  pointer-events:none;
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar.bright::after {background:#4abfa5}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar.dark::after {background:#e6a256}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar:hover::after,
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar:focus-visible::after {
+  filter:brightness(1.25);
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-diag-legend {margin-top:6px}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-diag-readout {margin-top:4px}
+.cleanup-editor-page .has-cleanup-frame-rail [data-two-gain] {display:none}
+.cleanup-editor-page .cleanup-diagnostics-fold > summary,
+.cleanup-editor-page .cleanup-params-fold > summary {
+  min-height:44px;
+}
+.cleanup-editor-page .cleanup-media-fold > summary,
+.cleanup-editor-page .cleanup-wipe-fold > summary {
+  min-height:38px;
+}
+@media(max-width:870px) {
+  .cleanup-editor-page .comparison-player.cleanup-two-up .cleanup-side-media {
+    height:var(--cleanup-compact-video);
+  }
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {
+    height:var(--cleanup-compact-still);
+  }
+}
+@media(min-width:700px) and (max-width:1050px) {
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-grid {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-panel:last-child {
+    grid-column:1 / -1;
+  }
+}
+@media(max-width:699px) {
+  .cleanup-editor-page .cleanup-heading-title {display:grid;gap:3px}
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-grid {
+    grid-template-columns:1fr;
+  }
+  .cleanup-editor-page .cleanup-workspace-viewer {padding:10px}
+}
+@media(pointer:coarse) {
+  .cleanup-editor-page .cleanup-two-up-tools button,
+  .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-buttons button,
+  .cleanup-editor-page .cleanup-density-button {min-height:44px}
+}
+
+/* Clean Up final workspace: permanent controls left, inspection right.
+   Overrides exploratory bottom-fold layout without changing other stages. */
+.editor-page.cleanup-editor-page {
+  display:grid;
+  grid-template-columns:clamp(302px,22vw,370px) minmax(0,1fr);
+  column-gap:14px;
+  row-gap:12px;
+  align-items:start;
+}
+.editor-page.cleanup-editor-page > .cleanup-settings-sidebar {
+  display:block;grid-column:1;grid-row:1;
+  min-width:0;
+  position:sticky;
+  top:calc(var(--header-height) + 51px);
+  max-height:calc(100dvh - var(--header-height) - 69px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  padding:12px 14px;
+}
+.cleanup-settings-sidebar h2 {font-size:18px;margin:0 0 6px}
+.cleanup-settings-sidebar > p {font-size:12px;color:var(--muted);line-height:1.45}
+.cleanup-settings-sidebar .actions {
+  display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 8px
+}
+.cleanup-settings-sidebar .actions button {flex:1 1 110px}
+.editor-page.cleanup-editor-page > .cleanup-workspace-viewer {
+  grid-column:2;grid-row:1;
+  min-width:0;width:100%;
+  padding:12px 14px;
+}
+.cleanup-results-overview {
+  margin:3px 0 12px;
+  padding:9px 11px;
+  border:1px solid var(--line);
+  border-radius:7px;
+  background:#111d21;
+}
+.cleanup-results-heading {
+  display:flex;flex-wrap:wrap;align-items:baseline;
+  justify-content:space-between;gap:4px 12px;
+  margin:0 0 8px
+}
+.cleanup-results-heading strong {font-size:13px}
+.cleanup-results-heading span {font-size:11px;color:var(--muted)}
+.cleanup-results-metrics {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:7px;
+  align-items:stretch;
+}
+.cleanup-results-metrics > span {
+  display:flex;flex-direction:column;gap:1px;
+  min-width:0;
+  color:var(--muted);font-size:11px;
+  padding:5px 8px;
+  border-left:2px solid #355b59;
+}
+.cleanup-results-metrics strong {
+  font-size:16px;font-weight:750;
+  color:var(--text);font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.cleanup-results-empty {margin:0;color:var(--muted);font-size:12px}
+.cleanup-editor-page .cleanup-diagnostics-fold {
+  margin:7px 0 0;
+  border:0;
+  border-top:1px solid var(--line);
+  border-radius:0;
+  background:transparent;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold > summary {
+  padding:6px 3px 1px;
+  min-height:32px;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold > summary strong {font-weight:600}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diagnostics {
+  padding:8px 2px 2px;
+  border:0;
+  margin:0;
+  background:transparent;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diagnostics h3 {display:none}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diag-metrics {
+  grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diag-metrics > div {
+  padding:7px 9px;gap:3px;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diag-metrics strong {font-size:14px}
+.cleanup-editor-page .cleanup-diagnostics-fold .shot-empty {font-size:11px;margin:7px 0}
+.cleanup-editor-page .cleanup-frame-rail {
+  margin:7px 0 10px;
+  padding:9px 1px 5px;
+  border-top:1px solid var(--line);
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-plot {height:68px}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-diag-readout {font-size:11px}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] {
+  margin-top:9px;padding-top:9px;
+}
+.cleanup-editor-page .comparison-player.cleanup-two-up .cleanup-side-media {
+  height:var(--cleanup-compact-video);
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {
+  height:var(--cleanup-compact-still);
+}
+@media(min-width:900px) and (max-width:1210px) {
+  .editor-page.cleanup-editor-page {
+    grid-template-columns:310px minmax(0,1fr);
+    gap:10px;
+  }
+  .cleanup-results-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:899px) {
+  .editor-page.cleanup-editor-page {grid-template-columns:minmax(0,1fr)}
+  .editor-page.cleanup-editor-page > .cleanup-settings-sidebar {
+    position:static;grid-column:1;grid-row:1;
+    max-height:300px;overflow:auto;
+  }
+  .editor-page.cleanup-editor-page > .cleanup-workspace-viewer {
+    grid-column:1;grid-row:2;
+  }
+  .cleanup-results-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+/* Keep execution controls reachable while scrolling long processing parameters. */
+.cleanup-editor-page .cleanup-settings-sidebar .cleanup-primary-actions {
+  position:sticky;
+  top:0;
+  z-index:1;
+  margin:10px -2px;
+  padding:8px 2px;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+}

@@ -4,13 +4,38 @@
  * frame-index matched and rendered in the same two panels.
  * The original and the processed file are never modified by this viewer.
  */
+// Exact frame ordinal to video timestamp; 0-based internally, 1-based in UI.
+function cleanupFrameTimestamp(frame, fps, totalFrames) {
+  if (!Number.isInteger(frame) || !Number.isFinite(fps) || fps <= 0 ||
+      !Number.isInteger(totalFrames) || totalFrames < 1) return null;
+  return Math.max(0, Math.min(frame, totalFrames - 1)) / fps;
+}
+
 function setupCleanupReview(sliderId, player, before, after, slider) {
   if (sliderId !== 'cleanupCompareSlider' || player.dataset.cleanupTwoUpReady) return;
   const inspector = player.parentElement?.querySelector('.frame-inspector[data-fi-stage="cleanup"]');
   if (!inspector) return;
   player.dataset.cleanupTwoUpReady = 'true';
   player.classList.add('cleanup-two-up');
-  player.closest('.editor-viewer')?.classList.add('cleanup-two-up-wide');
+  // The correction chart belongs immediately underneath both video previews.
+  // Move only the interactive chart; advanced metrics stay above the video.
+  const diagnostics = player.parentElement.querySelector('.cleanup-diagnostics');
+  const plot = diagnostics?.querySelector('.cleanup-gain-plot');
+  const legend = diagnostics?.querySelector('.cleanup-diag-legend');
+  const readout = diagnostics?.querySelector('#cleanupGainReadout');
+  if (plot && legend && readout) {
+    const oldTitle = plot.previousElementSibling;
+    if (oldTitle?.tagName === 'H4') oldTitle.remove();
+    const rail = document.createElement('section');
+    rail.className = 'cleanup-frame-rail';
+    rail.setAttribute('aria-label', 'Helligkeitskorrektur pro Einzelbild');
+    rail.innerHTML = '<div class="cleanup-frame-rail-heading"><strong>Frame-Korrekturen</strong><span>Balken anklicken: exakten Frame anzeigen</span></div>';
+    rail.append(plot, legend, readout);
+    // Keep the hidden slider directly behind player: bindCleanupDiagnostics uses
+    // slider.previousElementSibling to find the video pair.
+    slider.insertAdjacentElement('afterend', rail);
+    player.closest('.editor-viewer')?.classList.add('has-cleanup-frame-rail');
+  }
   player.querySelectorAll('.cleanup-compare-label').forEach(node => node.remove());
   slider.hidden = true;
   slider.setAttribute('aria-hidden', 'true');
@@ -57,9 +82,9 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   controls.className = 'cleanup-two-up-controls';
   controls.innerHTML = `
     <div class="cleanup-two-up-tools">
-      <button type="button" data-two-play aria-label="Beide Videos abspielen">▶ Beide abspielen</button>
-      <button type="button" data-two-pause>⏸ Pause</button>
-      <button type="button" data-two-rewind>⟲ Anfang</button>
+      <button type="button" data-two-play aria-label="Beide Videos abspielen">Beide abspielen</button>
+      <button type="button" data-two-pause>Pause</button>
+      <button type="button" data-two-rewind>Anfang</button>
       <span data-two-clock class="cleanup-two-up-clock">0.000 s</span>
     </div>
     <label class="cleanup-two-up-seek-label" for="cleanupTwoUpSeek">Gemeinsame Video-Timeline</label>
@@ -81,6 +106,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   const speed = inspector.querySelector('[data-fi-speed]');
   const exact = () => player.classList.contains('frame-inspector-active');
   let fps = 0, frameCount = 0, seeking = false, syncing = false;
+  let pendingVideoFrame = null;
   const validDuration = () => Number.isFinite(before.duration) && before.duration > 0 ? before.duration : 0;
   const currentTime = () => Number.isFinite(before.currentTime) ? before.currentTime : 0;
   function limits() {
@@ -98,6 +124,24 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     }
     updateClock();
   }
+  // A frame selection must update both video clocks and the shared time slider.
+  // Metadata can still be loading when the first chart bar is selected.
+  function applyFrameSeek(frame) {
+    const seconds = cleanupFrameTimestamp(frame, fps, frameCount);
+    if (seconds === null) {
+      pendingVideoFrame = frame;
+      return;
+    }
+    pendingVideoFrame = null;
+    pauseBoth();
+    moveBoth(seconds);
+  }
+  document.addEventListener('arp-cleanup-seek-video', event => {
+    if (!player.isConnected || event.detail?.stage !== 'cleanup') return;
+    const requested = Number(event.detail.frame);
+    if (!Number.isInteger(requested) || requested < 0) return;
+    applyFrameSeek(frameCount > 0 ? Math.min(requested, frameCount - 1) : requested);
+  });
   function updateClock() {
     const duration = validDuration();
     const t = Math.max(0, currentTime());
@@ -108,17 +152,16 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     clock.textContent = `${t.toFixed(3)} s / ${duration.toFixed(3)} s`;
   }
   function updateButtons() {
-    const inspecting = exact();
-    play.disabled = inspecting;
-    pause.disabled = inspecting;
-    rewind.disabled = inspecting;
-    seek.disabled = inspecting;
-    mode.textContent = inspecting
-      ? 'Exakte Einzelbilder: links und rechts haben dieselbe Frame-Nummer. Zum Abspielen zuerst „Zum Video zurück“ wählen.'
-      : 'Beide Videos gleichzeitig sichtbar. Gemeinsame Wiedergabe ist näherungsweise synchron; exakte Unterschiede nur im Einzelbildmodus beurteilen.';
+    // Playback must never depend on whether exact stills are displayed.
+    play.disabled = false;
+    pause.disabled = false;
+    rewind.disabled = false;
+    seek.disabled = false;
+    mode.textContent = exact()
+      ? 'Videos: annähernd synchron · Einzelbilder: exakt und angeheftet.'
+      : 'Videos: annähernd synchron · Einzelbilder: exakt.';
   }
   async function playBoth() {
-    if (exact()) return;
     const l = loop?.checked ? limits() : null;
     if (l && (currentTime() < l.start || currentTime() >= l.end - 0.010)) moveBoth(l.start);
     before.playbackRate = after.playbackRate = Number(speed?.value) || 1;
@@ -147,16 +190,23 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   seek.addEventListener('change', () => {
     seeking = false;
     moveBoth(Number(seek.value));
+    // Scrubbing the shared video timeline also updates the exact inspector.
+    if (fps > 0 && frameCount > 0) {
+      const frame = Math.max(0, Math.min(frameCount - 1, Math.floor(currentTime() * fps + 0.00001)));
+      document.dispatchEvent(new CustomEvent('arp-request-exact-frame', {
+        detail: {stage:'cleanup', frame}
+      }));
+    }
   });
   function checkLoop() {
-    if (exact() || !loop?.checked || before.paused) return;
+    if (!loop?.checked || before.paused) return;
     const bounds = limits();
     if (bounds && currentTime() >= bounds.end - 0.015) moveBoth(bounds.start);
   }
   before.addEventListener('timeupdate', () => {
     updateClock();
     checkLoop();
-    if (syncing || after.readyState < 1 || exact()) return;
+    if (syncing || after.readyState < 1) return;
     const skew = Math.abs((after.currentTime || 0) - currentTime());
     if (skew > 0.08) {
       syncing = true;
@@ -165,17 +215,17 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     }
   });
   before.addEventListener('seeked', () => {
-    if (exact() || after.readyState < 1) return;
+    if (after.readyState < 1) return;
     try { after.currentTime = currentTime(); } catch (_) {}
   });
   before.addEventListener('ended', () => {
-    if (!loop?.checked || exact() || !limits()) {after.pause(); return;}
+    if (!loop?.checked || !limits()) {after.pause(); return;}
     moveBoth(limits().start);
     playBoth();
   });
   after.addEventListener('ended', () => {
     // Only the original is the playback clock and decides loop bounds.
-    if (!before.paused && !exact() && after.readyState >= 1) {
+    if (!before.paused && after.readyState >= 1) {
       try {after.currentTime = currentTime(); after.play().catch(() => {});} catch (_) {}
     }
   });
@@ -200,6 +250,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     if (!player.isConnected || event.detail?.stage !== 'cleanup') return;
     fps = Number(event.detail.fps) || fps;
     frameCount = Number(event.detail.frames) || frameCount;
+    if (pendingVideoFrame !== null) applyFrameSeek(pendingVideoFrame);
     updateButtons();
     const report = (typeof state !== 'undefined' && state?.cleanup_diagnostics?.deflicker) || null;
     if (report && Number(report.frames) === frameCount && Array.isArray(report.samples)) {
@@ -221,6 +272,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
       if (!meta.ok || !(Number(meta.fps)>0) || !(Number(meta.frames)>0)) throw new Error(meta.error || 'Ungültige Frame-Metadaten');
       fps = Number(meta.fps);
       frameCount = Number(meta.frames);
+      if (pendingVideoFrame !== null) applyFrameSeek(pendingVideoFrame);
       if (loopIn) loopIn.max = String(frameCount);
       if (loopOut) {
         loopOut.max = String(frameCount);
@@ -241,8 +293,11 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
 function setupCleanupExactWipe(player) {
   if (!player || player.dataset.cleanupExactWipeReady) return;
   player.dataset.cleanupExactWipeReady = 'true';
-  const card = document.createElement('section');
-  card.className = 'cleanup-exact-wipe';
+  // Keep the exact Wipe available on demand without forcing another tall panel.
+  const fold = document.createElement('details');
+  fold.className = 'cleanup-wipe-fold';
+  fold.innerHTML = '<summary><strong>Wischvergleich</strong><span>Exakter Vorher/Nachher-Schieber · bei Bedarf öffnen</span></summary><section class="cleanup-exact-wipe"></section>';
+  const card = fold.querySelector('.cleanup-exact-wipe');
   card.setAttribute('aria-label', 'Zusätzlicher Vorher-Nachher-Wischvergleich');
   card.innerHTML = `
     <div class="cleanup-exact-wipe-heading">
@@ -266,7 +321,18 @@ function setupCleanupExactWipe(player) {
     <output data-wipe-status aria-live="polite">50 % Original links · 50 % Ergebnis rechts</output>
     <p class="cleanup-exact-wipe-hint">Ganz links = nur Ergebnis. Ganz rechts = nur Original.
       Die beiden oberen Einzelbilder bleiben weiterhin nebeneinander sichtbar.</p>`;
-  player.appendChild(card);
+  const inspector = player.parentElement.querySelector('.frame-inspector[data-fi-stage="cleanup"]');
+  if (!inspector) return;
+  inspector.appendChild(fold);
+  // Wipe visibility is independent from video controls. Opening the details
+  // never switches playback mode or changes the selected frame.
+  const updateWipeVisibility = () => {
+    const isInspecting = player.classList.contains('frame-inspector-active');
+    fold.hidden = !isInspecting;
+    card.classList.toggle('fi-visible', isInspecting);
+  };
+  inspector.querySelector('[data-fi-open]')?.addEventListener('click', () => setTimeout(updateWipeVisibility, 0));
+  inspector.querySelector('[data-fi-close]')?.addEventListener('click', () => setTimeout(updateWipeVisibility, 0));
   const picture = card.querySelector('[data-wipe-picture]');
   const original = card.querySelector('[data-wipe-before]');
   const result = card.querySelector('[data-wipe-after]');
@@ -314,8 +380,9 @@ function setupCleanupExactWipe(player) {
       return;
     }
     if (event.detail?.stage !== 'cleanup') return;
-    const srcBefore = player.querySelector('.fi-photo-before');
-    const srcAfter = player.querySelector('.fi-photo-after');
+    updateWipeVisibility();
+    const srcBefore = inspector.querySelector('.fi-photo-before');
+    const srcAfter = inspector.querySelector('.fi-photo-after');
     if (!srcBefore?.src || !srcAfter?.src) return;
     original.src = srcBefore.src;
     result.src = srcAfter.src;
@@ -325,7 +392,8 @@ function setupCleanupExactWipe(player) {
     update();
   };
   document.addEventListener('arp-frame-inspected', onFrame);
-  const zoom = player.parentElement?.querySelector('.frame-inspector[data-fi-stage="cleanup"] [data-fi-zoom]');
+  const zoom = inspector.querySelector('[data-fi-zoom]');
   zoom?.addEventListener('change', update);
+  updateWipeVisibility();
   update();
 }

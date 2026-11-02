@@ -721,8 +721,8 @@ function bindCleanupDiagnostics() {
       document.dispatchEvent(new CustomEvent('arp-request-exact-frame', {
         detail: {stage: 'cleanup', frame}
       }));
-      // The chart is below the video; reveal the actual frame after selection.
-      player.scrollIntoView?.({behavior: 'smooth', block: 'start'});
+      // Preserve the user's scroll position while both videos and the stills
+      // are synchronized. The chart now sits immediately under the videos.
     });
   });
   document.addEventListener('arp-frame-inspected', event => {
