@@ -93,3 +93,22 @@ git pull --ff-only origin research/localized-deflicker-v1
 Do not reuse the first report filename: the evaluation refuses overwriting measured results. The report section `guard_comparison` contains *both* methods' inside, outside and original-unmodified errors plus their differences. Improvement in injected flicker **does not** compensate for unbounded false changes. Include separate motion/scene-cut/real-flicker negative controls before enabling any GUI backend.
 
 This pilot evaluates the same digital source with synthesized defects. A real-film unmodified-footage test measures unwanted changes, **not** authentic flicker correction efficacy.
+
+### Neighbors 72-frame controlled baseline-vs-guard result (operator run, 2026-11-02)
+
+The local test above was executed on the same 72 frames (960×720, 30 fps) and produced:
+
+| Metric (digital-reference mean absolute pixel error) | Guard off | Oscillation guard |
+|---|---:|---:|
+| Synthetic damage error, before correction | 10.08461 | 10.08461 |
+| Synthetic damage error, after correction | 5.81619 | 6.06686 |
+| Absolute improvement inside synthetic damage | 4.26842 | 4.01775 |
+| Relative improvement inside synthetic damage | 42.3% | 39.8% |
+| Error outside synthetic damage, after correction (was 0) | 0.90662 | 0.04534 |
+| Wrong changes on **untouched** original clip | 0.99839 | 0.08702 |
+
+**Trade-off:** The guard retains about **94.1%** of the unguarded synthetic error reduction while reducing changes to the untouched outside region by **95.0%** and to the completely unaltered original by **91.3%**. This is promising evidence for the oscillation gate on the *specific* alternating digital exposure error model and 72-frame source. The improvement is not evidence for authentic film damage removal.
+
+Source remains local to the operator's Windows `evaluation/` directory. The report filename is `Neighbors_72_local_guard_comparison.json`. Neither the source frames nor the report JSON were added to this repository. Both algorithms currently report `release_ready: false`.
+
+**Research decision:** Treat `temporal_guard=oscillation` as the leading *candidate* for follow-up experiments, not the default/production algorithm. Next evaluate multiple film transfers and motion/scene-cut/intentional-lighting negative controls; measure untouched-region error and failure cases separately. Real or synthetic sequences with slow/subtle, nonalternating flicker must also be tested because the guard may fail to detect them. Preserve the original method for ablation comparisons.
