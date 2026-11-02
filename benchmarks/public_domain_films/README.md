@@ -22,9 +22,12 @@ Das bisherige *Neighbors*-Testmaterial bleibt als achte, gesondert dokumentierte
 | [Das Cabinet des Dr. Caligari (1920)](https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr._Caligari.webm) | Kanten, schräge Bühnenarchitektur, Gesichter | Deutscher Expressionismus | Internet-Archive-Kopie mit 576×448, bis 400 MiB für den Original-Download; ungewöhnliches Bildformat bleibt erhalten |
 | [Gertie the Dinosaur (1914)](https://commons.wikimedia.org/wiki/File:Winsor_McCay_%281914%29Gertie_the_Dinosaur.webm) | Handgezeichnete Linien, Weißflächen, Flackern | Zeichentrick | 2004-DVD-Transfer! **Zusätzliche Rechteprüfung** |
 | [A Corner in Wheat (1909)](https://commons.wikimedia.org/wiki/File:A_Corner_in_Wheat_%281909%29.webm) | Innen-/Außenräume, Stoff, Flächen und Natur | Frühe US-Dramaturgie | Library-of-Congress-Fassung als Commons-VP9-360p-/480p-Transcode (andere 480×360-Kopie lieferte unbrauchbare 1000-fps-Metadaten) |
-| [Nosferatu (1922)](https://commons.wikimedia.org/wiki/File:Nosferatu_%281922%29.webm) | Dunkle Flächen, Schatten, mögliche Tönung | Deutscher Horror-Stummfilm | 2006-Restaurierung! **Zusätzliche Rechteprüfung** |
+| [Nosferatu (1922)](https://commons.wikimedia.org/wiki/File:Nosferatu_le_vampire-Film_Murnau_1922.webm) | Kontrastarme Flächen, Außenaufnahmen, Schattendetails | Deutscher Horror-Stummfilm | CC0-gelistete Internet-Archive-Fassung von 60:36 statt 2006-Restaurierung; eigener 400-MiB-Downloadrahmen, **Rechte separat prüfen** |
 
-**Zeitmarken sind zunächst Proben:** Die zwölf plus zwei ausgewählten Fenster sind keine nach einer Sichtung bestätigten Film-Einstellungen. Es muss nach dem ersten Kontaktbogen kontrolliert werden, ob der Ausschnitt tatsächlich das angenommene Motiv, einen Schnitt, Vorspann oder einen Zwischentitel zeigt. Keine nicht überprüften Szenenbezeichnungen als Fakten behandeln.
+**Zeitmarken sind zunächst Proben:** Die insgesamt **17 ausgewählten Fenster aus sieben Werken** (je zwei bis vier Szenen) sind keine nach einer Sichtung bestätigten Film-Einstellungen. Es muss nach dem ersten Kontaktbogen kontrolliert werden, ob der Ausschnitt tatsächlich das angenommene Motiv, einen Schnitt, Vorspann oder einen Zwischentitel zeigt. Keine nicht überprüften Szenenbezeichnungen als Fakten behandeln.
+
+
+Für alle sieben verwendeten Quelldateien sind jetzt sowohl die Original-SHA-1-Angabe aus Wikimedia Commons als auch die SHA-256-Prüfsumme der tatsächlich heruntergeladenen Medienvariante im Katalog verankert. Jeder spätere Abweichungsfall wird abgebrochen. Bei *Gertie* sind jetzt zusätzlich zu Prolog und Zwischentitel zwei eigentliche Animations-Zeitfenster vorgesehen, insgesamt vier Ausschnitte; *A Corner in Wheat* umfasst drei Fenster. Die fünf anderen Filme haben jeweils zwei.
 
 ## Pro Szene gespeicherte Testvarianten
 
@@ -73,7 +76,7 @@ python scripts/prepare_public_domain_films.py \
   --output-dir benchmarks/public_domain_films/generated/great_train_robbery
 ```
 
-Voraussetzungen: FFmpeg/FFprobe und eine Python-Umgebung mit `numpy`, `opencv-python-headless` und den ARP-Skripten. Der Download ist auf **250 MiB pro Film; nur für den ausdrücklich ausgewählten Caligari-Originaltransfer gilt ein dokumentierter Höchstwert von 400 MiB** begrenzt; eine Quellenvariante oberhalb dieser Grenze muss gezielt geprüft und anders bearbeitet werden, nicht einfach ohne Schranke geladen werden. Beim ersten Lauf wird der Commons-Original-SHA-1 gespeichert; für vollständig unveränderliche Downloads sollten die ermittelten Werte anschließend in `catalog.json` festgeschrieben werden.
+Voraussetzungen: FFmpeg/FFprobe und eine Python-Umgebung mit `numpy`, `opencv-python-headless` und den ARP-Skripten. Der Download ist auf **250 MiB pro Film; für die ausdrücklich ausgewählten Caligari- und Nosferatu-Originaltransfers gilt jeweils eine dokumentierte Obergrenze von 400 MiB** begrenzt; eine Quellenvariante oberhalb dieser Grenze muss gezielt geprüft und anders bearbeitet werden, nicht einfach ohne Schranke geladen werden. Beim ersten Lauf wird der Commons-Original-SHA-1 gespeichert; für vollständig unveränderliche Downloads sollten die ermittelten Werte anschließend in `catalog.json` festgeschrieben werden.
 
 ## Technische/ethische Grenzen
 
