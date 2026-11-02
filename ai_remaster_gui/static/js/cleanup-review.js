@@ -25,6 +25,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     rail.innerHTML = '<div class="cleanup-frame-rail-heading"><strong>Frame-Korrekturen</strong><span>Balken anklicken: exakten Frame anzeigen</span></div>';
     rail.append(plot, legend, readout);
     inspector.insertAdjacentElement('afterend', rail);
+    player.closest('.editor-viewer')?.classList.add('has-cleanup-frame-rail');
   }
   player.closest('.editor-viewer')?.classList.add('cleanup-two-up-wide');
   player.querySelectorAll('.cleanup-compare-label').forEach(node => node.remove());
