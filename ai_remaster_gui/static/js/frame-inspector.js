@@ -35,13 +35,13 @@ function frameInspectorHtml(stage) {
     </div>
     <input data-fi-timeline type="range" min="0" max="0" step="1" value="0" disabled aria-label="Exakte Frameposition">
     <div class="fi-status" data-fi-status role="status" aria-live="polite">Einzelbildansicht laden, um exakt dekodierte Frames anzuzeigen.</div>
-    ${cleanupWorkspace}
     <div class="fi-buttons fi-playback">
       <label>Tempo <select data-fi-speed><option value="0.25">0,25×</option><option value="0.5">0,5×</option><option value="1" selected>1×</option></select></label>
       <label>Abschnitt von Frame <input data-fi-in type="number" min="1" step="1" value="1"></label>
       <label>bis <input data-fi-out type="number" min="1" step="1" value="1"></label>
       <label><input data-fi-loop type="checkbox"> Loop in Videowiedergabe</label>
     </div>
+    ${cleanupWorkspace}
     <p class="shot-empty">${stage === 'cleanup' ? 'Video und exakte Einzelbilder sind gleichzeitig sichtbar. Beim Abspielen bleibt der zuletzt gewählte Einzelbild-Frame angeheftet; ein Diagrammklick oder Frame-Schritt wählt einen neuen Frame.' : 'Die Einzelbildansicht ist bildindexgenau. Wiedergabe, Tempo und Loop nutzen den Browser und sind zeitlich nur annähernd synchron.'}</p>
   </section>`;
 }
