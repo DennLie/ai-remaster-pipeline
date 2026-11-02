@@ -111,10 +111,10 @@
       "creator_last_death": 1954,
       "commons_file": "The Cabinet of Dr. Caligari.webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr._Caligari.webm",
-      "acquire": "vp9_360_or_480",
+      "acquire": "original",
       "source_original_sha1": null,
       "right_status": "underlying_film_PD_claimed_US_and_life70; specific upload and score require review",
-      "transfer_note": "Older Internet Archive-derived transfer, Commons source 576x448 51min, avoid assuming perfect 4:3 or modern restoration rights",
+      "transfer_note": "Original 576x448 Internet Archive-derived Commons copy (about 327 MiB); explicitly 400 MiB bounded download, unusual native ratio preserved. No new restoration rights are assumed.",
       "tests": [
         "angular expressionist scenery",
         "face silhouettes",
@@ -131,7 +131,8 @@
           "seconds": 1600,
           "frames": 24
         }
-      ]
+      ],
+      "max_download_megabytes": 400
     },
     {
       "id": "gertie",
@@ -169,12 +170,12 @@
       "year": 1909,
       "creator": "D. W. Griffith",
       "creator_last_death": 1948,
-      "commons_file": "Corner in Wheat.webm",
-      "source_page": "https://commons.wikimedia.org/wiki/File:Corner_in_Wheat.webm",
-      "acquire": "original",
+      "commons_file": "A Corner in Wheat (1909).webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:A_Corner_in_Wheat_%281909%29.webm",
+      "acquire": "vp9_360_or_480",
       "source_original_sha1": null,
       "right_status": "underlying_film_PD_claimed_US_and_life70; original transfer rights require review",
-      "transfer_note": "480x360 YouTube-derived digital transfer; no soundtrack exported",
+      "transfer_note": "Library of Congress-based 1436x1080 Commons source, accessed as 360p/480p VP9 transcode. Previous 480x360 YouTube upload reported 1000 fps and was rejected to avoid mislabeling unusual timing.",
       "tests": [
         "rural textures",
         "group scenes",
