@@ -1,0 +1,34 @@
+name: Scientific ARP Steps 1-2-4-5 CPU experiments
+
+on:
+  pull_request:
+    paths:
+      - "scripts/scientific_stage_adapters.py"
+      - "scripts/scientific_stabilization_eval.py"
+      - "tests/test_scientific_stage_adapters.py"
+      - "docs/scientific-stage-1-2-4-5-adapters.md"
+      - ".github/workflows/scientific-stage-adapters.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-cpu-method-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install scientific image tools and FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet "numpy>=2,<3" "opencv-python-headless>=4.10,<5" "scikit-image>=0.25,<0.28" pillow pyyaml
+          ffmpeg -hide_banner -filters | grep -E 'deflicker|hqdn3d|nlmeans|vidstabdetect|vidstabtransform'
+      - name: Test scientific Step 1/2/4/5 adapters on real FFV1 inputs
+        run: python -m unittest -v tests.test_scientific_stage_adapters
+      - name: Re-run reference-scoring and original data-integrity regression
+        run: python -m unittest -v tests.test_restoration_evaluation tests.test_scientific_classical_grid
