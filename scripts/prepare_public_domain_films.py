@@ -63,6 +63,9 @@ def load_catalog(path: Path) -> dict:
                 raise ValueError(f"Unsafe shot start for {key}")
         if film.get("acquire") not in ("original", "vp9_360_or_480"):
             raise ValueError(f"Unsupported Commons variant for {key}")
+        cap = film.get("max_download_megabytes", 250)
+        if not isinstance(cap, int) or not 1 <= cap <= 400:
+            raise ValueError(f"Per-film download safety cap must be 1..400 MiB: {key}")
         if not film.get("source_page", "").startswith("https://commons.wikimedia.org/wiki/File:"):
             raise ValueError(f"Not a Wikimedia Commons file page: {key}")
     return data
@@ -345,7 +348,7 @@ def main() -> None:
                         "actual_url": "local-file-override"}
         else:
             source = Path(td) / "wikipedia_transfer.webm"
-            transfer = download(metadata["selected_media_url"], source)
+            transfer = download(metadata["selected_media_url"], source, max_bytes=film.get("max_download_megabytes", 250) * 1024 * 1024)
             if film["acquire"] == "original" and metadata.get("commons_original_sha1"):
                 if hash_file(source, "sha1") != metadata["commons_original_sha1"]:
                     raise ValueError("Downloaded Commons original SHA-1 does not match Commons API")
