@@ -1022,6 +1022,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
   const d = diagnostics.deflicker;
   const mask = diagnostics.defect_mask || '';
   const scratch = diagnostics.scratch_mask || '';
+  const ffmpegSelected = ['ffmpeg_median', 'ffmpeg_am'].includes(state.cleanup_comparison?.method);
   const cards = d ? `
     <div class="cleanup-diag-metrics">
       <div><small>Korrigierte Frames</small><strong>${d.corrected} / ${d.frames}</strong></div>
@@ -1044,12 +1045,14 @@ function cleanupDiagnosticsHtml(diagnostics) {
     <div class="cleanup-diag-legend"><span>T\u00fcrkis: aufhellen</span><span>Orange: abdunkeln</span><span>Grau: unver\u00e4ndert</span></div>
     <p id="cleanupGainReadout" class="cleanup-diag-readout">W\u00e4hle einen Balken oder starte das Video, um den Frame-Wert zu sehen.</p>
     ${d.sampled ? '<p class="shot-empty">Bei langen Videos werden pro Block nur die st\u00e4rksten Korrekturen als Stichprobe angezeigt.</p>' : ''}
-  ` : `<p class="shot-empty">F\u00fcr diese Clean-Up-Ausgabe ist kein passender Frame-Bericht vorhanden oder Light Deflicker war nicht aktiv.</p>`;
+  ` : ffmpegSelected
+    ? `<p class="shot-empty">FFmpeg liefert keine ARP-Helligkeitsfaktoren. Das Diagramm mit gemessenen Pixelhelligkeitsänderungen steht direkt unter den Videos.</p>`
+    : `<p class="shot-empty">F\\u00fcr diese Clean-Up-Ausgabe ist kein passender Frame-Bericht vorhanden oder Light Deflicker war nicht aktiv.</p>`;
   const maskBlock = mask ? `
     <h4>Tempor\u00e4re Defektmaske (nur Erkennung)</h4>
     <video id="cleanupDiagMaskVideo" src="${media(mask)}" muted playsinline preload="metadata"></video>
     <p class="shot-empty">Wei\u00df markiert m\u00f6gliche Sch\u00e4den. Die Maske \u00e4ndert keine Pixel und ist keine DART-Reparatur. Sie l\u00e4uft ungef\u00e4hr synchron mit dem Originalvideo.</p>
-  ` : '<p class="shot-empty">Keine r\u00e4umliche Defektmaske f\u00fcr diesen Durchlauf: Beim Light Deflicker werden globale Helligkeitsfaktoren statt Pixelmasken angewandt. F\u00fcr eine Maske muss "Detect film damage" separat aktiviert und ausgef\u00fchrt werden.</p>';
+  ` : '<p class="shot-empty">Keine r\u00e4umliche Defektmaske f\u00fcr diesen Durchlauf: Eine reine Deflicker-Stufe erzeugt keine räumliche Defektmaske. F\u00fcr eine Maske muss "Detect film damage" separat aktiviert und ausgef\u00fchrt werden.</p>';
   return `<section class="cleanup-diagnostics" aria-label="Clean Up Analyse">
     <h3>Was wurde ver\u00e4ndert?</h3>
     ${cards}
