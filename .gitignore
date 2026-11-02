@@ -47,3 +47,8 @@ venv/
 
 # Accidental mirrored absolute paths from local Windows runs
 /d/
+
+# Reproducible public-domain film research corpus, generated on demand
+/benchmarks/public_domain_films/generated/
+/benchmarks/public_domain_films/downloads/
+/benchmarks/public_domain_films/*.zip
