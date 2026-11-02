@@ -8,6 +8,7 @@ on:
       - 'scripts/film_deflicker.py'
       - 'ai_remaster_gui/**'
       - 'tests/test_light_deflicker.py'
+      - 'tests/test_cleanup_source_exact.py'
       - '.github/workflows/deflicker-methods.yml'
   push:
     branches:
@@ -35,7 +36,7 @@ jobs:
       - name: Validate Python source
         run: python -m compileall -q scripts ai_remaster_gui tests/test_light_deflicker.py
       - name: Verify legacy and alternative variants with real FFmpeg video
-        run: python -m unittest -v tests.test_light_deflicker
+        run: python -m unittest -v tests.test_light_deflicker tests.test_cleanup_source_exact
       - name: Verify browser code
         run: |
           node --check ai_remaster_gui/static/js/render-helpers.js
