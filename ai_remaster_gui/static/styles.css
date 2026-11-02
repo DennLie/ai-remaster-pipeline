@@ -779,3 +779,21 @@ input#cleanupCompareSlider[hidden]{display:none !important}
 .cleanup-editor-page .cleanup-source-inspector p.shot-empty {
   font-size:12px;margin:0;color:var(--muted)
 }
+
+/* FFmpeg variants: measured per-frame absolute luma difference, not ARP gain. */
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::after {
+  background:#68b9d4;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference.is-current::after {
+  background:#c9e9f4;
+  box-shadow:0 0 0 1px #c9e9f4;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-diag-legend {
+  font-size:11px;
+  line-height:1.35;
+  color:var(--muted);
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-diag-readout {
+  font-size:12px;
+  font-variant-numeric:tabular-nums;
+}
