@@ -51,8 +51,12 @@ function sourceInfoHtml(info) {
 const FIELD_DESCRIPTIONS = {
   'cleanup.light_deflicker':
     'Reduce rapid whole-frame exposure flicker using bounded per-shot gain adjustments, with no AI model and no blur. Disabled by default. Cuts, long fades and intentional illumination transitions are protected as far as possible; compare the preview before publishing.',
+  'cleanup.deflicker_method':
+    'ARP Conservative uses cut-aware bounded whole-frame gains (default). FFmpeg Median is a classical temporal median benchmark that can alter cuts and intended fades. Both methods run without AI weights.',
+  'cleanup.deflicker_window':
+    'FFmpeg Median only: temporal filter window in frames, default 5. Larger windows can change motion and lighting transitions. This is NOT ARP strength.',
   'cleanup.deflicker_strength':
-    'Fraction of the estimated correction to apply. Zero leaves frames unchanged; 0.65 is conservative. Smooth fades and film-grain texture are not intentionally filtered.',
+    'ARP Conservative only. Fraction of the estimated correction to apply. Zero leaves frames unchanged; 0.65 is conservative.',
   'cleanup.deflicker_max_correction':
     'Absolute limit on per-frame gain (e.g. 0.08 = up to 8% brighter or darker). Lower values reduce the risk of changing intentional lighting and scene tone.',
   'cleanup.detect_defects':
@@ -443,6 +447,8 @@ function selectFieldHtml(key, label, kind, value, tooltip = '') {
 }
 
 function selectOptionLabel(key, option) {
+  if (key === 'deflicker_method' && option === 'arp') return 'ARP Conservative (recommended)';
+  if (key === 'deflicker_method' && option === 'ffmpeg_median') return 'FFmpeg Median (experimental)';
   if (key === 'compute' && option === 'local') return 'This computer';
   if (key === 'compute' && option === 'runpod') return 'RunPod cloud worker';
   if (key === 'outpaint_model' && option === 'official') return '2.3 - Official LoRA';
@@ -857,7 +863,9 @@ function drawCleanup(st, s, expected, sp) {
         <span><strong>${Number(d.mean_abs_gain_change_pct).toFixed(2)} %</strong> Ø Korrektur</span>
         <span><strong>${d.cut_boundaries}</strong> Schnittgrenzen</span>
       </div>`
-    : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
+    : comparison.method === 'ffmpeg_median' && comparison.exists === 'true'
+      ? '<p class="cleanup-results-empty">FFmpeg Median: zeitlicher Medianfilter. Keine globalen Gain-Werte; Änderungen im exakten Pixeldifferenzbild prüfen.</p>'
+      : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
 
   document.getElementById('app').innerHTML = `
     <div class="editor-page cleanup-editor-page" data-cleanup-density="${prefs.density === 'focus' ? 'focus' : 'compact'}">
@@ -870,7 +878,11 @@ function drawCleanup(st, s, expected, sp) {
           <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
         </div>
         ${cleanupLicenseWarning(s)}
-        ${st.fields.map(f => fieldHtml(st, f)).join('')}
+        ${st.fields.map(f => {
+          const only = ['deflicker_strength', 'deflicker_max_correction'].includes(f[0]) ? 'arp'
+            : f[0] === 'deflicker_window' ? 'ffmpeg_median' : '';
+          return only ? `<div data-deflicker-only="${only}">${fieldHtml(st, f)}</div>` : fieldHtml(st, f);
+        }).join('')}
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(s)}
         <div class="command" id="cmd"></div>
@@ -886,7 +898,7 @@ function drawCleanup(st, s, expected, sp) {
           <section class="cleanup-results-overview" aria-label="Was wurde verändert?">
             <div class="cleanup-results-heading">
               <strong>Was wurde verändert?</strong>
-              <span>Light Deflicker · Verarbeitungsergebnis</span>
+              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : 'ARP Conservative'} · Verarbeitungsergebnis</span>
             </div>
             ${summary}
             <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
@@ -919,6 +931,15 @@ function drawCleanup(st, s, expected, sp) {
       window.arpCleanupPanelPrefs = next;
     }
   });
+  const updateMethodFields = () => {
+    const method = document.querySelector('.cleanup-settings-sidebar [data-field="deflicker_method"]')?.value || 'arp';
+    document.querySelectorAll('.cleanup-settings-sidebar [data-deflicker-only]').forEach(el => {
+      el.hidden = el.dataset.deflickerOnly !== method;
+    });
+  };
+  updateMethodFields();
+  document.querySelector('.cleanup-settings-sidebar [data-field="deflicker_method"]')
+    ?.addEventListener('change', updateMethodFields);
   bindStageFields('cleanup');
   bindCleanupComparison();
   showCommand('cleanup');
@@ -1036,6 +1057,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
 }
 
 function cleanupComparisonHtml(comparison) {
+  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : 'ARP Conservative';
   const before = comparison.source || '';
   const after = comparison.exists === 'true' ? comparison.output : '';
   if (!before || comparison.source_exists !== 'true') {
@@ -1048,7 +1070,7 @@ function cleanupComparisonHtml(comparison) {
     `;
   }
   return `
-    <div class="comparison-player">
+    <div class="comparison-player" data-deflicker-method="${esc(comparison.method || 'off')}">
       <video class="compare-before" src="${media(before)}" controls preload="metadata"></video>
       <video class="compare-after" src="${media(after)}" muted preload="metadata"></video>
       <div class="compare-after-mask" style="width:50%"></div>
@@ -1060,7 +1082,7 @@ function cleanupComparisonHtml(comparison) {
       <summary>Quelldateien und Ausgabe anzeigen</summary>
       <div class="source-info">
         <div><span>Original</span><strong>${esc(before)}</strong></div>
-        <div><span>Light Deflicker</span><strong>${esc(after)}</strong></div>
+        <div><span>${esc(methodLabel)}</span><strong>${esc(after)}</strong></div>
       </div>
     </details>
   `;
