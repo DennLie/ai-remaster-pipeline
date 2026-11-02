@@ -600,3 +600,129 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   .cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-buttons button,
   .cleanup-editor-page .cleanup-density-button {min-height:44px}
 }
+
+/* Clean Up final workspace: permanent controls left, inspection right.
+   Overrides exploratory bottom-fold layout without changing other stages. */
+.editor-page.cleanup-editor-page {
+  display:grid;
+  grid-template-columns:clamp(302px,22vw,370px) minmax(0,1fr);
+  column-gap:14px;
+  row-gap:12px;
+  align-items:start;
+}
+.editor-page.cleanup-editor-page > .cleanup-settings-sidebar {
+  display:block;grid-column:1;grid-row:1;
+  min-width:0;
+  position:sticky;
+  top:calc(var(--header-height) + 51px);
+  max-height:calc(100dvh - var(--header-height) - 69px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  padding:12px 14px;
+}
+.cleanup-settings-sidebar h2 {font-size:18px;margin:0 0 6px}
+.cleanup-settings-sidebar > p {font-size:12px;color:var(--muted);line-height:1.45}
+.cleanup-settings-sidebar .actions {
+  display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 8px
+}
+.cleanup-settings-sidebar .actions button {flex:1 1 110px}
+.editor-page.cleanup-editor-page > .cleanup-workspace-viewer {
+  grid-column:2;grid-row:1;
+  min-width:0;width:100%;
+  padding:12px 14px;
+}
+.cleanup-results-overview {
+  margin:3px 0 12px;
+  padding:9px 11px;
+  border:1px solid var(--line);
+  border-radius:7px;
+  background:#111d21;
+}
+.cleanup-results-heading {
+  display:flex;flex-wrap:wrap;align-items:baseline;
+  justify-content:space-between;gap:4px 12px;
+  margin:0 0 8px
+}
+.cleanup-results-heading strong {font-size:13px}
+.cleanup-results-heading span {font-size:11px;color:var(--muted)}
+.cleanup-results-metrics {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:7px;
+  align-items:stretch;
+}
+.cleanup-results-metrics > span {
+  display:flex;flex-direction:column;gap:1px;
+  min-width:0;
+  color:var(--muted);font-size:11px;
+  padding:5px 8px;
+  border-left:2px solid #355b59;
+}
+.cleanup-results-metrics strong {
+  font-size:16px;font-weight:750;
+  color:var(--text);font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.cleanup-results-empty {margin:0;color:var(--muted);font-size:12px}
+.cleanup-editor-page .cleanup-diagnostics-fold {
+  margin:7px 0 0;
+  border:0;
+  border-top:1px solid var(--line);
+  border-radius:0;
+  background:transparent;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold > summary {
+  padding:6px 3px 1px;
+  min-height:32px;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold > summary strong {font-weight:600}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diagnostics {
+  padding:8px 2px 2px;
+  border:0;
+  margin:0;
+  background:transparent;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diagnostics h3 {display:none}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diag-metrics {
+  grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diag-metrics > div {
+  padding:7px 9px;gap:3px;
+}
+.cleanup-editor-page .cleanup-diagnostics-fold .cleanup-diag-metrics strong {font-size:14px}
+.cleanup-editor-page .cleanup-diagnostics-fold .shot-empty {font-size:11px;margin:7px 0}
+.cleanup-editor-page .cleanup-frame-rail {
+  margin:7px 0 10px;
+  padding:9px 1px 5px;
+  border-top:1px solid var(--line);
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-plot {height:68px}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-diag-readout {font-size:11px}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] {
+  margin-top:9px;padding-top:9px;
+}
+.cleanup-editor-page .comparison-player.cleanup-two-up .cleanup-side-media {
+  height:var(--cleanup-compact-video);
+}
+.cleanup-editor-page .frame-inspector[data-fi-stage="cleanup"] .fi-exact-media {
+  height:var(--cleanup-compact-still);
+}
+@media(min-width:900px) and (max-width:1210px) {
+  .editor-page.cleanup-editor-page {
+    grid-template-columns:310px minmax(0,1fr);
+    gap:10px;
+  }
+  .cleanup-results-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:899px) {
+  .editor-page.cleanup-editor-page {grid-template-columns:minmax(0,1fr)}
+  .editor-page.cleanup-editor-page > .cleanup-settings-sidebar {
+    position:static;grid-column:1;grid-row:1;
+    max-height:300px;overflow:auto;
+  }
+  .editor-page.cleanup-editor-page > .cleanup-workspace-viewer {
+    grid-column:1;grid-row:2;
+  }
+  .cleanup-results-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+}
