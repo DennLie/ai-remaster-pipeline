@@ -1,0 +1,34 @@
+name: Clean Up workspace (browser logic)
+
+on:
+  pull_request:
+    paths:
+      - 'ai_remaster_gui/static/js/frame-inspector.js'
+      - 'ai_remaster_gui/static/js/cleanup-review.js'
+      - 'ai_remaster_gui/static/styles.css'
+      - 'tests/test_cleanup_workspace_browser.test.cjs'
+      - '.github/workflows/cleanup-workspace-tests.yml'
+  push:
+    branches:
+      - feature/cleanup-unified-review-workspace
+
+permissions:
+  contents: read
+
+jobs:
+  node-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: |
+          node --check ai_remaster_gui/static/js/frame-inspector.js
+          node --check ai_remaster_gui/static/js/cleanup-review.js
+          node --check ai_remaster_gui/static/js/render-recomp.js
+      - name: Browser logic regressions
+        run: |
+          node --test tests/test_cleanup_workspace_browser.test.cjs tests/test_denoise_comparison_browser.test.cjs
