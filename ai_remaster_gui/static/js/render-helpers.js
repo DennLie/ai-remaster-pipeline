@@ -1012,7 +1012,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
         const height = Math.max(2, Math.min(100, 100 * Math.abs(delta) / Math.max(.01, d.limit_pct)));
         const direction = delta > 0 ? 'bright' : delta < 0 ? 'dark' : 'neutral';
         return `<button type="button" class="cleanup-gain-bar ${direction}"
-          data-cleanup-frame="${p.frame}" style="height:${height.toFixed(1)}%"
+          data-cleanup-frame="${p.frame}" style="--correction-height:${height.toFixed(1)}%"
           title="Frame ${p.frame + 1}: ${delta >= 0 ? '+' : ''}${delta.toFixed(2)}%" aria-label="Frame ${p.frame + 1}, Helligkeitskorrektur ${delta.toFixed(2)} Prozent"></button>`;
       }).join('')}
     </div>
