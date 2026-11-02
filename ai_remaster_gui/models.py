@@ -66,7 +66,8 @@ STAGES = (
         (
             ("compute", "Compute", "select:local|runpod", "local"),
             ("light_deflicker", "Light Deflicker (no AI)", "checkbox", "false"),
-            ("deflicker_method", "Deflicker algorithm", "select:arp|ffmpeg_median|ffmpeg_am", "arp"),
+            ("deflicker_method", "Deflicker algorithm", "select:arp|ffmpeg_median|ffmpeg_am|localized_research", "arp"),
+            ("localized_confirm_single_shot", "Experimental Localized: I confirm a short single-shot test clip without cuts, fades, or intentional exposure changes", "checkbox", "false"),
             ("deflicker_window", "FFmpeg window (frames)", "select:3|5|7|9", "5"),
             ("deflicker_strength", "ARP correction strength", "range:0|1|0.05", "0.65"),
             ("deflicker_max_correction", "ARP maximum brightness correction", "range:0|0.15|0.01", "0.08"),

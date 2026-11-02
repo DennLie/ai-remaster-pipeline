@@ -842,3 +842,16 @@ input#cleanupCompareSlider[hidden]{display:none !important}
 }
 .cleanup-editor-page .cleanup-difference-rail .cleanup-bright-key::before {background:#4abfa5}
 .cleanup-editor-page .cleanup-difference-rail .cleanup-dark-key::before {background:#e6a256}
+
+/* Deliberate acknowledgment of experimental local-frame restoration limits. */
+.cleanup-editor-page .cleanup-settings-sidebar .cleanup-localized-warning {
+  font-size:12px;
+  line-height:1.45;
+  padding:8px 10px;
+  margin:6px 0 10px;
+  border-left:3px solid #d1a365;
+  color:var(--text);
+}
+.cleanup-editor-page .cleanup-settings-sidebar .cleanup-localized-warning[hidden] {
+  display:none !important;
+}

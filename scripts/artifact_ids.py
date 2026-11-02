@@ -278,6 +278,19 @@ def cleanup_identity(
                 ),
                 "deflicker_window": int(deflicker_window),
             })
+        elif deflicker_method == "localized_research":
+            # Fixed, conservative research parameters and a versioned
+            # identity prevent overwriting or reusing any established output.
+            identity.update({
+                "light_deflicker": True,
+                "deflicker_algorithm": "localized_oscillation_guard_v1",
+                "local_radius": 2,
+                "local_sigma": 18.0,
+                "local_strength": 0.6,
+                "local_cap": 0.08,
+                "temporal_guard": "oscillation",
+                "experimental": True,
+            })
         else:
             raise ValueError(f"Unknown light deflicker method {deflicker_method!r}")
     if detect_defects:
