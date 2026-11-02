@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "scope": "Public-domain-underlying-film research transfers; source/transfer/music rights separately reviewed",
+  "warning": "A Commons PD tag and an old underlying film do not independently clear the uploaded transfer, newly recorded score or distribution rights. Excerpts exclude all audio. No commercial use claim.",
+  "defaults": {
+    "frames_per_shot": 24,
+    "synthetic_blur_sigma": [
+      0.7,
+      1.3
+    ],
+    "max_download_megabytes": 250,
+    "drop_audio": true,
+    "preserve_native_geometry": true
+  },
+  "films": [
+    {
+      "id": "lumiere_train",
+      "title": "L'Arrivée d'un train en gare de La Ciotat",
+      "year": 1896,
+      "creator": "Auguste and Louis Lumière",
+      "creator_last_death": 1954,
+      "commons_file": "L'Arrivée d'un train en gare de La Ciotat Completo.webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:L%27Arriv%C3%A9e_d%27un_train_en_gare_de_La_Ciotat_Completo.webm",
+      "acquire": "original",
+      "source_original_sha1": null,
+      "right_status": "underlying_film_PD_claimed_US_and_life70; uploader transfer must be reviewed",
+      "transfer_note": "Low-resolution YouTube-derived historical film transfer, original 540x360; no new soundtrack included",
+      "tests": [
+        "approaching camera movement",
+        "crowd/smoke",
+        "high motion"
+      ],
+      "shots": [
+        {
+          "name": "approach_probe",
+          "seconds": 5,
+          "frames": 24
+        },
+        {
+          "name": "crowd_probe",
+          "seconds": 25,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": "great_train_robbery",
+      "title": "The Great Train Robbery",
+      "year": 1903,
+      "creator": "Edwin S. Porter",
+      "creator_last_death": 1941,
+      "commons_file": "The Great Train Robbery (1903).webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:The_Great_Train_Robbery_%281903%29.webm",
+      "acquire": "vp9_360p",
+      "source_original_sha1": null,
+      "right_status": "underlying_film_PD_claimed_US_and_life70; LoC transfer provenance to verify",
+      "transfer_note": "Library of Congress film copy hosted on Commons; download Commons 360p VP9 transcode, not native high-resolution master",
+      "tests": [
+        "multi-person motion",
+        "strong black/white contrast",
+        "hard cuts"
+      ],
+      "shots": [
+        {
+          "name": "movement_probe",
+          "seconds": 95,
+          "frames": 24
+        },
+        {
+          "name": "second_sequence_probe",
+          "seconds": 480,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": "melies_moon",
+      "title": "Le Voyage dans la Lune",
+      "year": 1902,
+      "creator": "Georges Méliès",
+      "creator_last_death": 1938,
+      "commons_file": "Le Voyage dans la Lune (1902).webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Le_Voyage_dans_la_Lune_%281902%29.webm",
+      "acquire": "vp9_360p",
+      "source_original_sha1": null,
+      "right_status": "underlying_film_PD_claimed_US_and_life70; modern digitization rights review",
+      "transfer_note": "Original Commons AV1 upload exceeds 2 GB; Commons 360p VP9 proxy used only for research; film may have been enhanced/processed",
+      "tests": [
+        "theatrical miniature sets",
+        "stop-motion effects",
+        "fine lines"
+      ],
+      "shots": [
+        {
+          "name": "stage_probe",
+          "seconds": 110,
+          "frames": 24
+        },
+        {
+          "name": "trick_probe",
+          "seconds": 485,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": "caligari",
+      "title": "The Cabinet of Dr. Caligari",
+      "year": 1920,
+      "creator": "Robert Wiene; writers Carl Mayer and Hans Janowitz",
+      "creator_last_death": 1954,
+      "commons_file": "The Cabinet of Dr. Caligari.webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr._Caligari.webm",
+      "acquire": "vp9_360p",
+      "source_original_sha1": null,
+      "right_status": "underlying_film_PD_claimed_US_and_life70; specific upload and score require review",
+      "transfer_note": "Older Internet Archive-derived transfer, Commons source 576x448 51min, avoid assuming perfect 4:3 or modern restoration rights",
+      "tests": [
+        "angular expressionist scenery",
+        "face silhouettes",
+        "text/edge contrast"
+      ],
+      "shots": [
+        {
+          "name": "architecture_probe",
+          "seconds": 330,
+          "frames": 24
+        },
+        {
+          "name": "contrast_probe",
+          "seconds": 1600,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": "gertie",
+      "title": "Gertie the Dinosaur",
+      "year": 1914,
+      "creator": "Winsor McCay",
+      "creator_last_death": 1934,
+      "commons_file": "Winsor McCay (1914)Gertie the Dinosaur.webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Winsor_McCay_%281914%29Gertie_the_Dinosaur.webm",
+      "acquire": "vp9_360p",
+      "source_original_sha1": null,
+      "right_status": "underlying_film_PD_claimed_US_and_life70; 2004 DVD transfer requires additional rights review",
+      "transfer_note": "Commons copy sourced from 2004 DVD edition; no music redistributed; do not assume digital edition rights are cleared",
+      "tests": [
+        "hand-drawn line art",
+        "white backgrounds",
+        "frame-to-frame jitter"
+      ],
+      "shots": [
+        {
+          "name": "linework_probe",
+          "seconds": 320,
+          "frames": 24
+        },
+        {
+          "name": "animation_probe",
+          "seconds": 775,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": "corner_in_wheat",
+      "title": "A Corner in Wheat",
+      "year": 1909,
+      "creator": "D. W. Griffith",
+      "creator_last_death": 1948,
+      "commons_file": "Corner in Wheat.webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Corner_in_Wheat.webm",
+      "acquire": "original",
+      "source_original_sha1": null,
+      "right_status": "underlying_film_PD_claimed_US_and_life70; original transfer rights require review",
+      "transfer_note": "480x360 YouTube-derived digital transfer; no soundtrack exported",
+      "tests": [
+        "rural textures",
+        "group scenes",
+        "interior/exterior grayscale"
+      ],
+      "shots": [
+        {
+          "name": "rural_probe",
+          "seconds": 95,
+          "frames": 24
+        },
+        {
+          "name": "interior_probe",
+          "seconds": 525,
+          "frames": 24
+        }
+      ]
+    },
+    {
+      "id": "nosferatu",
+      "title": "Nosferatu, eine Symphonie des Grauens",
+      "year": 1922,
+      "creator": "F. W. Murnau; screenplay Henrik Galeen",
+      "creator_last_death": 1949,
+      "commons_file": "Nosferatu (1922).webm",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Nosferatu_%281922%29.webm",
+      "acquire": "vp9_360p",
+      "source_original_sha1": null,
+      "right_status": "underlying_film_PD_claimed_US_and_life70; 2006 restoration and new score require additional review",
+      "transfer_note": "2006 restored copy; rights for restoration elements and soundtrack require independent audit; all audio dropped",
+      "tests": [
+        "low-light contrast",
+        "tinting",
+        "horror textures"
+      ],
+      "shots": [
+        {
+          "name": "shadow_probe",
+          "seconds": 650,
+          "frames": 24
+        },
+        {
+          "name": "later_sequence_probe",
+          "seconds": 2920,
+          "frames": 24
+        }
+      ]
+    }
+  ]
+}
