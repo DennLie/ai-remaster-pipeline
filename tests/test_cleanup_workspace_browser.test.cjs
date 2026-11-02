@@ -199,28 +199,41 @@ test('variant labels distinguish FFmpeg arithmetic mean from median and ARP', ()
   assert.match(review, /FFmpeg Arithmetic Mean/);
 });
 
-test('FFmpeg difference rail uses measured luma values and stage-bound endpoint', () => {
+test('FFmpeg bar shows turquoise brightening and orange darkening in the same frame', () => {
   const context = {document: {addEventListener() {}}, Uint8ClampedArray};
   vm.createContext(context);
   vm.runInContext(review, context, {filename: 'cleanup-review.js'});
   const rows = context.cleanupDifferenceBarData({
-    frames: 3, metric:'mean_abs_luma_8bit', sampled:false,
-    samples:[{frame:0,mean_abs_luma:2},{frame:1,mean_abs_luma:5},{frame:2,mean_abs_luma:0}],
+    frames: 3, metric:'directional_mean_luma_8bit', sampled:false,
+    samples:[
+      {frame:0,mean_abs_luma:2,brighten_mean_luma:2,darken_mean_luma:0},
+      {frame:1,mean_abs_luma:5,brighten_mean_luma:3,darken_mean_luma:2},
+      {frame:2,mean_abs_luma:3,brighten_mean_luma:0,darken_mean_luma:3},
+    ],
   });
   assert.equal(rows.length, 3);
   assert.equal(rows[0].frame, 0);
   assert.equal(rows[1].height, 100);
   assert.equal(rows[0].height, 40);
-  assert.equal(rows[2].height, 2);
+  assert.equal(rows[1].brightHeight, 100);
+  assert.ok(rows[1].darkHeight > 0);
+  assert.equal(rows[0].darkHeight, 0);
+  assert.equal(rows[2].brightHeight, 0);
   assert.throws(() => context.cleanupDifferenceBarData({
-    frames:3,metric:'mean_abs_luma_8bit',samples:[
-      {frame:1,mean_abs_luma:4},{frame:1,mean_abs_luma:3}
+    frames:3,metric:'directional_mean_luma_8bit',samples:[
+      {frame:1,mean_abs_luma:4,brighten_mean_luma:3,darken_mean_luma:1},
+      {frame:1,mean_abs_luma:3,brighten_mean_luma:2,darken_mean_luma:1}
     ]
   }), /Inkonsistente/);
   assert.match(review, /fetch\('\/api\/cleanup-frame-differences'/);
   assert.match(review, /slider\.insertAdjacentElement\('afterend', rail\)/);
   assert.match(review, /setupFFmpegDifferenceRail\(slider, player, before\)/);
   assert.match(review, /document\.dispatchEvent\(new CustomEvent\('arp-request-exact-frame'/);
+  assert.match(review, /--bright-height/);
+  assert.match(review, /--dark-height/);
+  assert.match(review, /Türkis: aufgehellt/);
+  assert.match(review, /Orange: abgedunkelt/);
+  assert.match(css, /\.cleanup-difference-rail \.cleanup-gain-bar\.difference::before/);
   assert.match(css, /\.cleanup-difference-rail \.cleanup-gain-bar\.difference::after/);
   const handler = fs.readFileSync(path.join(root, 'ai_remaster_gui/http_handler.py'), 'utf8');
   assert.match(handler, /parsed\.path == "\/api\/cleanup-frame-differences"/);
