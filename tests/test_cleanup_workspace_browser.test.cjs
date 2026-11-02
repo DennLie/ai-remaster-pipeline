@@ -9,6 +9,7 @@ const root = path.join(__dirname, '..');
 const inspector = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/frame-inspector.js'), 'utf8');
 const review = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/cleanup-review.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/styles.css'), 'utf8');
+const helpers = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/render-helpers.js'), 'utf8');
 
 function browserFunctions() {
   const context = {document: {addEventListener() {}}, Uint8ClampedArray};
@@ -59,7 +60,38 @@ test('cleanup playback has no mode lock and the exact wipe uses inspector stills
   assert.match(review, /play\.disabled = false/);
   assert.match(review, /seek\.disabled = false/);
   assert.doesNotMatch(review, /if \(exact\(\)\) return;/);
-  assert.match(review, /inspector\.appendChild\(card\)/);
+  assert.match(review, /inspector\.appendChild\(fold\)/);
   assert.match(review, /inspector\.querySelector\('\.fi-photo-before'\)/);
   assert.match(css, /\.comparison-player\.cleanup-two-up\.frame-inspector-active \.compare-before,[\s\S]*?visibility:visible !important;/);
+});
+
+test('comparison workspace appears before collapsed settings and full diagnostics', () => {
+  const start = helpers.indexOf('function drawCleanup(');
+  const end = helpers.indexOf('function drawStabilization(', start);
+  assert.ok(start >= 0 && end > start);
+  const markup = helpers.slice(start, end);
+  assert.match(markup, /class="editor-page cleanup-editor-page"/);
+  assert.match(markup, /class="card editor-viewer cleanup-workspace-viewer"/);
+  assert.match(markup, /class="cleanup-params-fold"/);
+  assert.match(markup, /data-cleanup-fold="analysis"/);
+  assert.match(markup, /data-cleanup-fold="settings"/);
+  assert.ok(markup.indexOf('cleanup-workspace-viewer') < markup.indexOf('cleanup-params-fold'));
+  assert.match(markup, /const settingsOpen = typeof prefs\.settings === 'boolean'/);
+  assert.match(markup, /comparison\.exists === 'true'/);
+});
+
+test('compact layout removes oversized video and still rows', () => {
+  assert.match(css, /\.editor-page\.cleanup-editor-page\s*\{\s*display:grid;/);
+  assert.match(css, /\.comparison-player\.cleanup-two-up \.cleanup-side-media\s*\{[\s\S]*?height:clamp\(190px,31vh,340px\)/);
+  assert.match(css, /\.frame-inspector\[data-fi-stage="cleanup"\] \.fi-exact-media\s*\{[\s\S]*?height:clamp\(175px,27vh,285px\)/);
+  assert.match(css, /\.cleanup-wipe-fold:not\(\[open\]\) \.cleanup-exact-wipe\s*\{[\s\S]*?display:none !important/);
+  assert.match(review, /fold\.className = 'cleanup-wipe-fold'/);
+  assert.match(review, /fold\.hidden = !isInspecting/);
+  assert.match(helpers, /class="cleanup-media-fold"/);
+});
+
+test('loop and speed controls are above the still image grid', () => {
+  const api = browserFunctions();
+  const cleanup = api.frameInspectorHtml('cleanup');
+  assert.ok(cleanup.indexOf('data-fi-loop') < cleanup.indexOf('data-fi-still-before'));
 });
