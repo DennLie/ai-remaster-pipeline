@@ -45,6 +45,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   const layout = document.createElement('div');
   layout.className = 'cleanup-two-up-grid';
   const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFMPEG MEDIAN'
+    : player.dataset.deflickerMethod === 'ffmpeg_am' ? 'FFMPEG ARITHMETIC MEAN'
     : player.dataset.deflickerMethod === 'arp' ? 'ARP CONSERVATIVE' : 'CLEAN-UP-ERGEBNIS';
   layout.innerHTML = `
     <div class="cleanup-side" data-compare-panel="before">
@@ -297,6 +298,7 @@ function setupCleanupExactWipe(player) {
   player.dataset.cleanupExactWipeReady = 'true';
   // Keep the exact Wipe available on demand without forcing another tall panel.
   const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFmpeg Median'
+    : player.dataset.deflickerMethod === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean'
     : player.dataset.deflickerMethod === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const fold = document.createElement('details');
   fold.className = 'cleanup-wipe-fold';
