@@ -61,6 +61,16 @@ const FIELD_DESCRIPTIONS = {
     'Higher values catch fainter transient blemishes but can produce false positives at motion boundaries; review the mask preview before ever using it for repair.',
   'cleanup.defect_mask_height':
     'Mask analysis height. Lower resolutions use less CPU and miss finer defects; source may be slow on 4K film scans. The saved preview is scaled to the source dimensions.',
+  'denoise.method':
+    'Off leaves the source image unchanged. hqdn3d uses a 3D spatial/temporal filter, NLMeans uses similar image patches, and BM3D uses block matching. These are classical FFmpeg methods; trained AI models are not installed by this stage.',
+  'detail.method':
+    'Off copies the original frames. Unsharp amplifies luminance edges, CAS adapts to local contrast, Multiscale combines two unsharp radii. Richardson-Lucy attempts true deconvolution with an assumed, NOT measured Gaussian point-spread function and can strongly amplify grain/scratches. No learned model is used.',
+  'detail.preset':
+    'Gentle, Balanced and Strong map to method-specific filter settings. More sharpness does not mean recovered original details.',
+  'detail.mix':
+    '0% uses the unprocessed upstream picture and 100% the sharpened version. Blending is within the processing codec and may incur re-encoding.',
+  'denoise.preset':
+    'Gentle, Balanced and Strong map to native parameters for the selected algorithm, not a universal strength percentage. Compare versions at identical source frames and protect film grain as desired.',
   'cleanup.ai_descratch':
     'Detect only scratch-shaped damage, reconstruct those masked pixels across neighbouring frames with ProPainter, and composite them back over the untouched source. Runs after DeVignette and before Dearchive. ProPainter is licensed for non-commercial use only.',
   'cleanup.scratch_sensitivity':
@@ -795,6 +805,8 @@ function drawStage(st) {
   const expected = (state.expected_outputs && state.expected_outputs[st.key]) || [];
   const sp = stageProgress(st.key);
 
+  if (st.key === 'denoise') return drawDenoise(st, s, expected, sp);
+  if (st.key === 'detail') return drawDenoise(st, s, expected, sp);
   if (st.key === 'cleanup') return drawCleanup(st, s, expected, sp);
   if (st.key === 'stabilize') return drawStabilization(st, s, expected, sp);
   if (st.key === 'outpaint') return drawOutpaint(st, s, expected, sp);

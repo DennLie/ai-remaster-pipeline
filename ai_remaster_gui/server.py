@@ -493,11 +493,17 @@ class PipelineApp:
     def colorize_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "colorize", "true")
 
+    def denoise_enabled(self) -> bool:
+        return is_true(self.settings.get('global', {}), 'denoise')
+
     def cleanup_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "cleanup")
 
     def stabilize_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "stabilize")
+
+    def detail_enabled(self) -> bool:
+        return is_true(self.settings.get("global", {}), "detail")
 
     def outpaint_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "expand_outpaint", "true")
@@ -511,10 +517,14 @@ class PipelineApp:
     def active_stages(self) -> tuple[Stage, ...]:
         by_key = {stage.key: stage for stage in STAGES}
         stages: list[Stage] = []
+        if self.denoise_enabled():
+            stages.append(by_key['denoise'])
         if self.cleanup_enabled():
             stages.append(by_key["cleanup"])
         if self.stabilize_enabled():
             stages.append(by_key["stabilize"])
+        if self.detail_enabled():
+            stages.append(by_key["detail"])
         if self.outpaint_enabled():
             stages.append(by_key["outpaint"])
         if self.colorize_enabled() or self.upscale_enabled():
@@ -535,15 +545,22 @@ class PipelineApp:
         if self.outpaint_enabled() or self.colorize_enabled():
             recomp = self.settings.get("recomp", {})
             return recomp.get("output") or recomposition_output_for(self.recomposition_base_input(), recomp.get("encoder", "h264"))
-        return self.cleaned_source_for_downstream()
+        return self.detailed_source_for_downstream()
+
+    def denoise_output(self) -> str:
+        source = pipeline_source_text(self.settings)
+        return denoise_output_for(source, self.settings.get('denoise', {}), self.settings.get('cloud', {}).get('intermediate_format', 'high')) if source else ''
+
+    def denoised_source_for_downstream(self) -> str:
+        return self.denoise_output() if self.denoise_enabled() else pipeline_source_text(self.settings)
 
     def cleanup_output(self) -> str:
-        source = pipeline_source_text(self.settings)
+        source = self.denoised_source_for_downstream()
         return cleanup_output_for(source, self.settings.get("cleanup", {})) if source else ""
 
     def cleaned_source_for_downstream(self) -> str:
         """Expected immediate output of Clean Up, or the selected source when it is disabled."""
-        return self.cleanup_output() if self.cleanup_enabled() else pipeline_source_text(self.settings)
+        return self.cleanup_output() if self.cleanup_enabled() else self.denoised_source_for_downstream()
 
     def stabilization_output(self) -> str:
         source = self.cleaned_source_for_downstream()
@@ -557,12 +574,20 @@ class PipelineApp:
         """Expected stabilized output, or the cleaned/selected source when stabilization is off."""
         return self.stabilization_output() if self.stabilize_enabled() else self.cleaned_source_for_downstream()
 
+    def detail_output(self) -> str:
+        source = self.stabilized_source_for_downstream()
+        return detail_output_for(source, self.settings.get("detail", {}),
+                                 self.settings.get("cloud", {}).get("intermediate_format", "high")) if source else ""
+
+    def detailed_source_for_downstream(self) -> str:
+        return self.detail_output() if self.detail_enabled() else self.stabilized_source_for_downstream()
+
     def outpaint_source_for(self) -> str:
         return outpaint_source_for_settings(self.settings)
 
     def recomposition_base_input(self) -> str:
         values = self.settings.get("recomp", {})
-        return values.get("outpainted_video", "") or values.get("source", "") or self.stabilized_source_for_downstream()
+        return values.get("outpainted_video", "") or values.get("source", "") or self.detailed_source_for_downstream()
 
     def save(self) -> None:
         SETTINGS_FILE.write_text(json.dumps(self.settings, indent=2) + "\n", encoding="utf-8")
@@ -1026,6 +1051,7 @@ class PipelineApp:
                 "existing_outputs": {stage.key: self.existing_outputs(stage.key) for stage in (*self.active_stages(), output_stage())},
                 "cleanup_comparison": self.cleanup_comparison_state(),
                 "stabilization_comparison": self.stabilization_comparison_state(),
+                "detail_comparison": self.detail_comparison_state(),
                 "reference_luminance": {"enabled": False, "plan": [], "matched_shots": 0},
                 "upscale_preview": self.upscale_preview_state(),
                 "upscale_auto_target": self.upscale_auto_target_state() if view == "upscale" else "",
@@ -1132,7 +1158,7 @@ class PipelineApp:
             self.log.append(f"Loading source material: {values.get('source')}")
             self.clear_derived_stage_inputs()
             self.hydrate_stage_inputs("global")
-        elif stage == "global" and ({"cleanup", "stabilize", "colorize", "expand_outpaint", "upscale"} & set(values)):
+        elif stage == "global" and ({"denoise", "cleanup", "stabilize", "detail", "colorize", "expand_outpaint", "upscale"} & set(values)):
             self.hydrate_stage_inputs("global")
         elif stage == "colour" and "method" in values:
             if values.get("method") in {"deepexemplar", "colormnet", "cmnet2", "ltx", "openai"}:
@@ -1479,8 +1505,10 @@ class PipelineApp:
 
     def clear_derived_stage_inputs(self) -> None:
         for stage_key, keys in {
+            "denoise": ("output",),
             "cleanup": ("output",),
             "stabilize": ("input_video", "output"),
+            "detail": ("output",),
             "outpaint": ("source", "output", "outpainted_video", "manifest", "colorized_video"),
             "shots": ("outpainted_video", "manifest", "colorized_video"),
             "references": ("manifest", "outpainted_video", "colorized_video"),
@@ -1495,6 +1523,14 @@ class PipelineApp:
                 stage_settings[key] = ""
 
     def hydrate_stage_inputs(self, completed_stage: str = "") -> None:
+        denoise_expected_text = self.denoise_output()
+        denoise_ready = bool(denoise_expected_text and resolve(denoise_expected_text).exists())
+        self.settings.setdefault('denoise', {})['output'] = denoise_expected_text
+        denoised_text = (
+            rel(resolve(denoise_expected_text)) if self.denoise_enabled() and denoise_ready
+            else '' if self.denoise_enabled()
+            else pipeline_source_text(self.settings)
+        )
         clean_expected_text = self.cleanup_output()
         clean_expected = resolve(clean_expected_text) if clean_expected_text else None
         clean_ready = bool(clean_expected and clean_expected.exists())
@@ -1502,7 +1538,7 @@ class PipelineApp:
         cleaned_text = (
             rel(clean_expected) if self.cleanup_enabled() and clean_ready
             else "" if self.cleanup_enabled()
-            else pipeline_source_text(self.settings)
+            else denoised_text
         )
         stabilization_expected_text = self.stabilization_output()
         stabilization_expected = resolve(stabilization_expected_text) if stabilization_expected_text else None
@@ -1514,6 +1550,16 @@ class PipelineApp:
             rel(stabilization_expected) if self.stabilize_enabled() and stabilization_ready
             else "" if self.stabilize_enabled()
             else cleaned_text
+        )
+
+        detail_expected_text = self.detail_output()
+        detail_expected = resolve(detail_expected_text) if detail_expected_text else None
+        detail_ready = bool(detail_expected and detail_expected.exists())
+        self.settings.setdefault("detail", {})["output"] = detail_expected_text
+        upstream_text = (
+            rel(detail_expected) if self.detail_enabled() and detail_ready
+            else "" if self.detail_enabled()
+            else upstream_text
         )
 
         if not self.outpaint_enabled():
@@ -1606,6 +1652,11 @@ class PipelineApp:
 
     def expected_outputs(self, stage_key: str) -> list[str]:
         values = self.settings.get(stage_key, {})
+        if stage_key == 'denoise':
+            if not self.denoise_enabled():
+                return []
+            output = self.denoise_output()
+            return [output] if output else []
         if stage_key == "cleanup":
             if not self.cleanup_enabled():
                 return []
@@ -1621,6 +1672,11 @@ class PipelineApp:
             if not self.stabilize_enabled():
                 return []
             output = self.stabilization_output()
+            return [output] if output else []
+        if stage_key == "detail":
+            if not self.detail_enabled():
+                return []
+            output = self.detail_output()
             return [output] if output else []
         if stage_key == "outpaint":
             if not self.outpaint_enabled():
@@ -1710,8 +1766,10 @@ class PipelineApp:
     # Shared --force/--dry-run handling lives in command_for so it stays in one place.
     def _stage_command_builders(self) -> dict:
         return {
+            'denoise': self._denoise_command,
             "cleanup": self._cleanup_command,
             "stabilize": self._stabilize_command,
+            "detail": self._detail_command,
             "outpaint": self._outpaint_command,
             "shots": self._shots_command,
             "references": self._references_command,
@@ -1767,8 +1825,18 @@ class PipelineApp:
             )
         return cmd
 
-    def _cleanup_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
+    def _denoise_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
         source = pipeline_source_text(self.settings)
+        profile = canonical_intermediate_profile(self.settings.get('cloud', {}).get('intermediate_format'))
+        output = denoise_output_for(source, values, profile) if source else ''
+        return [sys.executable, '-u', str(SCRIPTS / 'denoise_video.py'),
+                '--source', source, '--output', output,
+                '--method', values.get('method', 'off'),
+                '--preset', values.get('preset', 'gentle'),
+                '--intermediate-profile', profile]
+
+    def _cleanup_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
+        source = self.denoised_source_for_downstream()
         output = cleanup_output_for(source, values) if source else ""
         cmd = [sys.executable, "-u", str(SCRIPTS / "cleanup_video.py"), "--source", source, "--output", output]
         cmd.extend(["--intermediate-profile", canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))])
@@ -1815,6 +1883,17 @@ class PipelineApp:
         # manifest to reset stabilization. The CLI retains --shot-manifest for an explicitly
         # authored cut-only manifest.
         return cmd
+
+    def _detail_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
+        source = self.stabilized_source_for_downstream()
+        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+        output = detail_output_for(source, values, profile) if source else ""
+        return [sys.executable, "-u", str(SCRIPTS / "detail_enhance_video.py"),
+                "--source", source, "--output", output,
+                "--method", values.get("method", "off"),
+                "--preset", values.get("preset", "gentle"),
+                "--mix", values.get("mix", "100"),
+                "--intermediate-profile", profile]
 
     def _outpaint_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
         cmd = [sys.executable, "-u", str(SCRIPTS / "outpaint_video.py")]
@@ -2097,10 +2176,14 @@ class PipelineApp:
             return False, problem
         if self.quitting:
             return False, "ARP is shutting down."
+        if stage_key == 'denoise' and not self.denoise_enabled():
+            return False, 'Remove Noise is disabled on the Overview tab.'
         if stage_key == "cleanup" and not self.cleanup_enabled():
             return False, "Clean Up is disabled on the Overview tab."
         if stage_key == "stabilize" and not self.stabilize_enabled():
             return False, "Stabilization is disabled on the Overview tab."
+        if stage_key == "detail" and not self.detail_enabled():
+            return False, "Detail Enhancement is disabled on the Overview tab."
         if stage_key == "outpaint" and not self.outpaint_enabled():
             return False, "Expand using Outpainting is disabled on the Overview tab."
         if stage_key in SHOT_STAGE_KEYS and not (self.colorize_enabled() or self.upscale_enabled()):
@@ -2114,14 +2197,22 @@ class PipelineApp:
         if stage_key == "upscale" and not self.upscale_enabled():
             return False, "Upscale is disabled on the Overview tab."
         stage = next(item for item in STAGES if item.key == stage_key)
-        if stage_key != "cleanup" and self.cleanup_enabled():
+        if stage_key != 'denoise' and self.denoise_enabled():
+            denoised_output = self.denoise_output()
+            if not denoised_output or not resolve(denoised_output).exists():
+                return False, 'Run Remove Noise first so this stage has its upstream video.'
+        if stage_key not in {'denoise', 'cleanup'} and self.cleanup_enabled():
             clean_output = self.cleanup_output()
             if not clean_output or not resolve(clean_output).exists():
                 return False, "Run Clean Up first so this phase has its upstream video."
-        if stage_key not in {"cleanup", "stabilize"} and self.stabilize_enabled():
+        if stage_key not in {'denoise', "cleanup", "stabilize"} and self.stabilize_enabled():
             stabilized_output = self.stabilization_output()
             if not stabilized_output or not resolve(stabilized_output).exists():
                 return False, "Run Stabilization first so this phase has its upstream video."
+        if stage_key not in {"denoise", "cleanup", "stabilize", "detail"} and self.detail_enabled():
+            detailed_output = self.detail_output()
+            if not detailed_output or not resolve(detailed_output).exists():
+                return False, "Run Detail Enhancement first so this stage has its upstream video."
         # MiniMax H3's licence excludes some territories, so it only runs once the user confirms a licence.
         if (
             stage_key == "outpaint"
@@ -2172,7 +2263,7 @@ class PipelineApp:
         ):
             return False, "Select at least one Clean Up operation: Light Deflicker, Detect Defects, AI DeScratch, DeVignette, or Dearchive."
         missing = [key for key in stage.required if not values.get(key)]
-        if stage_key in {"cleanup", "stabilize", "outpaint"} and not self.settings.get("global", {}).get("source"):
+        if stage_key in {'denoise', "cleanup", "stabilize", "detail", "outpaint"} and not self.settings.get("global", {}).get("source"):
             missing = ["source material on the Global tab"]
         if stage_key == "recomp":
             if self.outpaint_enabled() and not values.get("outpainted_video"):
@@ -2653,6 +2744,13 @@ class PipelineApp:
             "title": "Stabilization Comparison",
         }
 
+    def detail_comparison_state(self) -> dict[str, str]:
+        source = self.stabilized_source_for_downstream()
+        output = self.detail_output() if source else ""
+        return {"source": source, "output": output,
+                "source_exists": "true" if source and resolve(source).is_file() else "false",
+                "exists": "true" if output and resolve(output).is_file() else "false"}
+
     def output_selection_state(self) -> dict[str, str]:
         upscale = self.settings.get("upscale", {})
         upscale_output = upscale_output_for(self.upscale_input_for() or upscale.get("input_video"), upscale) or upscale.get("output")
@@ -2662,28 +2760,38 @@ class PipelineApp:
         ) if (self.outpaint_enabled() or self.colorize_enabled()) else ""
         soundtrack_source = self.soundtrack_source_for()
         soundtrack_output = soundtrack_output_for(soundtrack_source, self.settings.get("audio", {})) if (self.soundtrack_enabled() and soundtrack_source) else ""
+        denoise_output = self.denoise_output() if self.denoise_enabled() else ''
         cleanup_output = self.cleanup_output() if self.cleanup_enabled() else ""
         stabilization_output = self.stabilization_output() if self.stabilize_enabled() else ""
+        detail_output = self.detail_output() if self.detail_enabled() else ""
         if upscale_output and resolve(upscale_output).exists():
             return {"path": upscale_output, "kind": "upscaled", "label": "Upscaled output"}
         if soundtrack_output and resolve(soundtrack_output).exists():
             return {"path": soundtrack_output, "kind": "soundtrack", "label": "Soundtrack output"}
         if recomposed and resolve(recomposed).exists():
             return {"path": recomposed, "kind": "recomposed", "label": "Recomposed output"}
+        if detail_output and resolve(detail_output).exists():
+            return {"path": detail_output, "kind": "detail", "label": "Detail Enhancement output"}
         if stabilization_output and resolve(stabilization_output).exists():
             return {"path": stabilization_output, "kind": "stabilized", "label": "Stabilized output"}
         if cleanup_output and resolve(cleanup_output).exists():
             return {"path": cleanup_output, "kind": "cleanup", "label": "Clean Up output"}
+        if denoise_output and resolve(denoise_output).exists():
+            return {'path': denoise_output, 'kind': 'denoised', 'label': 'Remove Noise output'}
         if self.upscale_enabled() and upscale_output:
             return {"path": upscale_output, "kind": "upscaled_pending", "label": "Pending upscaled output"}
         if soundtrack_output:
             return {"path": soundtrack_output, "kind": "soundtrack_pending", "label": "Pending soundtrack output"}
         if recomposed:
             return {"path": recomposed, "kind": "recomposed_pending", "label": "Pending recomposed output"}
+        if detail_output:
+            return {"path": detail_output, "kind": "detail_pending", "label": "Pending Detail Enhancement output"}
         if stabilization_output:
             return {"path": stabilization_output, "kind": "stabilized_pending", "label": "Pending stabilized output"}
         if cleanup_output:
             return {"path": cleanup_output, "kind": "cleanup_pending", "label": "Pending Clean Up output"}
+        if denoise_output:
+            return {'path': denoise_output, 'kind': 'denoised_pending', 'label': 'Pending Remove Noise output'}
         return {"path": "", "kind": "", "label": ""}
 
     def run_upscale_preview(self) -> tuple[bool, str]:
@@ -2733,7 +2841,7 @@ class PipelineApp:
         return True, "Started upscale preview."
 
     def upscale_preview_clip_source(self, preview_seconds: float) -> tuple[Path, float, float, str]:
-        if not (self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
+        if not (self.denoise_enabled() or self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
             global_settings = self.settings.get("global", {})
             source_text = global_settings.get("source", "")
             source = resolve_video_source(source_text)
@@ -3196,6 +3304,45 @@ def clear_frame_outpaint_masks() -> dict:
     return frame_outpaint_masks_state(APP.settings)
 
 
+def denoise_output_for(source_text: str, values: dict[str, str], profile: str = 'high') -> str:
+    if not source_text:
+        return ''
+    source = resolve_video_source(source_text)
+    method = values.get('method', 'off')
+    if method not in ('off', 'hqdn3d', 'nlmeans', 'bm3d'):
+        method = 'off'
+    preset = values.get('preset', 'gentle')
+    if preset not in ('gentle', 'balanced', 'strong'):
+        preset = 'gentle'
+    identity = json.dumps({'source': source.name, 'method': method,
+                           'preset': preset, 'profile': canonical_intermediate_profile(profile)},
+                          sort_keys=True)
+    digest = hashlib.sha256(identity.encode('utf-8')).hexdigest()[:12]
+    return rel(ROOT / 'intermediate' / 'denoised' /
+               f'{aid.source_word(source.name)}_denoised_{method}_{preset}_{digest}.mkv')
+
+
+def detail_output_for(source_text: str, values: dict[str, str], profile: str = "high") -> str:
+    if not source_text:
+        return ""
+    source = resolve_video_source(source_text)
+    method = values.get("method", "off")
+    if method not in ("off", "unsharp", "cas", "multiscale", "richardson_lucy"):
+        raise ValueError(f"Unknown detail method {method}")
+    preset = values.get("preset", "gentle")
+    if preset not in ("gentle", "balanced", "strong"):
+        raise ValueError(f"Unknown detail preset {preset}")
+    mix = int(values.get("mix", "100"))
+    if not 0 <= mix <= 100:
+        raise ValueError("Detail mix must be between 0 and 100")
+    identity = json.dumps({"source": str(source.resolve()), "method": method,
+                           "preset": preset, "mix": mix,
+                           "profile": canonical_intermediate_profile(profile)}, sort_keys=True)
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return rel(ROOT / "intermediate" / "detail_enhanced" /
+               f"{aid.source_word(source.name)}_detail_{method}_{preset}_{mix}_{digest}.mkv")
+
+
 def cleanup_output_for(source_text: str, values: dict[str, str]) -> str:
     if not source_text:
         return ""
@@ -3289,12 +3436,20 @@ def outpaint_source_for_settings(settings: dict) -> str:
     """
     source_text = pipeline_source_text(settings)
     global_values = settings.get("global", {})
+    if source_text and is_true(global_values, 'denoise'):
+        source_text = denoise_output_for(source_text, settings.get('denoise', {}),
+                                        settings.get('cloud', {}).get('intermediate_format', 'high'))
     if source_text and is_true(global_values, "cleanup"):
         source_text = cleanup_output_for(source_text, settings.get("cleanup", {}))
     if source_text and is_true(global_values, "stabilize"):
         source_text = stabilize_output_for(
             source_text,
             settings.get("stabilize", {}),
+            settings.get("cloud", {}).get("intermediate_format", "high"),
+        )
+    if source_text and is_true(global_values, "detail"):
+        source_text = detail_output_for(
+            source_text, settings.get("detail", {}),
             settings.get("cloud", {}).get("intermediate_format", "high"),
         )
     return source_text
@@ -3804,10 +3959,14 @@ def outpaint_chunks_state(settings: dict) -> dict:
         return {"manifest": "", "rows": []}
     source = resolve_video_source(source_text)
     if not source.exists():
+        if is_true(settings.get("global", {}), "detail"):
+            return {"manifest": "", "rows": [], "error": "Run Detail Enhancement first so Outpainting has its upstream video."}
         if is_true(settings.get("global", {}), "stabilize"):
             return {"manifest": "", "rows": [], "error": "Run Stabilization first so Outpainting has its upstream video."}
         if is_true(settings.get("global", {}), "cleanup"):
             return {"manifest": "", "rows": [], "error": "Run Clean Up first so Outpainting has its upstream video."}
+        if is_true(settings.get('global', {}), 'denoise'):
+            return {'manifest': '', 'rows': [], 'error': 'Run Remove Noise first so Outpainting has its upstream video.'}
         return {"manifest": "", "rows": [], "error": f"Source material is not a readable file: {source}"}
     values = settings.get("outpaint", {})
     metrics = video_metrics(source)

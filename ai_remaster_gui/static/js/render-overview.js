@@ -2,13 +2,15 @@ function drawGlobal() {
   const global = state.settings.global || {};
   const source = global.source || '';
   const commercialGuard = global.commercial_model_guard === 'true';
+  const denoise = global.denoise === 'true';
   const cleanup = global.cleanup === 'true';
   const stabilize = global.stabilize === 'true';
+  const detail = global.detail === 'true';
   const expandOutpaint = global.expand_outpaint !== 'false';
   const colorize = global.colorize !== 'false';
   const upscale = global.upscale === 'true';
   const soundtrack = global.add_soundtrack === 'true';
-  const noProcessing = !cleanup && !stabilize && !expandOutpaint && !colorize && !upscale && !soundtrack;
+  const noProcessing = !denoise && !cleanup && !stabilize && !detail && !expandOutpaint && !colorize && !upscale && !soundtrack;
   const analysis = state.source_analysis || {};
   const sourceTone = source && !analysis.ready
     ? (analysis.message || 'Analyzing source material')
@@ -33,7 +35,7 @@ function drawGlobal() {
       ${overviewSourcePicker(source, global)}
       ${sourceAnalysisHtml(analysis)}
       ${overviewSectionPicker(global, source, state.source_playback || source)}
-      ${workflowPickerHtml(cleanup, stabilize, expandOutpaint, colorize, upscale, soundtrack, sourceTone)}
+      ${workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint, colorize, upscale, soundtrack, sourceTone)}
       <div class="inline-warning">
         <label for="globalCommercialModelGuard">
           <input id="globalCommercialModelGuard" type="checkbox" ${commercialGuard ? 'checked' : ''}>
@@ -53,8 +55,10 @@ function drawGlobal() {
 
   document.getElementById('globalSource').addEventListener('change', saveGlobal);
   document.getElementById('globalCommercialModelGuard').addEventListener('change', saveGlobalPipelineOptions);
+  document.getElementById('globalDenoise').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalCleanup').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalStabilize').addEventListener('change', saveGlobalPipelineOptions);
+  document.getElementById('globalDetail').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalExpandOutpaint').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalColorize').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalUpscale').addEventListener('change', saveGlobalPipelineOptions);
@@ -62,9 +66,16 @@ function drawGlobal() {
   bindOverviewSectionControls();
 }
 
-function workflowPickerHtml(cleanup, stabilize, expandOutpaint, colorize, upscale, soundtrack, sourceTone) {
+function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint, colorize, upscale, soundtrack, sourceTone) {
   return `
     <div class="workflow-list">
+      ${workflowOptionHtml({
+        id: 'globalDenoise',
+        checked: denoise,
+        icon: 'cleanup',
+        title: 'Remove Noise',
+        body: 'Optional independent denoising with Off, hqdn3d, NLMeans or BM3D before Clean Up. Choose separate presets and retain different versions for comparison.',
+      })}
       ${workflowOptionHtml({
         id: 'globalCleanup',
         checked: cleanup,
@@ -78,6 +89,13 @@ function workflowPickerHtml(cleanup, stabilize, expandOutpaint, colorize, upscal
         icon: 'stabilize',
         title: 'Stabilize',
         body: 'Remove gate weave, frame jitter, and unwanted rotation per shot before outpainting and colour propagation. Shot cuts reset motion tracking.',
+      })}
+      ${workflowOptionHtml({
+        id: 'globalDetail',
+        checked: detail,
+        icon: 'cleanup',
+        title: 'Detail Enhancement',
+        body: 'Optional 1x image sharpening after Clean Up and Stabilization. Choose Off, Unsharp, CAS or Multiscale, preset strength and original-image mix; compare versions before Upscaling.',
       })}
       ${workflowOptionHtml({
         id: 'globalExpandOutpaint',

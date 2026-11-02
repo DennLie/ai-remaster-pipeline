@@ -48,6 +48,17 @@ class Stage:
 
 STAGES = (
     Stage(
+        "denoise",
+        "Remove Noise",
+        "Compare classical spatial and temporal noise reduction methods before film cleanup. Optional; preserve the original for A/B comparison.",
+        ("intermediate/denoised",),
+        (
+            ("method", "Denoising algorithm", "select:off|hqdn3d|nlmeans|bm3d", "off"),
+            ("preset", "Intensity (method-specific)", "select:gentle|balanced|strong", "gentle"),
+        ),
+        (),
+    ),
+    Stage(
         "cleanup",
         "Clean Up",
         "Reconstruct masked scratches with ProPainter, correct vignettes, then optionally restore archive footage with Dearchive at a selectable model-safe resolution.",
@@ -94,6 +105,18 @@ STAGES = (
             ("scene_aware", "Reset stabilization at detected cuts", "checkbox", "true"),
             ("shot_threshold", "Shot detection threshold", "range:0.01|0.5|0.005", "0.075"),
             ("min_shot_seconds", "Minimum shot length (seconds)", "number", "1.0"),
+        ),
+        (),
+    ),
+    Stage(
+        "detail",
+        "Detail Enhancement",
+        "Optional 1x sharpening after Clean Up and Stabilization. Choose Unsharp, CAS, two-scale detail enhancement or assumed-PSF Richardson–Lucy deblurring without changing dimensions.",
+        ("intermediate/detail_enhanced",),
+        (
+            ("method", "Detail method", "select:off|unsharp|cas|multiscale|richardson_lucy", "off"),
+            ("preset", "Method strength", "select:gentle|balanced|strong", "gentle"),
+            ("mix", "Enhanced picture mix (%)", "range:0|100|1", "100"),
         ),
         (),
     ),

@@ -119,6 +119,7 @@ function renderSignature() {
     existing_outputs: state.existing_outputs,
     cleanup_comparison: state.cleanup_comparison,
     stabilization_comparison: state.stabilization_comparison,
+    detail_comparison: state.detail_comparison,
     reference_luminance: state.reference_luminance,
     recomp_layout: state.recomp_layout,
     upscale_preview: state.upscale_preview,
@@ -260,7 +261,7 @@ function updateOverviewSectionControlsFromState() {
 }
 
 function hasMediaOnPage() {
-  return ['cleanup', 'stabilize', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active)
+  return ['denoise', 'cleanup', 'stabilize', 'detail', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active)
     ? document.querySelectorAll('video').length > 0
     : false;
 }
@@ -273,7 +274,7 @@ function shouldPreserveInteractiveDom(mediaActive) {
 
   // Normal polling must not recreate video elements while the user is inspecting
   // chunk, shot, or recomposition previews. A manual Refresh still redraws.
-  return ['cleanup', 'stabilize', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active);
+  return ['denoise', 'cleanup', 'stabilize', 'detail', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active);
 }
 
 function outpaintVisualSignature() {
