@@ -104,8 +104,9 @@ class FFmpegFrameDifferenceTests(unittest.TestCase):
         with patch.object(differences, "_metadata", return_value={
             "width": 64, "height": 48, "fps_fraction": "10", "frames": 100000
         }):
-            with self.assertRaisesRegex(ValueError, "shorter source section"):
-                differences._validate_pair(self.original, self.processed)
+            self.assertEqual(differences._validate_pair(self.original, self.processed), 100000)
+            # Large films use verified, sparse frame samples instead of an
+            # arbitrary 2,400-frame rejection or full-film decode for the UI.
 
 
 if __name__ == "__main__":
