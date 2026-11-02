@@ -10,6 +10,22 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   if (!inspector) return;
   player.dataset.cleanupTwoUpReady = 'true';
   player.classList.add('cleanup-two-up');
+  // Put the frequently used correction timeline directly below the inspector.
+  // Full metrics and mask information stay in their optional analysis section.
+  const diagnostics = player.parentElement.querySelector('.cleanup-diagnostics');
+  const plot = diagnostics?.querySelector('.cleanup-gain-plot');
+  const legend = diagnostics?.querySelector('.cleanup-diag-legend');
+  const readout = diagnostics?.querySelector('#cleanupGainReadout');
+  if (plot && legend && readout) {
+    const oldTitle = plot.previousElementSibling;
+    if (oldTitle?.tagName === 'H4') oldTitle.remove();
+    const rail = document.createElement('section');
+    rail.className = 'cleanup-frame-rail';
+    rail.setAttribute('aria-label', 'Helligkeitskorrektur pro Einzelbild');
+    rail.innerHTML = '<div class="cleanup-frame-rail-heading"><strong>Frame-Korrekturen</strong><span>Balken anklicken: exakten Frame anzeigen</span></div>';
+    rail.append(plot, legend, readout);
+    inspector.insertAdjacentElement('afterend', rail);
+  }
   player.closest('.editor-viewer')?.classList.add('cleanup-two-up-wide');
   player.querySelectorAll('.cleanup-compare-label').forEach(node => node.remove());
   slider.hidden = true;
@@ -57,9 +73,9 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   controls.className = 'cleanup-two-up-controls';
   controls.innerHTML = `
     <div class="cleanup-two-up-tools">
-      <button type="button" data-two-play aria-label="Beide Videos abspielen">▶ Beide abspielen</button>
-      <button type="button" data-two-pause>⏸ Pause</button>
-      <button type="button" data-two-rewind>⟲ Anfang</button>
+      <button type="button" data-two-play aria-label="Beide Videos abspielen">Beide abspielen</button>
+      <button type="button" data-two-pause>Pause</button>
+      <button type="button" data-two-rewind>Anfang</button>
       <span data-two-clock class="cleanup-two-up-clock">0.000 s</span>
     </div>
     <label class="cleanup-two-up-seek-label" for="cleanupTwoUpSeek">Gemeinsame Video-Timeline</label>
@@ -114,8 +130,8 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     rewind.disabled = false;
     seek.disabled = false;
     mode.textContent = exact()
-      ? 'Beide Videos sind abspielbar. Die Einzelbilder darunter bleiben auf dem ausgewählten Frame stehen (exakt per FFmpeg).'
-      : 'Beide Videos gleichzeitig sichtbar. Gemeinsame Wiedergabe ist näherungsweise synchron; exakte Unterschiede im Frame Inspector beurteilen.';
+      ? 'Videos: annähernd synchron · Einzelbilder: exakt und angeheftet.'
+      : 'Videos: annähernd synchron · Einzelbilder: exakt.';
   }
   async function playBoth() {
     const l = loop?.checked ? limits() : null;
