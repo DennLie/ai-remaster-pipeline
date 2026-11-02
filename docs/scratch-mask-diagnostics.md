@@ -20,6 +20,7 @@ Neues Skript: `scripts/diagnose_scratch_masks.py`
 
 1. Prüft **exakte Referenz- und Input-SHA-256** sowie erwartete FPS, Breite, Höhe und Framezahl.
 2. Berechnet echte Detektormasken für ein **vorab festes Sensitivitätsraster** von 0.25, 0.45, 0.65 und 0.85. Das Raster ist keine automatische Preset-Optimierung.
+2a. **Ablationstest:** `cleanup_video.ai_scratch_mask` akzeptiert nur für die Diagnose `full_height_column_fallback=False`. Damit wird die flächige Spalten-Extrapolation abgeschaltet und separat gegen Ground-Truth-Masken sowie die Telea-Kontrollreparatur ausgewertet. **Standard bleibt `True`**; bestehende Restaurierungen verwenden unverändert den bisherigen Detektor. Bei 0,65 entstehen zusätzliche Fehlerkarten der Ablation.
 3. Ermittelt für jedes Video und jeden Frame **TP, FP, FN, TN, Precision, Recall, F1, IoU, Maskendeckung** und Fehlalarmanteil außerhalb der künstlichen Kratzer.
 4. Führt einen **Negativ-Kontrolllauf auf der Ausgangsdigitalisierung ohne zusätzliche synthetische Kratzer** durch. Die dabei ausgewiesene Detektoraktivität ist **nicht** gleichbedeutend mit echten Fehlalarmen, weil die Originaldigitalisierung bereits natürliche Schäden enthalten kann.
 5. Führt **zweimal denselben Telea-Inpainting-Algorithmus** aus: einmal auf der vorhergesagten Maske und einmal auf der **nur aus dem Versuch bekannten Ground-Truth-Maske**. Die Differenz hilft, Probleme der Maskenerkennung von Problemen der Inpainting-Interpolation zu trennen. **Die Ground-Truth-Maske darf niemals als normal verfügbares KI-Ergebnis dargestellt werden.**
