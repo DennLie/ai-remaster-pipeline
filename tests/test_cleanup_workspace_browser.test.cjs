@@ -129,3 +129,12 @@ test('compact and large layouts preserve video and exact comparison panels', () 
   assert.match(review, /Beide abspielen/);
   assert.match(review, /Balken anklicken: exakten Frame anzeigen/);
 });
+
+test('correction bars have full-height click target while color encodes amplitude', () => {
+  assert.match(helpers, /--correction-height:\$\{height\.toFixed\(1\)\}%/);
+  assert.match(css, /\.cleanup-frame-rail \.cleanup-gain-bar::after/);
+  assert.match(css, /height:var\(--correction-height,2%\)/);
+  assert.match(css, /min-height:100%;height:100%/);
+  assert.match(css, /\.cleanup-frame-rail \.cleanup-gain-bar\.bright::after/);
+  assert.match(css, /\.cleanup-frame-rail \.cleanup-gain-bar\.dark::after/);
+});
