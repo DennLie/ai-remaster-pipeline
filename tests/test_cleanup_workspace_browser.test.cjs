@@ -95,3 +95,37 @@ test('loop and speed controls are above the still image grid', () => {
   const cleanup = api.frameInspectorHtml('cleanup');
   assert.ok(cleanup.indexOf('data-fi-loop') < cleanup.indexOf('data-fi-still-before'));
 });
+
+test('Impeccable hierarchy: report status and density toggle share the review header', () => {
+  const markup = helpers.slice(
+    helpers.indexOf('function drawCleanup('),
+    helpers.indexOf('function drawStabilization(')
+  );
+  assert.match(markup, /class="cleanup-heading-title"/);
+  assert.match(markup, /data-cleanup-density-toggle/);
+  assert.match(markup, /aria-pressed=/);
+  assert.match(markup, /page\.dataset\.cleanupDensity/);
+  assert.match(markup, /next\.density = expanded \? 'focus' : 'compact'/);
+  assert.match(markup, /Weitere Messwerte und Masken/);
+});
+
+test('Frame correction rail is adjacent to the inspector, not buried in advanced analysis', () => {
+  assert.match(review, /className = 'cleanup-frame-rail'/);
+  assert.match(review, /inspector\.insertAdjacentElement\('afterend', rail\)/);
+  assert.match(review, /rail\.append\(plot, legend, readout\)/);
+  assert.match(review, /classList\.add\('has-cleanup-frame-rail'\)/);
+  assert.match(css, /\.cleanup-frame-rail \.cleanup-gain-plot/);
+  assert.match(css, /\.has-cleanup-frame-rail \[data-two-gain\] \{display:none\}/);
+});
+
+test('compact and large layouts preserve video and exact comparison panels', () => {
+  assert.match(css, /data-cleanup-density="focus"/);
+  assert.match(css, /--cleanup-compact-video:clamp\(160px,25vh,285px\)/);
+  assert.match(css, /--cleanup-compact-still:clamp\(160px,23vh,260px\)/);
+  assert.match(css, /height:var\(--cleanup-compact-video\)/);
+  assert.match(css, /height:var\(--cleanup-compact-still\)/);
+  assert.match(css, /@media\(pointer:coarse\)/);
+  assert.match(css, /\.cleanup-editor-page button:focus-visible/);
+  assert.match(review, /Beide abspielen/);
+  assert.match(review, /Balken anklicken: exakten Frame anzeigen/);
+});
