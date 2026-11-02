@@ -1068,8 +1068,11 @@ function cleanupComparisonHtml(comparison) {
   }
   if (!after) {
     return `
-      <video src="${media(before)}" controls preload="metadata"></video>
-      <p class="shot-empty">The before/after comparison will appear here when Clean Up finishes.</p>
+      <section class="cleanup-unrendered-view">
+        <div class="cleanup-side-heading"><strong>ORIGINAL</strong><span>Unverändert · Ergebnis noch nicht berechnet</span></div>
+        <video class="cleanup-source-video" src="${media(before)}" controls preload="metadata"></video>
+        ${cleanupSourceInspectorHtml()}
+      </section>
     `;
   }
   return `
