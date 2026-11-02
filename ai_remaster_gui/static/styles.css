@@ -544,7 +544,22 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   padding:7px 6px 5px;border-radius:5px;
 }
 .cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar {
-  min-width:4px;min-height:3px;
+  /* Full column is the pointer/keyboard target; only the inner mark encodes
+     magnitude. A near-zero correction must still be selectable. */
+  position:relative;min-width:8px;min-height:100%;height:100%;
+  flex:1 0 8px;background:transparent;border-radius:0;
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar::after {
+  content:"";position:absolute;left:0;right:0;bottom:0;
+  height:var(--correction-height,2%);min-height:2px;
+  background:#52646d;border-radius:2px 2px 0 0;
+  pointer-events:none;
+}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar.bright::after {background:#4abfa5}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar.dark::after {background:#e6a256}
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar:hover::after,
+.cleanup-editor-page .cleanup-frame-rail .cleanup-gain-bar:focus-visible::after {
+  filter:brightness(1.25);
 }
 .cleanup-editor-page .cleanup-frame-rail .cleanup-diag-legend {margin-top:6px}
 .cleanup-editor-page .cleanup-frame-rail .cleanup-diag-readout {margin-top:4px}
