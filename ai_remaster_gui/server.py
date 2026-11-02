@@ -1858,7 +1858,7 @@ class PipelineApp:
             cmd,
             values,
             (
-                "repair_device", "deflicker_strength", "deflicker_max_correction", "defect_sensitivity", "defect_mask_height", "scratch_sensitivity", "scratch_mask_dilate",
+                "repair_device", "deflicker_method", "deflicker_window", "deflicker_strength", "deflicker_max_correction", "defect_sensitivity", "defect_mask_height", "scratch_sensitivity", "scratch_mask_dilate",
                 "ai_descratch_height", "ai_chunk_frames", "dearchive_height", "chunk_seconds",
                 "overlap_frames", "source_fidelity", "prompt", "negative_prompt",
                 "lora_strength", "seed",
@@ -2713,6 +2713,10 @@ class PipelineApp:
             "source_exists": "true" if source and resolve(source).exists() else "false",
             "exists": "true" if exists else "false",
             "title": "Clean Up Comparison",
+            "method": (
+                self.settings.get("cleanup", {}).get("deflicker_method", "arp")
+                if is_true(self.settings.get("cleanup", {}), "light_deflicker") else "off"
+            ),
         }
 
     def stabilization_comparison_state(self) -> dict[str, str]:
@@ -3393,6 +3397,8 @@ def cleanup_output_for(source_text: str, values: dict[str, str]) -> str:
         light_deflicker=is_true(values, "light_deflicker"),
         deflicker_strength=float(values.get("deflicker_strength", "0.65") or 0.65),
         deflicker_max_correction=float(values.get("deflicker_max_correction", "0.08") or 0.08),
+        deflicker_method=values.get("deflicker_method", "arp") or "arp",
+        deflicker_window=int(values.get("deflicker_window", "5") or 5),
         detect_defects=is_true(values, "detect_defects"),
         defect_sensitivity=float(values.get("defect_sensitivity", "0.65") or 0.65),
         defect_mask_height=values.get("defect_mask_height", "720"),
