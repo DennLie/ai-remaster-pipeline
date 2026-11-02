@@ -737,3 +737,6 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   background:var(--panel);
   border-bottom:1px solid var(--line);
 }
+
+/* Hide parameters that do not apply to the selected Deflicker backend. */
+.cleanup-settings-sidebar [data-deflicker-only][hidden] {display:none !important}
