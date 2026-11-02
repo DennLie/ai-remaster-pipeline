@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "scripts/diagnose_scratch_masks.py"
+      - "scripts/cleanup_video.py"
       - "tests/test_diagnose_scratch_masks.py"
       - "docs/scratch-mask-diagnostics.md"
       - ".github/workflows/scratch-mask-diagnostics.yml"
