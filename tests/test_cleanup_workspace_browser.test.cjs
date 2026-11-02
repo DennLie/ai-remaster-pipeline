@@ -238,3 +238,11 @@ test('FFmpeg bar shows turquoise brightening and orange darkening in the same fr
   const handler = fs.readFileSync(path.join(root, 'ai_remaster_gui/http_handler.py'), 'utf8');
   assert.match(handler, /parsed\.path == "\/api\/cleanup-frame-differences"/);
 });
+
+test('Localized research is visible but disabled until authentic-film validation', () => {
+  assert.match(helpers, /value="localized_research" disabled/);
+  assert.match(helpers, /Localized Deflicker \(Forschung/);
+  const models = fs.readFileSync(path.join(root, 'ai_remaster_gui/models.py'), 'utf8');
+  assert.match(models, /select:arp\|ffmpeg_median\|ffmpeg_am/);
+  assert.doesNotMatch(models, /select:arp\|ffmpeg_median\|ffmpeg_am\|localized_research/);
+});
