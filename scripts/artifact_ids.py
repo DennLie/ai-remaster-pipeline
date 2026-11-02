@@ -291,6 +291,19 @@ def cleanup_identity(
                 "temporal_guard": "oscillation",
                 "experimental": True,
             })
+        elif deflicker_method == "localized_stream":
+            identity.update({
+                "light_deflicker": True,
+                "deflicker_algorithm": "localized_stream_oscillation_v1",
+                "local_radius": 2,
+                "local_sigma": 18.0,
+                "local_strength": 0.6,
+                "local_cap": 0.08,
+                "temporal_guard": "oscillation",
+                "shot_detection": "arp_histogram_bhattacharyya_v1",
+                "fade_guard": "coarse_median_monotone_v1",
+                "experimental": True,
+            })
         else:
             raise ValueError(f"Unknown light deflicker method {deflicker_method!r}")
     if detect_defects:
