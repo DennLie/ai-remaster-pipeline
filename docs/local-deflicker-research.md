@@ -31,3 +31,30 @@ Do not run this on an unreviewed multi-shot clip without human cut boundaries. T
 ## Scientific limitations
 
 The algorithm can confuse motion and occlusion with local exposure drift. Its per-channel multiplication can alter chroma in clipped pixels. Preserving shape and texture does not prove recovering historical negative detail. A synthetic test passing is evidence only of the particular controlled defect model. **No automated production recommendation** is justified.
+
+## Controlled real-footage digital-reference pilot (2026-11-02)
+
+The separate `scripts/evaluate_local_deflicker_pilot.py` now accepts a locally available short **real historical transfer**, injects a **known** alternating left-side exposure disturbance, and compares the research backend against the untouched digital source as an alignment-preserving proxy reference. It also runs the same backend **without synthetic damage** and measures how much it wrongly changes the original. It reports:
+
+- Mean absolute pixel error *inside* the injected exposure zone, before and after correction
+- Changes *outside* the target area, which should remain small
+- False modification of the completely untouched real film, including a protected outside region
+- The number of frames changed, maximum gain and warnings that no film-negative ground truth exists
+
+This is **not** proof of correcting genuine, unannotated film defects, even when the injected-damage task improves. The negative-control results on moving footage can expose false corrections.
+
+For the already available 72-frame *Neighbors* local sample, **only after fetching the research branch**:
+
+```powershell
+Set-Location I:\ai-remaster-pipeline
+git fetch origin
+git switch --track origin/research/localized-deflicker-v1
+.\.venv\Scripts\python.exe scripts/evaluate_local_deflicker_pilot.py `
+  --source evaluation/Neighbors_72.mkv `
+  --report evaluation/Neighbors_72_local_pilot.json `
+  --max-frames 120
+```
+
+The report is stored only locally and is intentionally not committed to GitHub. To save another result, choose another filename; the pilot refuses overwrites. The application GUI is **not** switched to this research branch for normal Clean Up rendering.
+
+**CI scope:** synthetic static and moving-image negative controls, plus an FFmpeg-generated moving test clip in a deterministic video pilot. This is not a captured historical film. A multi-film genuine-defect blind review is still required before enabling a selectable Localized engine.
