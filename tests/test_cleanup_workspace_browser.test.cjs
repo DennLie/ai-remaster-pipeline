@@ -166,3 +166,13 @@ test('chart keeps scroll position while selecting frames', () => {
   assert.doesNotMatch(clickHandler, /scrollIntoView/);
   assert.match(clickHandler, /arp-request-exact-frame/);
 });
+
+test('sidebar execution actions stay visible near the top of lengthy settings', () => {
+  const markup = helpers.slice(
+    helpers.indexOf('function drawCleanup('),
+    helpers.indexOf('function drawStabilization(')
+  );
+  assert.ok(markup.indexOf('cleanup-primary-actions') > markup.indexOf('progressHtml('));
+  assert.ok(markup.indexOf('cleanup-primary-actions') < markup.indexOf('st.fields.map('));
+  assert.match(css, /\.cleanup-settings-sidebar \.cleanup-primary-actions\s*\{[\s\S]*?position:sticky/);
+});
