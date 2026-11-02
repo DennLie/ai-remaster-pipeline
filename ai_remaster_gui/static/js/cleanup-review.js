@@ -129,7 +129,7 @@ function setupFFmpegDifferenceRail(slider, player, before) {
       const legend = rail.querySelector('.cleanup-diag-legend');
       if (legend) {
         const note = document.createElement('span');
-        note.textContent = `${data.sampled ? 'Stichprobe pro Block · ' : ''}Balkenhöhe je Farbe relativ zum größten sichtbaren Richtungswert.`;
+        note.textContent = `${data.sampled ? 'Bis zu 240 exakt angefahrene Einzelbilder, keine vollständige Filmmessung · ' : ''}Balkenhöhe je Farbe relativ zum größten sichtbaren Richtungswert.`;
         legend.appendChild(note);
       }
       highlight(selectedFrame);
