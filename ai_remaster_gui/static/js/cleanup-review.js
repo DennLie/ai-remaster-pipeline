@@ -10,8 +10,8 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   if (!inspector) return;
   player.dataset.cleanupTwoUpReady = 'true';
   player.classList.add('cleanup-two-up');
-  // Put the frequently used correction timeline directly below the inspector.
-  // Full metrics and mask information stay in their optional analysis section.
+  // The correction chart belongs immediately underneath both video previews.
+  // Move only the interactive chart; advanced metrics stay above the video.
   const diagnostics = player.parentElement.querySelector('.cleanup-diagnostics');
   const plot = diagnostics?.querySelector('.cleanup-gain-plot');
   const legend = diagnostics?.querySelector('.cleanup-diag-legend');
@@ -24,10 +24,11 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     rail.setAttribute('aria-label', 'Helligkeitskorrektur pro Einzelbild');
     rail.innerHTML = '<div class="cleanup-frame-rail-heading"><strong>Frame-Korrekturen</strong><span>Balken anklicken: exakten Frame anzeigen</span></div>';
     rail.append(plot, legend, readout);
-    inspector.insertAdjacentElement('afterend', rail);
+    // Keep the hidden slider directly behind player: bindCleanupDiagnostics uses
+    // slider.previousElementSibling to find the video pair.
+    slider.insertAdjacentElement('afterend', rail);
     player.closest('.editor-viewer')?.classList.add('has-cleanup-frame-rail');
   }
-  player.closest('.editor-viewer')?.classList.add('cleanup-two-up-wide');
   player.querySelectorAll('.cleanup-compare-label').forEach(node => node.remove());
   slider.hidden = true;
   slider.setAttribute('aria-hidden', 'true');
@@ -98,6 +99,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   const speed = inspector.querySelector('[data-fi-speed]');
   const exact = () => player.classList.contains('frame-inspector-active');
   let fps = 0, frameCount = 0, seeking = false, syncing = false;
+  let pendingVideoFrame = null;
   const validDuration = () => Number.isFinite(before.duration) && before.duration > 0 ? before.duration : 0;
   const currentTime = () => Number.isFinite(before.currentTime) ? before.currentTime : 0;
   function limits() {
@@ -115,6 +117,23 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     }
     updateClock();
   }
+  // A frame selection must update both video clocks and the shared time slider.
+  // Metadata can still be loading when the first chart bar is selected.
+  function applyFrameSeek(frame) {
+    if (!(fps > 0) || !(frameCount > 0)) {
+      pendingVideoFrame = frame;
+      return;
+    }
+    pendingVideoFrame = null;
+    pauseBoth();
+    moveBoth(frame / fps);
+  }
+  document.addEventListener('arp-cleanup-seek-video', event => {
+    if (!player.isConnected || event.detail?.stage !== 'cleanup') return;
+    const requested = Number(event.detail.frame);
+    if (!Number.isInteger(requested) || requested < 0) return;
+    applyFrameSeek(frameCount > 0 ? Math.min(requested, frameCount - 1) : requested);
+  });
   function updateClock() {
     const duration = validDuration();
     const t = Math.max(0, currentTime());
@@ -163,6 +182,13 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   seek.addEventListener('change', () => {
     seeking = false;
     moveBoth(Number(seek.value));
+    // Scrubbing the shared video timeline also updates the exact inspector.
+    if (fps > 0 && frameCount > 0) {
+      const frame = Math.max(0, Math.min(frameCount - 1, Math.floor(currentTime() * fps + 0.00001)));
+      document.dispatchEvent(new CustomEvent('arp-request-exact-frame', {
+        detail: {stage:'cleanup', frame}
+      }));
+    }
   });
   function checkLoop() {
     if (!loop?.checked || before.paused) return;
@@ -216,6 +242,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
     if (!player.isConnected || event.detail?.stage !== 'cleanup') return;
     fps = Number(event.detail.fps) || fps;
     frameCount = Number(event.detail.frames) || frameCount;
+    if (pendingVideoFrame !== null) applyFrameSeek(pendingVideoFrame);
     updateButtons();
     const report = (typeof state !== 'undefined' && state?.cleanup_diagnostics?.deflicker) || null;
     if (report && Number(report.frames) === frameCount && Array.isArray(report.samples)) {
@@ -237,6 +264,7 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
       if (!meta.ok || !(Number(meta.fps)>0) || !(Number(meta.frames)>0)) throw new Error(meta.error || 'Ungültige Frame-Metadaten');
       fps = Number(meta.fps);
       frameCount = Number(meta.frames);
+      if (pendingVideoFrame !== null) applyFrameSeek(pendingVideoFrame);
       if (loopIn) loopIn.max = String(frameCount);
       if (loopOut) {
         loopOut.max = String(frameCount);
