@@ -137,8 +137,8 @@ def cleanup_frame_differences(app) -> dict:
     comparison = app.cleanup_comparison_state()
     if comparison.get("exists") != "true":
         raise FileNotFoundError("Run the selected Clean Up method first.")
-    if comparison.get("method") not in ("ffmpeg_median", "ffmpeg_am"):
-        raise ValueError("Per-pixel difference bars are used for FFmpeg methods only.")
+    if comparison.get("method") not in ("ffmpeg_median", "ffmpeg_am", "localized_research"):
+        raise ValueError("Pixel-difference bars require a rendered non-ARP deflicker variant.")
     source, output = _sources(app, "cleanup")
     identity = {
         "version": _REPORT_VERSION,
