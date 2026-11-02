@@ -52,7 +52,7 @@ const FIELD_DESCRIPTIONS = {
   'cleanup.light_deflicker':
     'Reduce rapid whole-frame exposure flicker using bounded per-shot gain adjustments, with no AI model and no blur. Disabled by default. Cuts, long fades and intentional illumination transitions are protected as far as possible; compare the preview before publishing.',
   'cleanup.deflicker_method':
-    'ARP Conservative uses cut-aware bounded gains (default). FFmpeg Median and Arithmetic Mean are classical temporal baselines that may alter intended lighting changes. No AI weights.',
+    'ARP Conservative uses cut-aware bounded gains (default). FFmpeg Median and Arithmetic Mean are classical temporal baselines. Localized Deflicker is under synthetic and authentic-film research (PR #27) and is intentionally disabled until validated.',
   'cleanup.deflicker_window':
     'FFmpeg Median/Arithmetic Mean only: temporal window in frames, default 5. Large windows can change fades and cuts. This is NOT ARP correction strength.',
   'cleanup.deflicker_strength':
@@ -442,8 +442,13 @@ function selectFieldHtml(key, label, kind, value, tooltip = '') {
   const options = kind.slice(7).split('|')
     .map(option => `<option value="${esc(option)}" ${value === option ? 'selected' : ''}>${esc(selectOptionLabel(key, option))}</option>`)
     .join('');
+  // Show the research roadmap explicitly without offering an unvalidated
+  // production backend. Never submit localized_research as a runnable method.
+  const researchOption = key === 'deflicker_method'
+    ? '<option value="localized_research" disabled>Localized Deflicker (Forschung · noch nicht freigegeben)</option>'
+    : '';
   const title = tooltipTitle(tooltip);
-  return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}</select>`;
+  return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}${researchOption}</select>`;
 }
 
 function selectOptionLabel(key, option) {
