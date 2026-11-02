@@ -66,6 +66,7 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
   const applyZoom = () => {
     const value = Number(zoom.value) || 1;
     player.style.setProperty('--fi-zoom', String(value));
+    if (workspace) workspace.style.setProperty('--fi-zoom', String(value));
     syncClip();
   };
   const syncClip = () => {
@@ -84,7 +85,7 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
     img.onerror = () => reject(new Error('Einzelbild konnte nicht geladen werden.'));
     img.src = url;
   })));
-  async function showFrame(n) {
+  async function showFrame(n, pausePreview = true) {
     if (busy) { pendingFrame = n; return; }
     const requested = count
       ? clamp(Math.round(Number(n) || 0), 0, count - 1)
@@ -116,7 +117,7 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
           player.append(beforeImage, afterImage);
         }
       }
-      before.pause(); after.pause();
+      if (pausePreview) { before.pause(); after.pause(); }
       beforeImage.src = a.src; afterImage.src = b.src;
       if (workspace) {
         workspace.hidden = false;
@@ -156,7 +157,7 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
     if (!Number.isInteger(target) || target < 0) return;
     void showFrame(target);
   });
-  open.addEventListener('click', () => showFrame(index));
+  open.addEventListener('click', () => showFrame(index, false));
   close.addEventListener('click', () => {
     ++epoch; pendingFrame = null; exact = false; player.classList.remove('frame-inspector-active');
     open.disabled = false; close.disabled = true;
@@ -191,7 +192,7 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
   });
   applyZoom();
   // Clean Up keeps the inspector visible next to the video from the beginning.
-  if (stage === 'cleanup') void showFrame(0);
+  if (stage === 'cleanup') void showFrame(0, false);
 }
 
 // Exact comparison: pixel luminance difference, not a defect detection mask.
