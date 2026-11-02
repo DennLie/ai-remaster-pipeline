@@ -865,14 +865,14 @@ function drawCleanup(st, s, expected, sp) {
         <h2>${st.title}</h2>
         <p>${st.description}</p>
         ${progressHtml(sp.percent, sp.label)}
+        <div class="actions cleanup-primary-actions">
+          <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
+          <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
+        </div>
         ${cleanupLicenseWarning(s)}
         ${st.fields.map(f => fieldHtml(st, f)).join('')}
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(s)}
-        <div class="actions">
-          <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
-          <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
-        </div>
         <div class="command" id="cmd"></div>
       </aside>
       <section class="card editor-viewer cleanup-workspace-viewer">
