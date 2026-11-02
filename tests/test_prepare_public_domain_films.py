@@ -24,7 +24,7 @@ class CuratedPublicDomainFilmsTests(unittest.TestCase):
         self.assertEqual(len({x["id"] for x in catalog["films"]}), len(catalog["films"]))
         for entry in catalog["films"]:
             self.assertIn("transfer_note", entry)
-            self.assertIn("rights_status", entry)
+            self.assertIn("right_status", entry)
             self.assertTrue(entry["source_page"].startswith("https://commons.wikimedia.org/"))
             self.assertGreaterEqual(len(entry["shots"]), 2)
 
@@ -63,7 +63,7 @@ class CuratedPublicDomainFilmsTests(unittest.TestCase):
         self.assertEqual(film.compatible_vsr_geometry(540, 360),
                          {"width": 768, "height": 512, "ratio_preserved": True})
         self.assertIsNone(film.compatible_vsr_geometry(462, 360))
-        self.assertRaises(ValueError, film.load_catalog, Path("/not-a-real-json-file.json"))
+        self.assertRaises(FileNotFoundError, film.load_catalog, Path("/not-a-real-json-file.json"))
 
     def test_real_local_synthetic_source_generates_audio_free_research_clips(self):
         ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
