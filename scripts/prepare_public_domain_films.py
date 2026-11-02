@@ -61,7 +61,7 @@ def load_catalog(path: Path) -> dict:
                 raise ValueError(f"Unsafe frame count for {key}")
             if not isinstance(shot.get("seconds"), (int, float)) or not math.isfinite(shot["seconds"]) or not 0 <= shot["seconds"] <= 86400:
                 raise ValueError(f"Unsafe shot start for {key}")
-        if film.get("acquire") not in ("original", "vp9_360p"):
+        if film.get("acquire") not in ("original", "vp9_360_or_480"):
             raise ValueError(f"Unsupported Commons variant for {key}")
         if not film.get("source_page", "").startswith("https://commons.wikimedia.org/wiki/File:"):
             raise ValueError(f"Not a Wikimedia Commons file page: {key}")
@@ -114,14 +114,18 @@ def remote_video(film: dict) -> dict:
         for d in options:
             key = str(d.get("transcodekey", "")).lower()
             src = str(d.get("src", ""))
-            h = int(d.get("height", 0))
-            if "360p" in key and ("vp9" in key or "vp9" in src.lower()) and src.endswith(".webm"):
+            if (("360p" in key or "480p" in key) and "vp9" in key
+                    and ".webm" in src):
                 desired.append(d)
         if not desired:
-            raise ValueError(f"No vp9 360p WebM derivative for {title}; found {[(x.get('transcodekey'),x.get('height')) for x in options]}")
-        desired.sort(key=lambda d: (abs(int(d.get("height", 360)) - 360), str(d.get("transcodekey", ""))))
-        target = desired[0]["src"]
-        format_note = "Commons-generated VP9 360p transcode, NOT original master"
+            raise ValueError(f"No VP9 360p/480p WebM derivative for {title}; found {[(x.get('transcodekey'),x.get('height')) for x in options]}")
+        # Explicit bounded policy: choose 360p, else 480p; never silently
+        # download the multi-gigabyte original when both are missing.
+        desired.sort(key=lambda d: (0 if "360p" in str(d.get("transcodekey", "")) else 1,
+                                    str(d.get("transcodekey", ""))))
+        chosen = desired[0]
+        target = chosen["src"]
+        format_note = f"Commons-generated {chosen.get('transcodekey')} proxy, NOT original master"
     if not isinstance(target, str) or not target.startswith("https://upload.wikimedia.org/"):
         raise ValueError(f"Unsafe Commons media URL for {title}: {target}")
     return {
