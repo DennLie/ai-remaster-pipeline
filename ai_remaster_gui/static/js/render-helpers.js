@@ -52,7 +52,9 @@ const FIELD_DESCRIPTIONS = {
   'cleanup.light_deflicker':
     'Reduce rapid whole-frame exposure flicker using bounded per-shot gain adjustments, with no AI model and no blur. Disabled by default. Cuts, long fades and intentional illumination transitions are protected as far as possible; compare the preview before publishing.',
   'cleanup.deflicker_method':
-    'ARP Conservative uses cut-aware bounded gains (default). FFmpeg Median and Arithmetic Mean are classical temporal baselines. Localized Deflicker is under synthetic and authentic-film research (PR #27) and is intentionally disabled until validated.',
+    'ARP Conservative is the default. FFmpeg Median and Arithmetic Mean are classical baselines. Localized Deflicker is explicitly opt-in, with oscillation guard and a short single-shot limit; not validated for production.',
+  'cleanup.localized_confirm_single_shot':
+    'Research only: confirm a short clip without cuts or deliberate exposure changes. Limit: 240 frames and 75 million decoded pixels; disable other Clean Up operations.',
   'cleanup.deflicker_window':
     'FFmpeg Median/Arithmetic Mean only: temporal window in frames, default 5. Large windows can change fades and cuts. This is NOT ARP correction strength.',
   'cleanup.deflicker_strength':
@@ -442,19 +444,15 @@ function selectFieldHtml(key, label, kind, value, tooltip = '') {
   const options = kind.slice(7).split('|')
     .map(option => `<option value="${esc(option)}" ${value === option ? 'selected' : ''}>${esc(selectOptionLabel(key, option))}</option>`)
     .join('');
-  // Show the research roadmap explicitly without offering an unvalidated
-  // production backend. Never submit localized_research as a runnable method.
-  const researchOption = key === 'deflicker_method'
-    ? '<option value="localized_research" disabled>Localized Deflicker (Forschung · noch nicht freigegeben)</option>'
-    : '';
   const title = tooltipTitle(tooltip);
-  return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}${researchOption}</select>`;
+  return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}</select>`;
 }
 
 function selectOptionLabel(key, option) {
   if (key === 'deflicker_method' && option === 'arp') return 'ARP Conservative (recommended)';
   if (key === 'deflicker_method' && option === 'ffmpeg_median') return 'FFmpeg Median (experimental)';
   if (key === 'deflicker_method' && option === 'ffmpeg_am') return 'FFmpeg Arithmetic Mean (experimental)';
+  if (key === 'deflicker_method' && option === 'localized_research') return 'Localized Deflicker · Forschungstest (nicht produktionsreif)';
   if (key === 'compute' && option === 'local') return 'This computer';
   if (key === 'compute' && option === 'runpod') return 'RunPod cloud worker';
   if (key === 'outpaint_model' && option === 'official') return '2.3 - Official LoRA';
@@ -869,8 +867,8 @@ function drawCleanup(st, s, expected, sp) {
         <span><strong>${Number(d.mean_abs_gain_change_pct).toFixed(2)} %</strong> Ø Korrektur</span>
         <span><strong>${d.cut_boundaries}</strong> Schnittgrenzen</span>
       </div>`
-    : ['ffmpeg_median', 'ffmpeg_am'].includes(comparison.method) && comparison.exists === 'true'
-      ? '<p class="cleanup-results-empty">FFmpeg: zeitlicher Filter ohne globale Gain-Werte. Änderungen im exakten Pixeldifferenzbild prüfen.</p>'
+    : ['ffmpeg_median', 'ffmpeg_am', 'localized_research'].includes(comparison.method) && comparison.exists === 'true'
+      ? '<p class="cleanup-results-empty">Gemessene Pixelhelligkeitsunterschiede stehen unter den Videos; keine globalen Gain-Werte oder Qualitätsgarantie.</p>'
       : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
 
   document.getElementById('app').innerHTML = `
@@ -886,9 +884,16 @@ function drawCleanup(st, s, expected, sp) {
         ${cleanupLicenseWarning(s)}
         ${st.fields.map(f => {
           const only = ['deflicker_strength', 'deflicker_max_correction'].includes(f[0]) ? 'arp'
-            : f[0] === 'deflicker_window' ? 'ffmpeg' : '';
+            : f[0] === 'deflicker_window' ? 'ffmpeg'
+            : f[0] === 'localized_confirm_single_shot' ? 'localized_research' : '';
           return only ? `<div data-deflicker-only="${only}">${fieldHtml(st, f)}</div>` : fieldHtml(st, f);
         }).join('')}
+        <p class="cleanup-localized-warning" data-deflicker-only="localized_research" hidden>
+          Forschungstest: Oscillation Guard aktiv, Korrektur begrenzt auf 8 %.
+          Nur kurze Einzelszenen bis 240 Frames und 75 Mio. Bildpunkte.
+          Andere Clean-Up-Operationen müssen ausgeschaltet sein.
+          Bewegung und unbeabsichtigte Lichtwechsel können zu Fehlkorrekturen führen.
+        </p>
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(s)}
         <div class="command" id="cmd"></div>
@@ -904,7 +909,7 @@ function drawCleanup(st, s, expected, sp) {
           <section class="cleanup-results-overview" aria-label="Was wurde verändert?">
             <div class="cleanup-results-heading">
               <strong>Was wurde verändert?</strong>
-              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis'} · Verarbeitungsergebnis</span>
+              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'localized_research' ? 'Localized · experimentell' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis'} · Verarbeitungsergebnis</span>
             </div>
             ${summary}
             <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
@@ -1068,7 +1073,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
 }
 
 function cleanupComparisonHtml(comparison) {
-  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
+  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'localized_research' ? 'Localized · experimentell' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const before = comparison.source || '';
   const after = comparison.exists === 'true' ? comparison.output : '';
   if (!before || comparison.source_exists !== 'true') {
