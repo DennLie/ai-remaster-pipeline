@@ -1,0 +1,102 @@
+name: Scientific scratch-mask diagnostic and oracle control
+
+on:
+  pull_request:
+    paths:
+      - "scripts/diagnose_scratch_masks.py"
+      - "tests/test_diagnose_scratch_masks.py"
+      - "docs/scratch-mask-diagnostics.md"
+      - ".github/workflows/scratch-mask-diagnostics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-detector-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install FFmpeg and CPU restoration metric dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet "numpy>=2,<3" "opencv-python-headless>=4.10,<5" "scikit-image>=0.25,<0.28" pillow pyyaml
+      - name: Test synthetic scratch mask metrics and forensic overlays
+        run: python -m unittest -v tests.test_diagnose_scratch_masks
+
+  historic-film-scratch-audit:
+    needs: offline-detector-contract
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'feature/scratch-mask-diagnostics'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        film:
+          - lumiere_train
+          - great_train_robbery
+          - melies_moon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install audited CPU-only image/video dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet "numpy>=2,<3" "opencv-python-headless>=4.10,<5" "scikit-image>=0.25,<0.28" pillow pyyaml
+      - name: Prepare Commons film with verified source and exact native frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/prepare_public_domain_films.py \
+            --film "${{ matrix.film }}" --no-classical \
+            --output-dir "$RUNNER_TEMP/film"
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "film/corpus_manifest.json"
+          film = json.loads(p.read_text())
+          first = film["clips"][0]
+          pathlib.Path(os.environ["RUNNER_TEMP"], "first_scene.txt").write_text(first["name"])
+          print("Verified", film["id"], film["source_provenance"]["downloaded_sha256"], first["name"])
+          PY
+      - name: Re-create exactly seeded scratches and sweep original detector
+        shell: bash
+        run: |
+          set -euo pipefail
+          shot="$(cat "$RUNNER_TEMP/first_scene.txt")"
+          python scripts/restoration_evaluation.py synthesize \
+            --source "$RUNNER_TEMP/film/$shot/original_native.mkv" \
+            --film "${{ matrix.film }}" --scene "$shot" \
+            --kind vertical_scratches --preset gentle --seed 2026 \
+            --output-dir "$RUNNER_TEMP/synthetic"
+          python scripts/diagnose_scratch_masks.py \
+            --manifest "$RUNNER_TEMP/synthetic/manifest.json" \
+            --sensitivities 0.25,0.45,0.65,0.85 \
+            --output-dir "$RUNNER_TEMP/scratch_audit"
+          cp "$RUNNER_TEMP/scratch_audit/scratch_diagnostics.json" "$RUNNER_TEMP/diagnostics_summary.json"
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "diagnostics_summary.json"
+          data = json.loads(p.read_text())
+          for e in data["settings"]:
+              print(data["film"], data["scene"], e["sensitivity"],
+                    "F1:", round(e["mask_scores"]["pixel_f1"], 6),
+                    "FP rate:", round(e["mask_scores"]["false_positive_fraction_of_healthy_pixels"], 6),
+                    "oracle inpaint MSE:", e["telea_using_oracle_gt_mask_known_scratch_mse"],
+                    "detector inpaint MSE:", e["telea_using_detector_mask_known_scratch_mse"])
+          PY
+      - name: Upload research diagnostics only (never whole films or pretrained models)
+        uses: actions/upload-artifact@v4
+        with:
+          name: scratch-diagnostic-${{ matrix.film }}
+          path: ${{ runner.temp }}/scratch_audit/
+          retention-days: 30
+          if-no-files-found: error
