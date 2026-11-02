@@ -845,30 +845,61 @@ function drawStage(st) {
 
 function drawCleanup(st, s, expected, sp) {
   const comparison = state.cleanup_comparison || {};
+  const diagnostics = state.cleanup_diagnostics || {};
+  const d = diagnostics.deflicker;
+  const hasOutput = comparison.exists === 'true';
+  // Keep user-selected folding preferences when ARP refreshes its stage HTML.
+  const prefs = typeof window !== 'undefined' ? (window.arpCleanupPanelPrefs || {}) : {};
+  const settingsOpen = typeof prefs.settings === 'boolean'
+    ? prefs.settings : (!hasOutput || Boolean(state.running));
+  const analysisOpen = Boolean(prefs.analysis);
+  const diagnosisSummary = d
+    ? `${Number(d.corrected)} / ${Number(d.frames)} Frames korrigiert · max. ${Number(d.max_gain_change_pct).toFixed(2)} %`
+    : 'Messwerte und Frame-Diagramm';
   document.getElementById('app').innerHTML = `
-    <div class="editor-page">
-      <section class="card">
-        <h2>${st.title}</h2>
-        <p>${st.description}</p>
-        ${progressHtml(sp.percent, sp.label)}
-        ${cleanupLicenseWarning(s)}
-        ${st.fields.map(f => fieldHtml(st, f)).join('')}
-        ${shotOutputList(expected, null)}
-        ${stageCheckboxes(s)}
-        <div class="actions">
-          <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
-          <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
+    <div class="editor-page cleanup-editor-page">
+      <section class="card editor-viewer cleanup-workspace-viewer">
+        <div class="cleanup-workspace-heading">
+          <h2>${esc(comparison.title || 'Clean Up Comparison')}</h2>
+          <span>Video · Einzelbilder · Differenz</span>
         </div>
-        <div class="command" id="cmd"></div>
-      </section>
-      <section class="card editor-viewer">
-        <h2>${esc(comparison.title || 'Clean Up Comparison')}</h2>
         ${cleanupComparisonHtml(comparison)}
-        ${cleanupDiagnosticsHtml(state.cleanup_diagnostics || {})}
+        ${diagnostics.ready ? `
+          <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
+            <summary><strong>Analyse und Frame-Diagramm</strong><span>${diagnosisSummary}</span></summary>
+            ${cleanupDiagnosticsHtml(diagnostics)}
+          </details>` : ''}
       </section>
+      <details class="cleanup-params-fold" data-cleanup-fold="settings" ${settingsOpen ? 'open' : ''}>
+        <summary>
+          <strong>Clean-Up-Einstellungen und Ausführung</strong>
+          <span>${hasOutput ? 'Vorhandenes Ergebnis · Parameter bei Bedarf bearbeiten' : 'Parameter einstellen und Verarbeitung starten'}</span>
+        </summary>
+        <section class="card cleanup-params-card">
+          <h2>${st.title}</h2>
+          <p>${st.description}</p>
+          ${progressHtml(sp.percent, sp.label)}
+          ${cleanupLicenseWarning(s)}
+          ${st.fields.map(f => fieldHtml(st, f)).join('')}
+          ${shotOutputList(expected, null)}
+          ${stageCheckboxes(s)}
+          <div class="actions">
+            <button class="primary" onclick="runStage('cleanup')" ${state.running ? 'disabled' : ''}>Run Clean Up</button>
+            <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
+          </div>
+          <div class="command" id="cmd"></div>
+        </section>
+      </details>
     </div>
   `;
-
+  document.querySelectorAll('[data-cleanup-fold]').forEach(fold => {
+    fold.addEventListener('toggle', () => {
+      if (typeof window === 'undefined') return;
+      const next = window.arpCleanupPanelPrefs || {};
+      next[fold.dataset.cleanupFold] = fold.open;
+      window.arpCleanupPanelPrefs = next;
+    });
+  });
   bindStageFields('cleanup');
   bindCleanupComparison();
   showCommand('cleanup');
@@ -1006,10 +1037,13 @@ function cleanupComparisonHtml(comparison) {
     </div>
     <input id="cleanupCompareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="Clean Up before after split">
     ${frameInspectorHtml('cleanup')}
-    <div class="source-info">
-      <div><span>Before</span><strong>${esc(before)}</strong></div>
-      <div><span>After</span><strong>${esc(after)}</strong></div>
-    </div>
+    <details class="cleanup-media-fold">
+      <summary>Quelldateien und Ausgabe anzeigen</summary>
+      <div class="source-info">
+        <div><span>Original</span><strong>${esc(before)}</strong></div>
+        <div><span>Light Deflicker</span><strong>${esc(after)}</strong></div>
+      </div>
+    </details>
   `;
 }
 
