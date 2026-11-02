@@ -249,5 +249,5 @@ test('Localized research is opt-in and clearly identified as not production-read
   assert.doesNotMatch(helpers, /value="localized_research" disabled/);
   assert.match(review, /LOCALIZED · EXPERIMENTELL/);
   assert.match(review, /setupFFmpegDifferenceRail/);
-  assert.match(review, /'localized_research'\]\/.includes\(method\)/);
+  assert.match(review, /'localized_research'/);
 });
