@@ -737,3 +737,108 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   background:var(--panel);
   border-bottom:1px solid var(--line);
 }
+
+/* Hide parameters that do not apply to the selected Deflicker backend. */
+.cleanup-settings-sidebar [data-deflicker-only][hidden] {display:none !important}
+
+/* Original frame inspection remains available before a selected variant is rendered. */
+.cleanup-editor-page .cleanup-unrendered-view {
+  display:grid;gap:10px;min-width:0;
+}
+.cleanup-editor-page .cleanup-source-video {
+  width:100%;max-height:clamp(190px,42vh,420px);
+  background:#050607;object-fit:contain;border-radius:6px;
+}
+.cleanup-editor-page .cleanup-source-inspector {
+  display:grid;gap:8px;min-width:0;
+  border-top:1px solid var(--line);padding-top:10px;
+}
+.cleanup-editor-page .cleanup-source-inspector .fi-heading {
+  display:flex;gap:6px 14px;align-items:baseline;flex-wrap:wrap;
+}
+.cleanup-editor-page .cleanup-source-inspector .fi-heading small {color:var(--muted)}
+.cleanup-editor-page .cleanup-source-controls {
+  display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+}
+.cleanup-editor-page .cleanup-source-controls button {padding:6px 10px;min-height:36px}
+.cleanup-editor-page .cleanup-source-controls label {display:flex;gap:5px;align-items:center}
+.cleanup-editor-page .cleanup-source-inspector [data-source-timeline] {width:100%}
+.cleanup-editor-page .cleanup-source-still {
+  max-width:800px;min-height:190px;max-height:clamp(220px,45vh,440px);
+  display:flex;justify-content:center;align-items:center;
+  background:#050607;border:1px solid var(--line);
+  border-radius:6px;overflow:hidden;
+}
+.cleanup-editor-page .cleanup-source-still img {
+  width:100%;height:100%;max-height:inherit;object-fit:contain;
+  transform:scale(var(--source-zoom,1));transform-origin:center;
+}
+.cleanup-editor-page .cleanup-source-inspector output {
+  font-size:12px;font-variant-numeric:tabular-nums;
+}
+.cleanup-editor-page .cleanup-source-inspector p.shot-empty {
+  font-size:12px;margin:0;color:var(--muted)
+}
+
+/* FFmpeg variants: measured per-frame absolute luma difference, not ARP gain. */
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::after {
+  background:#68b9d4;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference.is-current::after {
+  background:#c9e9f4;
+  box-shadow:0 0 0 1px #c9e9f4;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-diag-legend {
+  font-size:11px;
+  line-height:1.35;
+  color:var(--muted);
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-diag-readout {
+  font-size:12px;
+  font-variant-numeric:tabular-nums;
+}
+
+/* FFmpeg directional pixel differences: two independently measured bars per
+   clickable frame. A single frame may lighten AND darken distinct pixels. */
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference {
+  position:relative;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::after {
+  content:"";
+  position:absolute;bottom:0;
+  width:calc(50% - 1px);
+  min-height:0;pointer-events:none;
+  border-radius:2px 2px 0 0;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::before {
+  left:0;right:auto;
+  height:var(--bright-height,0%);
+  background:#4abfa5;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference::after {
+  right:0;left:auto;
+  height:var(--dark-height,0%);
+  background:#e6a256;
+  box-shadow:none;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference.is-current {
+  outline:2px solid #c9e9f4;
+  outline-offset:0;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:hover::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:hover::after,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:focus-visible::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-gain-bar.difference:focus-visible::after {
+  filter:brightness(1.25);
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-diag-legend {
+  display:flex;flex-wrap:wrap;gap:5px 14px;align-items:center;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-bright-key::before,
+.cleanup-editor-page .cleanup-difference-rail .cleanup-dark-key::before {
+  content:"";display:inline-block;width:9px;height:9px;margin-right:5px;
+  border-radius:2px;
+}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-bright-key::before {background:#4abfa5}
+.cleanup-editor-page .cleanup-difference-rail .cleanup-dark-key::before {background:#e6a256}

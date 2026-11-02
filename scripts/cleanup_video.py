@@ -82,6 +82,8 @@ def cleanup_identity(source: Path, args: argparse.Namespace) -> dict[str, Any]:
         light_deflicker=args.light_deflicker,
         deflicker_strength=args.deflicker_strength,
         deflicker_max_correction=args.deflicker_max_correction,
+        deflicker_method=args.deflicker_method,
+        deflicker_window=args.deflicker_window,
         detect_defects=args.detect_defects,
         defect_sensitivity=args.defect_sensitivity,
         defect_mask_height=args.defect_mask_height,
@@ -1368,7 +1370,12 @@ def run_signature(source: Path, workflow: Path, args: argparse.Namespace, info: 
             "fps": float(info.get("fps") or 24.0), "frames": int(info.get("frames") or 0),
         },
         "ai_descratch_version": AI_DESCRATCH_VERSION if args.ai_descratch else 0,
-        "light_deflicker_version": 1 if args.light_deflicker else 0,
+        "light_deflicker_version": (
+            1 if args.light_deflicker and args.deflicker_method == "arp"
+            else 2 if args.light_deflicker and args.deflicker_method == "ffmpeg_median"
+            else 3 if args.light_deflicker and args.deflicker_method == "ffmpeg_am"
+            else 0
+        ),
         "temporal_defect_mask_version": TEMPORAL_MASK_VERSION if args.detect_defects else 0,
         "devignette_version": DEVIGNETTE_VERSION if args.devignette else 0,
         "chunk_seconds": args.chunk_seconds,
@@ -1462,7 +1469,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", required=True)
     parser.add_argument("--output")
     parser.add_argument("--workflow", default=str(DEFAULT_WORKFLOW))
-    parser.add_argument("--light-deflicker", action="store_true", help="Apply bounded, shot-aware whole-frame exposure corrections (no AI weights).")
+    parser.add_argument("--light-deflicker", action="store_true", help="Enable selected classical temporal deflicker (no AI weights).")
+    parser.add_argument("--deflicker-method", choices=["arp", "ffmpeg_median", "ffmpeg_am"], default="arp",
+                        help="ARP conservative gains (default), FFmpeg median, or FFmpeg arithmetic mean.")
+    parser.add_argument("--deflicker-window", type=int, choices=[3, 5, 7, 9], default=5,
+                        help="Temporal window size for FFmpeg Median (ignored by ARP).")
     parser.add_argument("--deflicker-strength", type=parse_source_fidelity, default=0.65, help="Temporal deflicker adjustment strength, 0 to 1.")
     parser.add_argument("--deflicker-max-correction", type=parse_max_deflicker_correction, default=0.08, help="Maximum light-deflicker exposure correction per frame, between 0 and 0.15.")
     parser.add_argument("--detect-defects", action="store_true", help="Create motion-aligned film defect masks without modifying picture content (no AI models).")
@@ -1581,7 +1592,7 @@ def main() -> int:
         raise ValueError("Select at least one Clean Up operation: Light Deflicker, Detect Defects, AI DeScratch, DeVignette, or Dearchive.")
     print(
         "Clean Up operations: "
-        f"Light Deflicker={'on' if args.light_deflicker else 'off'}, "
+        f"Light Deflicker={'off' if not args.light_deflicker else args.deflicker_method}, "
         f"Detect Defects={'on' if args.detect_defects else 'off'}, "
         f"AI DeScratch={'on' if args.ai_descratch else 'off'}, "
         f"DeVignette={'on' if args.devignette else 'off'}, "
@@ -1614,8 +1625,14 @@ def main() -> int:
     work_dir = ROOT / ".cache" / "cleanup_chunks" / f"{safe_stem(source.name)}_{identity_key}"
     repaired_source = source
     if args.light_deflicker:
-        from film_deflicker import prepare_light_deflicker
-        repaired_source = prepare_light_deflicker(ffmpeg, repaired_source, work_dir, info, args)
+        if args.deflicker_method == "arp":
+            from film_deflicker import prepare_light_deflicker
+            repaired_source = prepare_light_deflicker(ffmpeg, repaired_source, work_dir, info, args)
+        elif args.deflicker_method in ("ffmpeg_median", "ffmpeg_am"):
+            from film_deflicker import prepare_ffmpeg_deflicker
+            repaired_source = prepare_ffmpeg_deflicker(ffmpeg, repaired_source, work_dir, info, args)
+        else:
+            raise ValueError(f"Unknown Deflicker method {args.deflicker_method!r}")
     repaired_source = prepare_devignette(ffmpeg, repaired_source, work_dir, info, args)
     if args.detect_defects:
         prepare_temporal_defect_masks(ffmpeg, repaired_source, output, work_dir, info, args)

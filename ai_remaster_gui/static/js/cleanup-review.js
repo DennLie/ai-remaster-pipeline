@@ -11,6 +11,133 @@ function cleanupFrameTimestamp(frame, fps, totalFrames) {
   return Math.max(0, Math.min(frame, totalFrames - 1)) / fps;
 }
 
+
+// FFmpeg does not report applied frame gains. Show both directions of
+// measured pixel brightness changes; a frame may contain *both* colors.
+function cleanupDifferenceBarData(report) {
+  const frames = Number(report?.frames);
+  const samples = report?.samples;
+  if (!Number.isInteger(frames) || frames < 1 || !Array.isArray(samples) ||
+      samples.length < 1 || samples.length > 240 ||
+      report?.metric !== 'directional_mean_luma_8bit') {
+    throw new Error('Ungültiger gerichteter FFmpeg-Framebericht.');
+  }
+  let previous = -1, maximumDirection = 0, maximumTotal = 0;
+  const values = samples.map(item => {
+    const frame = Number(item.frame);
+    const value = Number(item.mean_abs_luma);
+    const bright = Number(item.brighten_mean_luma);
+    const dark = Number(item.darken_mean_luma);
+    if (!Number.isInteger(frame) || frame <= previous || frame >= frames ||
+        ![value, bright, dark].every(x => Number.isFinite(x) && x >= 0 && x <= 255) ||
+        Math.abs(value - bright - dark) > 0.001) {
+      throw new Error('Inkonsistente Helligkeitswerte im FFmpeg-Bericht.');
+    }
+    previous = frame;
+    maximumDirection = Math.max(maximumDirection, bright, dark);
+    maximumTotal = Math.max(maximumTotal, value);
+    return {frame, value, bright, dark};
+  });
+  return values.map(item => ({
+    ...item,
+    height: Math.max(2, Math.min(100, 100 * item.value / (maximumTotal || 1))),
+    brightHeight: item.bright === 0 ? 0 : Math.max(2, 100 * item.bright / (maximumDirection || 1)),
+    darkHeight: item.dark === 0 ? 0 : Math.max(2, 100 * item.dark / (maximumDirection || 1))
+  }));
+}
+
+function setupFFmpegDifferenceRail(slider, player, before) {
+  const method = player.dataset.deflickerMethod;
+  if (method !== 'ffmpeg_median' && method !== 'ffmpeg_am') return;
+  const rail = document.createElement('section');
+  rail.className = 'cleanup-frame-rail cleanup-difference-rail';
+  rail.setAttribute('aria-label', 'Aufhellungen und Abdunklungen je Frame');
+  rail.innerHTML = `
+    <div class="cleanup-frame-rail-heading">
+      <strong>Frame-Änderungen</strong>
+      <span>Original ↔ Ergebnis · Balken anklicken: Frame auswählen</span>
+    </div>
+    <div class="cleanup-gain-plot" role="group" aria-label="Türkis für hellere, Orange für dunklere Pixel pro Frame"></div>
+    <div class="cleanup-diag-legend">
+      <span class="cleanup-bright-key">Türkis: aufgehellt</span>
+      <span class="cleanup-dark-key">Orange: abgedunkelt</span>
+      <span>Je Richtung mittlere Pixelhelligkeitsänderung (0–255); keine Deflicker-Gain-Werte.</span>
+    </div>
+    <p class="cleanup-diag-readout" role="status">Berechne gerichtete Pixelunterschiede aus den vorhandenen Videos …</p>`;
+  slider.insertAdjacentElement('afterend', rail);
+  player.closest('.editor-viewer')?.classList.add('has-cleanup-frame-rail');
+  const plot = rail.querySelector('.cleanup-gain-plot');
+  const readout = rail.querySelector('.cleanup-diag-readout');
+  let bars = [], reportFrames = 0, selectedFrame = 0;
+  const highlight = frame => {
+    selectedFrame = frame;
+    for (const bar of bars) {
+      const active = Number(bar.dataset.cleanupFrame) === frame;
+      bar.classList.toggle('is-current', active);
+      bar.setAttribute('aria-pressed', String(active));
+    }
+    const match = bars.find(bar => Number(bar.dataset.cleanupFrame) === frame);
+    if (match) {
+      readout.textContent =
+        `Frame ${frame+1}/${reportFrames}: ` +
+        `aufgehellt ${Number(match.dataset.brightLuma).toFixed(2)} / 255 · ` +
+        `abgedunkelt ${Number(match.dataset.darkLuma).toFixed(2)} / 255`;
+    }
+  };
+  document.addEventListener('arp-frame-inspected', event => {
+    if (!rail.isConnected || event.detail?.stage !== 'cleanup') return;
+    highlight(Number(event.detail.frame));
+  });
+  before.addEventListener('timeupdate', () => {
+    if (!rail.isConnected || !(reportFrames > 0) || !(before.duration > 0) || before.paused) return;
+    const at = Math.min(reportFrames-1, Math.max(0, Math.floor(before.currentTime / before.duration * reportFrames)));
+    highlight(at);
+  });
+  fetch('/api/cleanup-frame-differences', {cache:'no-store'})
+    .then(response => {
+      if (!response.ok) throw new Error('Serverfehler ' + response.status);
+      return response.json();
+    })
+    .then(data => {
+      if (!rail.isConnected) return;
+      if (!data.ok) throw new Error(data.error || 'Analyse nicht verfügbar.');
+      const entries = cleanupDifferenceBarData(data);
+      reportFrames = data.frames;
+      const fragment = document.createDocumentFragment();
+      for (const entry of entries) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'cleanup-gain-bar difference';
+        button.dataset.cleanupFrame = String(entry.frame);
+        button.dataset.brightLuma = String(entry.bright);
+        button.dataset.darkLuma = String(entry.dark);
+        button.style.setProperty('--bright-height', entry.brightHeight.toFixed(1) + '%');
+        button.style.setProperty('--dark-height', entry.darkHeight.toFixed(1) + '%');
+        button.title = `Frame ${entry.frame+1}: aufgehellt ${entry.bright.toFixed(2)} / 255, abgedunkelt ${entry.dark.toFixed(2)} / 255`;
+        button.setAttribute('aria-label', button.title);
+        button.setAttribute('aria-pressed', 'false');
+        button.addEventListener('click', () => {
+          highlight(entry.frame);
+          document.dispatchEvent(new CustomEvent('arp-request-exact-frame', {
+            detail: {stage:'cleanup', frame:entry.frame}
+          }));
+        });
+        fragment.appendChild(button);
+        bars.push(button);
+      }
+      plot.replaceChildren(fragment);
+      const legend = rail.querySelector('.cleanup-diag-legend');
+      if (legend) {
+        const note = document.createElement('span');
+        note.textContent = `${data.sampled ? 'Stichprobe pro Block · ' : ''}Balkenhöhe je Farbe relativ zum größten sichtbaren Richtungswert.`;
+        legend.appendChild(note);
+      }
+      highlight(selectedFrame);
+    }).catch(error => {
+      if (rail.isConnected) readout.textContent = 'Frame-Änderungen nicht verfügbar: ' + error.message;
+    });
+}
+
 function setupCleanupReview(sliderId, player, before, after, slider) {
   if (sliderId !== 'cleanupCompareSlider' || player.dataset.cleanupTwoUpReady) return;
   const inspector = player.parentElement?.querySelector('.frame-inspector[data-fi-stage="cleanup"]');
@@ -23,6 +150,9 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   const plot = diagnostics?.querySelector('.cleanup-gain-plot');
   const legend = diagnostics?.querySelector('.cleanup-diag-legend');
   const readout = diagnostics?.querySelector('#cleanupGainReadout');
+  if (!plot && ['ffmpeg_median', 'ffmpeg_am'].includes(player.dataset.deflickerMethod)) {
+    setupFFmpegDifferenceRail(slider, player, before);
+  }
   if (plot && legend && readout) {
     const oldTitle = plot.previousElementSibling;
     if (oldTitle?.tagName === 'H4') oldTitle.remove();
@@ -44,13 +174,16 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   // decoders, and the pre-existing ARP stage binding retains its references.
   const layout = document.createElement('div');
   layout.className = 'cleanup-two-up-grid';
+  const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFMPEG MEDIAN'
+    : player.dataset.deflickerMethod === 'ffmpeg_am' ? 'FFMPEG ARITHMETIC MEAN'
+    : player.dataset.deflickerMethod === 'arp' ? 'ARP CONSERVATIVE' : 'CLEAN-UP-ERGEBNIS';
   layout.innerHTML = `
     <div class="cleanup-side" data-compare-panel="before">
       <div class="cleanup-side-heading"><strong>ORIGINAL</strong><span>Vorher · unverändert</span></div>
       <div class="cleanup-side-media" data-compare-side="before"></div>
     </div>
     <div class="cleanup-side" data-compare-panel="after">
-      <div class="cleanup-side-heading"><strong>LIGHT DEFLICKER</strong><span>Nachher · bearbeitet</span></div>
+      <div class="cleanup-side-heading"><strong>${resultLabel}</strong><span>Nachher · bearbeitet</span></div>
       <div class="cleanup-side-media" data-compare-side="after"></div>
     </div>`;
   player.appendChild(layout);
@@ -294,6 +427,9 @@ function setupCleanupExactWipe(player) {
   if (!player || player.dataset.cleanupExactWipeReady) return;
   player.dataset.cleanupExactWipeReady = 'true';
   // Keep the exact Wipe available on demand without forcing another tall panel.
+  const resultLabel = player.dataset.deflickerMethod === 'ffmpeg_median' ? 'FFmpeg Median'
+    : player.dataset.deflickerMethod === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean'
+    : player.dataset.deflickerMethod === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const fold = document.createElement('details');
   fold.className = 'cleanup-wipe-fold';
   fold.innerHTML = '<summary><strong>Wischvergleich</strong><span>Exakter Vorher/Nachher-Schieber · bei Bedarf öffnen</span></summary><section class="cleanup-exact-wipe"></section>';
@@ -304,12 +440,12 @@ function setupCleanupExactWipe(player) {
       <strong>Einzelbild: Wischvergleich</strong>
       <span>Dasselbe Einzelbild aus beiden Videos</span>
     </div>
-    <p>Links <strong>ORIGINAL</strong>, rechts <strong>LIGHT DEFLICKER</strong>.
+    <p>Links <strong>ORIGINAL</strong>, rechts <strong>${resultLabel}</strong>.
       Ziehe die senkrechte Linie im Bild oder benutze den Schieber darunter.</p>
     <div class="cleanup-exact-wipe-image" data-wipe-picture
          aria-label="Wischvergleich von Original und bearbeitetem Einzelbild">
       <img data-wipe-before alt="Original, unberührter Frame">
-      <img data-wipe-after alt="Derselbe Frame nach Light Deflicker">
+      <img data-wipe-after alt="Derselbe Frame nach ${resultLabel}">
       <div class="cleanup-exact-wipe-divider" data-wipe-divider aria-hidden="true">
         <span class="cleanup-exact-wipe-handle"></span>
       </div>

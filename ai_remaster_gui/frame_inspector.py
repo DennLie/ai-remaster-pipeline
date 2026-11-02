@@ -149,6 +149,25 @@ def _prune() -> None:
 def inspection(app, stage: str, frame: int) -> dict:
     if frame < 0:
         raise ValueError('Frame index cannot be negative.')
+    if stage == 'cleanup_source':
+        # When the selected method has not been rendered, show original frames
+        # without inventing a processed result or exposing arbitrary paths.
+        comparison = app.cleanup_comparison_state()
+        if comparison.get('source_exists') != 'true':
+            raise FileNotFoundError('Choose a valid Clean Up input first.')
+        src = _video_path(comparison['source'])
+        meta = _metadata(src)
+        if frame >= meta['frames']:
+            raise IndexError(f'Frame {frame} exceeds total {meta["frames"]}.')
+        original = _decode(src, frame)
+        _prune()
+        return {
+            'stage': stage, 'frame': frame, 'frames': meta['frames'],
+            'fps': meta['fps'], 'width': meta['width'],
+            'height': meta['height'], 'before': original,
+            'after': None, 'exact': True,
+            'note': 'Source-only exact frame: selected cleanup variant not rendered yet.',
+        }
     src, dst = _sources(app, stage)
     source_meta, output_meta = _metadata(src), _metadata(dst)
     for field in ('width', 'height', 'fps_fraction', 'frames'):

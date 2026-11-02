@@ -51,8 +51,12 @@ function sourceInfoHtml(info) {
 const FIELD_DESCRIPTIONS = {
   'cleanup.light_deflicker':
     'Reduce rapid whole-frame exposure flicker using bounded per-shot gain adjustments, with no AI model and no blur. Disabled by default. Cuts, long fades and intentional illumination transitions are protected as far as possible; compare the preview before publishing.',
+  'cleanup.deflicker_method':
+    'ARP Conservative uses cut-aware bounded gains (default). FFmpeg Median and Arithmetic Mean are classical temporal baselines. Localized Deflicker is under synthetic and authentic-film research (PR #27) and is intentionally disabled until validated.',
+  'cleanup.deflicker_window':
+    'FFmpeg Median/Arithmetic Mean only: temporal window in frames, default 5. Large windows can change fades and cuts. This is NOT ARP correction strength.',
   'cleanup.deflicker_strength':
-    'Fraction of the estimated correction to apply. Zero leaves frames unchanged; 0.65 is conservative. Smooth fades and film-grain texture are not intentionally filtered.',
+    'ARP Conservative only. Fraction of the estimated correction to apply. Zero leaves frames unchanged; 0.65 is conservative.',
   'cleanup.deflicker_max_correction':
     'Absolute limit on per-frame gain (e.g. 0.08 = up to 8% brighter or darker). Lower values reduce the risk of changing intentional lighting and scene tone.',
   'cleanup.detect_defects':
@@ -438,11 +442,19 @@ function selectFieldHtml(key, label, kind, value, tooltip = '') {
   const options = kind.slice(7).split('|')
     .map(option => `<option value="${esc(option)}" ${value === option ? 'selected' : ''}>${esc(selectOptionLabel(key, option))}</option>`)
     .join('');
+  // Show the research roadmap explicitly without offering an unvalidated
+  // production backend. Never submit localized_research as a runnable method.
+  const researchOption = key === 'deflicker_method'
+    ? '<option value="localized_research" disabled>Localized Deflicker (Forschung · noch nicht freigegeben)</option>'
+    : '';
   const title = tooltipTitle(tooltip);
-  return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}</select>`;
+  return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}${researchOption}</select>`;
 }
 
 function selectOptionLabel(key, option) {
+  if (key === 'deflicker_method' && option === 'arp') return 'ARP Conservative (recommended)';
+  if (key === 'deflicker_method' && option === 'ffmpeg_median') return 'FFmpeg Median (experimental)';
+  if (key === 'deflicker_method' && option === 'ffmpeg_am') return 'FFmpeg Arithmetic Mean (experimental)';
   if (key === 'compute' && option === 'local') return 'This computer';
   if (key === 'compute' && option === 'runpod') return 'RunPod cloud worker';
   if (key === 'outpaint_model' && option === 'official') return '2.3 - Official LoRA';
@@ -857,7 +869,9 @@ function drawCleanup(st, s, expected, sp) {
         <span><strong>${Number(d.mean_abs_gain_change_pct).toFixed(2)} %</strong> Ø Korrektur</span>
         <span><strong>${d.cut_boundaries}</strong> Schnittgrenzen</span>
       </div>`
-    : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
+    : ['ffmpeg_median', 'ffmpeg_am'].includes(comparison.method) && comparison.exists === 'true'
+      ? '<p class="cleanup-results-empty">FFmpeg: zeitlicher Filter ohne globale Gain-Werte. Änderungen im exakten Pixeldifferenzbild prüfen.</p>'
+      : '<p class="cleanup-results-empty">Noch keine passenden Analysewerte vorhanden.</p>';
 
   document.getElementById('app').innerHTML = `
     <div class="editor-page cleanup-editor-page" data-cleanup-density="${prefs.density === 'focus' ? 'focus' : 'compact'}">
@@ -870,7 +884,11 @@ function drawCleanup(st, s, expected, sp) {
           <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
         </div>
         ${cleanupLicenseWarning(s)}
-        ${st.fields.map(f => fieldHtml(st, f)).join('')}
+        ${st.fields.map(f => {
+          const only = ['deflicker_strength', 'deflicker_max_correction'].includes(f[0]) ? 'arp'
+            : f[0] === 'deflicker_window' ? 'ffmpeg' : '';
+          return only ? `<div data-deflicker-only="${only}">${fieldHtml(st, f)}</div>` : fieldHtml(st, f);
+        }).join('')}
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(s)}
         <div class="command" id="cmd"></div>
@@ -886,7 +904,7 @@ function drawCleanup(st, s, expected, sp) {
           <section class="cleanup-results-overview" aria-label="Was wurde verändert?">
             <div class="cleanup-results-heading">
               <strong>Was wurde verändert?</strong>
-              <span>Light Deflicker · Verarbeitungsergebnis</span>
+              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis'} · Verarbeitungsergebnis</span>
             </div>
             ${summary}
             <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
@@ -919,6 +937,17 @@ function drawCleanup(st, s, expected, sp) {
       window.arpCleanupPanelPrefs = next;
     }
   });
+  const updateMethodFields = () => {
+    const method = document.querySelector('.cleanup-settings-sidebar [data-field="deflicker_method"]')?.value || 'arp';
+    document.querySelectorAll('.cleanup-settings-sidebar [data-deflicker-only]').forEach(el => {
+      el.hidden = el.dataset.deflickerOnly === 'ffmpeg'
+        ? !['ffmpeg_median', 'ffmpeg_am'].includes(method)
+        : el.dataset.deflickerOnly !== method;
+    });
+  };
+  updateMethodFields();
+  document.querySelector('.cleanup-settings-sidebar [data-field="deflicker_method"]')
+    ?.addEventListener('change', updateMethodFields);
   bindStageFields('cleanup');
   bindCleanupComparison();
   showCommand('cleanup');
@@ -998,6 +1027,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
   const d = diagnostics.deflicker;
   const mask = diagnostics.defect_mask || '';
   const scratch = diagnostics.scratch_mask || '';
+  const ffmpegSelected = ['ffmpeg_median', 'ffmpeg_am'].includes(state.cleanup_comparison?.method);
   const cards = d ? `
     <div class="cleanup-diag-metrics">
       <div><small>Korrigierte Frames</small><strong>${d.corrected} / ${d.frames}</strong></div>
@@ -1020,12 +1050,14 @@ function cleanupDiagnosticsHtml(diagnostics) {
     <div class="cleanup-diag-legend"><span>T\u00fcrkis: aufhellen</span><span>Orange: abdunkeln</span><span>Grau: unver\u00e4ndert</span></div>
     <p id="cleanupGainReadout" class="cleanup-diag-readout">W\u00e4hle einen Balken oder starte das Video, um den Frame-Wert zu sehen.</p>
     ${d.sampled ? '<p class="shot-empty">Bei langen Videos werden pro Block nur die st\u00e4rksten Korrekturen als Stichprobe angezeigt.</p>' : ''}
-  ` : `<p class="shot-empty">F\u00fcr diese Clean-Up-Ausgabe ist kein passender Frame-Bericht vorhanden oder Light Deflicker war nicht aktiv.</p>`;
+  ` : ffmpegSelected
+    ? `<p class="shot-empty">FFmpeg liefert keine ARP-Helligkeitsfaktoren. Das Diagramm mit gemessenen Pixelhelligkeitsänderungen steht direkt unter den Videos.</p>`
+    : `<p class="shot-empty">Für diese Clean-Up-Ausgabe ist kein passender Frame-Bericht vorhanden oder Light Deflicker war nicht aktiv.</p>`;
   const maskBlock = mask ? `
     <h4>Tempor\u00e4re Defektmaske (nur Erkennung)</h4>
     <video id="cleanupDiagMaskVideo" src="${media(mask)}" muted playsinline preload="metadata"></video>
     <p class="shot-empty">Wei\u00df markiert m\u00f6gliche Sch\u00e4den. Die Maske \u00e4ndert keine Pixel und ist keine DART-Reparatur. Sie l\u00e4uft ungef\u00e4hr synchron mit dem Originalvideo.</p>
-  ` : '<p class="shot-empty">Keine r\u00e4umliche Defektmaske f\u00fcr diesen Durchlauf: Beim Light Deflicker werden globale Helligkeitsfaktoren statt Pixelmasken angewandt. F\u00fcr eine Maske muss "Detect film damage" separat aktiviert und ausgef\u00fchrt werden.</p>';
+  ` : '<p class="shot-empty">Keine r\u00e4umliche Defektmaske f\u00fcr diesen Durchlauf: Eine reine Deflicker-Stufe erzeugt keine räumliche Defektmaske. F\u00fcr eine Maske muss "Detect film damage" separat aktiviert und ausgef\u00fchrt werden.</p>';
   return `<section class="cleanup-diagnostics" aria-label="Clean Up Analyse">
     <h3>Was wurde ver\u00e4ndert?</h3>
     ${cards}
@@ -1036,6 +1068,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
 }
 
 function cleanupComparisonHtml(comparison) {
+  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'ffmpeg_am' ? 'FFmpeg Arithmetic Mean' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const before = comparison.source || '';
   const after = comparison.exists === 'true' ? comparison.output : '';
   if (!before || comparison.source_exists !== 'true') {
@@ -1043,12 +1076,15 @@ function cleanupComparisonHtml(comparison) {
   }
   if (!after) {
     return `
-      <video src="${media(before)}" controls preload="metadata"></video>
-      <p class="shot-empty">The before/after comparison will appear here when Clean Up finishes.</p>
+      <section class="cleanup-unrendered-view">
+        <div class="cleanup-side-heading"><strong>ORIGINAL</strong><span>Unverändert · Ergebnis noch nicht berechnet</span></div>
+        <video class="cleanup-source-video" src="${media(before)}" controls preload="metadata"></video>
+        ${cleanupSourceInspectorHtml()}
+      </section>
     `;
   }
   return `
-    <div class="comparison-player">
+    <div class="comparison-player" data-deflicker-method="${esc(comparison.method || 'off')}">
       <video class="compare-before" src="${media(before)}" controls preload="metadata"></video>
       <video class="compare-after" src="${media(after)}" muted preload="metadata"></video>
       <div class="compare-after-mask" style="width:50%"></div>
@@ -1060,7 +1096,7 @@ function cleanupComparisonHtml(comparison) {
       <summary>Quelldateien und Ausgabe anzeigen</summary>
       <div class="source-info">
         <div><span>Original</span><strong>${esc(before)}</strong></div>
-        <div><span>Light Deflicker</span><strong>${esc(after)}</strong></div>
+        <div><span>${esc(methodLabel)}</span><strong>${esc(after)}</strong></div>
       </div>
     </details>
   `;

@@ -176,3 +176,73 @@ test('sidebar execution actions stay visible near the top of lengthy settings', 
   assert.ok(markup.indexOf('cleanup-primary-actions') < markup.indexOf('st.fields.map('));
   assert.match(css, /\.cleanup-settings-sidebar \.cleanup-primary-actions\s*\{[\s\S]*?position:sticky/);
 });
+
+test('source-only exact frame UI remains available without a processed output', () => {
+  const api = browserFunctions();
+  const sourceHtml = api.cleanupSourceInspectorHtml();
+  assert.match(sourceHtml, /Original · Einzelbildansicht/);
+  assert.match(sourceHtml, /data-source-prev10/);
+  assert.match(sourceHtml, /data-source-next/);
+  assert.match(sourceHtml, /data-source-zoom/);
+  assert.match(sourceHtml, /data-source-timeline/);
+  assert.doesNotMatch(sourceHtml, /data-fi-difference/);
+  assert.match(helpers, /cleanupSourceInspectorHtml\(\)/);
+  assert.match(helpers, /cleanup-source-video/);
+  const recomp = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/render-recomp.js'), 'utf8');
+  assert.match(recomp, /setupCleanupSourceInspector\(\)/);
+});
+
+test('variant labels distinguish FFmpeg arithmetic mean from median and ARP', () => {
+  assert.match(helpers, /FFmpeg Arithmetic Mean/);
+  assert.match(helpers, /ffmpeg_am/);
+  assert.match(review, /FFMPEG ARITHMETIC MEAN/);
+  assert.match(review, /FFmpeg Arithmetic Mean/);
+});
+
+test('FFmpeg bar shows turquoise brightening and orange darkening in the same frame', () => {
+  const context = {document: {addEventListener() {}}, Uint8ClampedArray};
+  vm.createContext(context);
+  vm.runInContext(review, context, {filename: 'cleanup-review.js'});
+  const rows = context.cleanupDifferenceBarData({
+    frames: 3, metric:'directional_mean_luma_8bit', sampled:false,
+    samples:[
+      {frame:0,mean_abs_luma:2,brighten_mean_luma:2,darken_mean_luma:0},
+      {frame:1,mean_abs_luma:5,brighten_mean_luma:3,darken_mean_luma:2},
+      {frame:2,mean_abs_luma:3,brighten_mean_luma:0,darken_mean_luma:3},
+    ],
+  });
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].frame, 0);
+  assert.equal(rows[1].height, 100);
+  assert.equal(rows[0].height, 40);
+  assert.equal(rows[1].brightHeight, 100);
+  assert.ok(rows[1].darkHeight > 0);
+  assert.equal(rows[0].darkHeight, 0);
+  assert.equal(rows[2].brightHeight, 0);
+  assert.throws(() => context.cleanupDifferenceBarData({
+    frames:3,metric:'directional_mean_luma_8bit',samples:[
+      {frame:1,mean_abs_luma:4,brighten_mean_luma:3,darken_mean_luma:1},
+      {frame:1,mean_abs_luma:3,brighten_mean_luma:2,darken_mean_luma:1}
+    ]
+  }), /Inkonsistente/);
+  assert.match(review, /fetch\('\/api\/cleanup-frame-differences'/);
+  assert.match(review, /slider\.insertAdjacentElement\('afterend', rail\)/);
+  assert.match(review, /setupFFmpegDifferenceRail\(slider, player, before\)/);
+  assert.match(review, /document\.dispatchEvent\(new CustomEvent\('arp-request-exact-frame'/);
+  assert.match(review, /--bright-height/);
+  assert.match(review, /--dark-height/);
+  assert.match(review, /Türkis: aufgehellt/);
+  assert.match(review, /Orange: abgedunkelt/);
+  assert.match(css, /\.cleanup-difference-rail \.cleanup-gain-bar\.difference::before/);
+  assert.match(css, /\.cleanup-difference-rail \.cleanup-gain-bar\.difference::after/);
+  const handler = fs.readFileSync(path.join(root, 'ai_remaster_gui/http_handler.py'), 'utf8');
+  assert.match(handler, /parsed\.path == "\/api\/cleanup-frame-differences"/);
+});
+
+test('Localized research is visible but disabled until authentic-film validation', () => {
+  assert.match(helpers, /value="localized_research" disabled/);
+  assert.match(helpers, /Localized Deflicker \(Forschung/);
+  const models = fs.readFileSync(path.join(root, 'ai_remaster_gui/models.py'), 'utf8');
+  assert.match(models, /select:arp\|ffmpeg_median\|ffmpeg_am/);
+  assert.doesNotMatch(models, /select:arp\|ffmpeg_median\|ffmpeg_am\|localized_research/);
+});

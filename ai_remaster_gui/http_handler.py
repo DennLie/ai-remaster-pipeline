@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 
 from . import state
 from .frame_inspector import inspection as inspect_frame
+from .frame_differences import cleanup_frame_differences
 from .cache import delete_cache_category, delete_cache_file
 from .config import STATIC_DIR
 from .file_dialogs import browse_path, browse_source_paths
@@ -181,6 +182,13 @@ class Handler(BaseHTTPRequestHandler):
                 frame = int(query.get("frame", ["0"])[0])
                 self.send_json({"ok": True, **inspect_frame(state.APP, stage, frame)})
             except (ValueError, IndexError, FileNotFoundError, RuntimeError, OSError,
+                    subprocess.SubprocessError) as exc:
+                self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/cleanup-frame-differences":
+            # No client-selected filesystem paths or method overrides.
+            try:
+                self.send_json({"ok": True, **cleanup_frame_differences(state.APP)})
+            except (ValueError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
         elif parsed.path == "/api/state":

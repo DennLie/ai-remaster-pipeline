@@ -11,7 +11,7 @@ function frameInspectorHtml(stage) {
           <div class="fi-exact-media" data-fi-still-before></div>
         </figure>
         <figure class="fi-exact-panel">
-          <figcaption>LIGHT DEFLICKER – Einzelbild</figcaption>
+          <figcaption>ERGEBNIS – Einzelbild</figcaption>
           <div class="fi-exact-media" data-fi-still-after></div>
         </figure>
         <figure class="fi-exact-panel">
@@ -267,3 +267,77 @@ document.addEventListener('arp-frame-inspected', event => {
   const delta = 100 * (Number(sample.gain) - 1);
   readout.textContent = `Frame ${frame+1}/${frames}: ${delta>=0?'+':''}${delta.toFixed(2)} % Helligkeitskorrektur${d.sampled ? ' (Stichprobe)' : ''}`;
 });
+
+
+/* Source-only exact inspector: available even before the selected variant
+   has produced a result. Does not pretend to show an output or a mask. */
+function cleanupSourceInspectorHtml() {
+  return `<section class="cleanup-source-inspector" data-cleanup-source-inspector aria-label="Original-Einzelbildansicht">
+    <div class="fi-heading"><strong>Original · Einzelbildansicht</strong><small>Für die ausgewählte Methode liegt noch kein Ergebnis vor.</small></div>
+    <div class="fi-buttons cleanup-source-controls">
+      <button type="button" data-source-prev10 disabled>−10</button>
+      <button type="button" data-source-prev disabled>−1 Frame</button>
+      <button type="button" data-source-next disabled>+1 Frame</button>
+      <button type="button" data-source-next10 disabled>+10</button>
+      <label>Zoom <select data-source-zoom><option value="1">100 %</option><option value="2">200 %</option><option value="4">400 %</option></select></label>
+    </div>
+    <input type="range" min="0" max="0" value="0" step="1" disabled
+           data-source-timeline aria-label="Originalframe wählen">
+    <div class="cleanup-source-still"><img data-source-image alt="Exaktes Original-Einzelbild"></div>
+    <output data-source-status role="status">Original-Einzelbild wird vorbereitet.</output>
+    <p class="shot-empty">Noch kein bearbeitetes Ergebnis für diese Methode. Einzelbildvergleich und Pixeldifferenz erscheinen nach dem ersten Durchlauf.</p>
+  </section>`;
+}
+
+function setupCleanupSourceInspector() {
+  const root = document.querySelector('[data-cleanup-source-inspector]');
+  if (!root || root.dataset.bound === 'true') return;
+  root.dataset.bound = 'true';
+  const video = document.querySelector('.cleanup-source-video');
+  const $ = name => root.querySelector('[data-source-' + name + ']');
+  const image = $('image'), status = $('status'), timeline = $('timeline');
+  const zoom = $('zoom');
+  let count = 0, fps = 0, index = 0, serial = 0;
+  function select(frame) {
+    const requested = Math.max(0, Math.min(count ? count - 1 : 0, Math.round(Number(frame) || 0)));
+    const current = ++serial;
+    status.textContent = `Lade Originalframe ${requested+1} ...`;
+    void (async () => {
+      try {
+        const response = await fetch('/api/frame-inspector?stage=cleanup_source&frame=' + requested);
+        if (!response.ok) throw new Error('Serverfehler ' + response.status);
+        const data = await response.json();
+        if (!data.ok || !data.exact || !data.before) throw new Error(data.error || 'Originalframe nicht verfügbar.');
+        const loaded = new Image();
+        loaded.src = '/media?path=' + encodeURIComponent(data.before);
+        await new Promise((resolve, reject) => {
+          loaded.onload = resolve;
+          loaded.onerror = () => reject(new Error('Originalframe konnte nicht geladen werden.'));
+        });
+        if (current !== serial || !root.isConnected) return;
+        count = data.frames;
+        fps = data.fps;
+        index = requested;
+        image.src = loaded.src;
+        timeline.disabled = false;
+        timeline.max = String(count - 1);
+        timeline.value = String(index);
+        for (const name of ['prev', 'prev10', 'next', 'next10']) $(name).disabled = false;
+        status.textContent = `Original: Frame ${index+1} / ${count} · ${(index/fps).toFixed(3)} s · ${data.width}×${data.height}`;
+        if (video && Number.isFinite(fps) && fps > 0) {
+          video.pause();
+          try { video.currentTime = index / fps; } catch (_) {}
+        }
+      } catch (error) {
+        if (current === serial) status.textContent = 'Original-Einzelbild: ' + error.message;
+      }
+    })();
+  }
+  $('prev10').addEventListener('click', () => select(index - 10));
+  $('prev').addEventListener('click', () => select(index - 1));
+  $('next').addEventListener('click', () => select(index + 1));
+  $('next10').addEventListener('click', () => select(index + 10));
+  timeline.addEventListener('input', () => select(Number(timeline.value)));
+  zoom.addEventListener('change', () => root.style.setProperty('--source-zoom', zoom.value));
+  select(0);
+}
