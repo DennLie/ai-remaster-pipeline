@@ -898,7 +898,7 @@ function drawCleanup(st, s, expected, sp) {
           <section class="cleanup-results-overview" aria-label="Was wurde verändert?">
             <div class="cleanup-results-heading">
               <strong>Was wurde verändert?</strong>
-              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : 'ARP Conservative'} · Verarbeitungsergebnis</span>
+              <span>${comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis'} · Verarbeitungsergebnis</span>
             </div>
             ${summary}
             <details class="cleanup-diagnostics-fold" data-cleanup-fold="analysis" ${analysisOpen ? 'open' : ''}>
@@ -1057,7 +1057,7 @@ function cleanupDiagnosticsHtml(diagnostics) {
 }
 
 function cleanupComparisonHtml(comparison) {
-  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : 'ARP Conservative';
+  const methodLabel = comparison.method === 'ffmpeg_median' ? 'FFmpeg Median' : comparison.method === 'arp' ? 'ARP Conservative' : 'Clean-Up-Ergebnis';
   const before = comparison.source || '';
   const after = comparison.exists === 'true' ? comparison.output : '';
   if (!before || comparison.source_exists !== 'true') {
