@@ -33,7 +33,9 @@ def cleanup_diagnostics_for(root: Path, source: Path | None,
         preview = output.with_name(output.stem + '_scratch_mask.mp4')
         if preview.is_file():
             result['scratch_mask'] = str(preview)
-    if settings.get('light_deflicker') != 'true':
+    # Only ARP Conservative produces meaningful per-frame gain factors.
+    # FFmpeg Median/Arithmetic Mean instead use direct pixel-difference charts.
+    if settings.get('light_deflicker') != 'true' or settings.get('deflicker_method', 'arp') != 'arp':
         return result
     match = re.fullmatch(r'.+_cleanup_([a-f0-9]{8})', output.stem)
     if not match:
