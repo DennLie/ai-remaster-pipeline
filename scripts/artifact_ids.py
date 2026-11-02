@@ -265,12 +265,17 @@ def cleanup_identity(
                 "deflicker_max_correction": float(deflicker_max_correction),
                 "deflicker_algorithm": "light_deflicker_v1",
             })
-        elif deflicker_method == "ffmpeg_median":
+        elif deflicker_method in ("ffmpeg_median", "ffmpeg_am"):
             if deflicker_window not in (3, 5, 7, 9):
-                raise ValueError("FFmpeg Median window must be 3, 5, 7 or 9")
+                raise ValueError("FFmpeg deflicker window must be 3, 5, 7 or 9")
+            # Median's existing v1 identity is preserved. Mean gets a distinct
+            # algorithm key even for the same window and input.
             identity.update({
                 "light_deflicker": True,
-                "deflicker_algorithm": "ffmpeg_median_v1",
+                "deflicker_algorithm": (
+                    "ffmpeg_median_v1" if deflicker_method == "ffmpeg_median"
+                    else "ffmpeg_am_v1"
+                ),
                 "deflicker_window": int(deflicker_window),
             })
         else:
