@@ -12,11 +12,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from cleanup_video import ai_scratch_mask
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import diagnose_scratch_masks as audit  # noqa: E402
+from cleanup_video import ai_scratch_mask  # noqa: E402
 import restoration_evaluation as ev  # noqa: E402
 
 
