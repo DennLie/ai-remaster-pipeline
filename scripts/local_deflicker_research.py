@@ -29,7 +29,7 @@ def _fading_shot(frames: list[np.ndarray]) -> bool:
 def local_deflicker_frames(
     frames: list[np.ndarray], *, radius: int = 2,
     sigma: float = 18.0, strength: float = 0.6, cap: float = 0.08,
-    cut_frames: tuple[int, ...] = ()
+    cut_frames: tuple[int, ...] = (), temporal_guard: str = "off"
 ) -> tuple[list[np.ndarray], dict]:
     """Smooth spatial gain maps against temporal neighbours, preserving detail.
 
@@ -38,6 +38,8 @@ def local_deflicker_frames(
     """
     if not frames:
         raise ValueError("At least one frame is required.")
+    if temporal_guard not in ("off", "oscillation"):
+        raise ValueError("temporal_guard must be 'off' or 'oscillation'.")
     if radius < 1 or radius > 15 or sigma < 1 or not 0 <= strength <= 1 or not 0 < cap <= 0.15:
         raise ValueError("Invalid radius, sigma, strength or correction cap.")
     shape = frames[0].shape
@@ -75,6 +77,27 @@ def local_deflicker_frames(
             original = low_frequency[i]
             ratio = np.divide(target, np.maximum(original, 8), dtype=np.float32)
             gain = np.clip(1 + strength * (ratio - 1), 1-cap, 1+cap)
+            if temporal_guard == "oscillation":
+                # Prototype safeguard against false corrections from motion:
+                # the two adjacent smoothed frames should agree with EACH
+                # OTHER while the current frame is a temporal outlier.
+                # This rejects monotone ramps and many moving edges, but not
+                # all occlusions; it is NOT motion compensation.
+                if not (start < i < stop-1):
+                    continue
+                previous, following = low_frequency[i-1], low_frequency[i+1]
+                adjacent_center = 0.5 * (previous + following)
+                deviation = np.abs(adjacent_center - original)
+                spread = np.abs(previous - following)
+                confidence = (
+                    (deviation >= 3.0) &
+                    (spread <= np.maximum(2.0, 0.5 * deviation))
+                ).astype(np.float32)
+                # Feather the mask to avoid introducing hard spatial seams.
+                confidence = cv2.GaussianBlur(
+                    confidence, (0, 0), sigmaX=max(1.0, sigma * 0.25)
+                )
+                gain = 1 + (gain - 1) * confidence
             if np.max(np.abs(gain - 1)) < 1e-4:
                 continue
             corrected[i] = np.clip(
@@ -85,6 +108,12 @@ def local_deflicker_frames(
     return corrected, {
         "algorithm": "localized_blurred_luma_temporal_neighbor_mean_v1",
         "status": "research_only_no_motion_compensation",
+        "temporal_guard": temporal_guard,
+        "guard_notes": (
+            "Adjacent smoothed-frame agreement / temporal-outlier gate; "
+            "does NOT prevent all motion artifacts"
+            if temporal_guard == "oscillation" else "No temporal-outlier gate"
+        ),
         "frames": len(frames),
         "corrected_frames": len(changed),
         "corrected_indices_zero_based": changed,
@@ -106,6 +135,7 @@ def run_cli() -> int:
     parser.add_argument("--sigma", type=float, default=18.0)
     parser.add_argument("--strength", type=float, default=0.6)
     parser.add_argument("--cap", type=float, default=0.08)
+    parser.add_argument("--temporal-guard", choices=["off", "oscillation"], default="off")
     parser.add_argument("--cut-frame", type=int, action="append", default=[])
     parser.add_argument("--max-frames", type=int, default=240)
     args = parser.parse_args()
@@ -132,7 +162,8 @@ def run_cli() -> int:
         capture.release()
     fixed, report = local_deflicker_frames(
         frames, radius=args.radius, sigma=args.sigma, strength=args.strength,
-        cap=args.cap, cut_frames=tuple(args.cut_frame)
+        cap=args.cap, cut_frames=tuple(args.cut_frame),
+        temporal_guard=args.temporal_guard
     )
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_name(dest.stem + ".partial.mkv")
