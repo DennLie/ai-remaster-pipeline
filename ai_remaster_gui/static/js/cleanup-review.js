@@ -4,6 +4,13 @@
  * frame-index matched and rendered in the same two panels.
  * The original and the processed file are never modified by this viewer.
  */
+// Exact frame ordinal to video timestamp; 0-based internally, 1-based in UI.
+function cleanupFrameTimestamp(frame, fps, totalFrames) {
+  if (!Number.isInteger(frame) || !Number.isFinite(fps) || fps <= 0 ||
+      !Number.isInteger(totalFrames) || totalFrames < 1) return null;
+  return Math.max(0, Math.min(frame, totalFrames - 1)) / fps;
+}
+
 function setupCleanupReview(sliderId, player, before, after, slider) {
   if (sliderId !== 'cleanupCompareSlider' || player.dataset.cleanupTwoUpReady) return;
   const inspector = player.parentElement?.querySelector('.frame-inspector[data-fi-stage="cleanup"]');
@@ -120,13 +127,14 @@ function setupCleanupReview(sliderId, player, before, after, slider) {
   // A frame selection must update both video clocks and the shared time slider.
   // Metadata can still be loading when the first chart bar is selected.
   function applyFrameSeek(frame) {
-    if (!(fps > 0) || !(frameCount > 0)) {
+    const seconds = cleanupFrameTimestamp(frame, fps, frameCount);
+    if (seconds === null) {
       pendingVideoFrame = frame;
       return;
     }
     pendingVideoFrame = null;
     pauseBoth();
-    moveBoth(frame / fps);
+    moveBoth(seconds);
   }
   document.addEventListener('arp-cleanup-seek-video', event => {
     if (!player.isConnected || event.detail?.stage !== 'cleanup') return;
