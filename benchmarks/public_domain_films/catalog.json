@@ -63,12 +63,12 @@
       ],
       "shots": [
         {
-          "name": "movement_probe",
+          "name": "interior_action_probe",
           "seconds": 95,
           "frames": 24
         },
         {
-          "name": "second_sequence_probe",
+          "name": "moving_train_probe",
           "seconds": 480,
           "frames": 24
         }
@@ -115,7 +115,7 @@
       "commons_file": "The Cabinet of Dr. Caligari.webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr._Caligari.webm",
       "acquire": "original",
-      "source_original_sha1": null,
+      "source_original_sha1": "cdd93d9abee307736355f906b960b2224dedaacc",
       "right_status": "underlying_film_PD_claimed_US_and_life70; specific upload and score require review",
       "transfer_note": "Original 576x448 Internet Archive-derived Commons copy (about 327 MiB); explicitly 400 MiB bounded download, unusual native ratio preserved. No new restoration rights are assumed.",
       "tests": [
@@ -125,17 +125,18 @@
       ],
       "shots": [
         {
-          "name": "architecture_probe",
+          "name": "portrait_probe",
           "seconds": 330,
           "frames": 24
         },
         {
-          "name": "contrast_probe",
+          "name": "expressionist_set_probe",
           "seconds": 1600,
           "frames": 24
         }
       ],
-      "max_download_megabytes": 400
+      "max_download_megabytes": 400,
+      "selected_media_sha256": "6b0fd6f08449cf134e953bfe947007cb0fb378a0cf68aa81623a0b5ef840e0a9"
     },
     {
       "id": "gertie",
@@ -150,18 +151,28 @@
       "right_status": "underlying_film_PD_claimed_US_and_life70; 2004 DVD transfer requires additional rights review",
       "transfer_note": "Commons copy sourced from 2004 DVD edition; no music redistributed; do not assume digital edition rights are cleared",
       "tests": [
-        "hand-drawn line art",
-        "white backgrounds",
-        "frame-to-frame jitter"
+        "live-action to animation scene type changes",
+        "hand-drawn lines and jitter",
+        "high-contrast intertitles"
       ],
       "shots": [
         {
-          "name": "linework_probe",
+          "name": "live_action_prologue",
           "seconds": 320,
           "frames": 24
         },
         {
-          "name": "animation_probe",
+          "name": "drawn_animation_probe",
+          "seconds": 433,
+          "frames": 24
+        },
+        {
+          "name": "dinosaur_motion_probe",
+          "seconds": 600,
+          "frames": 24
+        },
+        {
+          "name": "intertitle_probe",
           "seconds": 775,
           "frames": 24
         }
@@ -177,7 +188,7 @@
       "commons_file": "A Corner in Wheat (1909).webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:A_Corner_in_Wheat_%281909%29.webm",
       "acquire": "vp9_360_or_480",
-      "source_original_sha1": null,
+      "source_original_sha1": "3583531ea3d56cc1cc6aa3ef22360b2e3265e524",
       "right_status": "underlying_film_PD_claimed_US_and_life70; original transfer rights require review",
       "transfer_note": "Library of Congress-based 1436x1080 Commons source, accessed as 360p/480p VP9 transcode. Previous 480x360 YouTube upload reported 1000 fps and was rejected to avoid mislabeling unusual timing.",
       "tests": [
@@ -187,16 +198,22 @@
       ],
       "shots": [
         {
-          "name": "rural_probe",
+          "name": "field_probe",
           "seconds": 95,
           "frames": 24
         },
         {
-          "name": "interior_probe",
+          "name": "rural_workers_probe",
           "seconds": 525,
           "frames": 24
+        },
+        {
+          "name": "late_scene_probe",
+          "seconds": 660,
+          "frames": 24
         }
-      ]
+      ],
+      "selected_media_sha256": "3efa8d2056d2e8912a0fb743b23102849d2d2af44ed6a0972b8751f77b1d1609"
     },
     {
       "id": "nosferatu",
@@ -207,7 +224,7 @@
       "commons_file": "Nosferatu le vampire-Film Murnau 1922.webm",
       "source_page": "https://commons.wikimedia.org/wiki/File:Nosferatu_le_vampire-Film_Murnau_1922.webm",
       "acquire": "original",
-      "source_original_sha1": null,
+      "source_original_sha1": "296ff2c28593fa3c4a608eab5e6b995e36672813",
       "right_status": "underlying_film_PD_claimed_US_and_life70; uploader CC0 claim, exact transfer/reproduction rights require review",
       "transfer_note": "Shorter 60m36s Internet Archive-derived 484x360 version; Commons page declares CC0, original copy about 323 MB, explicit 400 MiB bound. Different edit/cadence than 2006 restoration. No audio redistributed.",
       "tests": [
@@ -217,17 +234,18 @@
       ],
       "shots": [
         {
-          "name": "shadow_probe",
+          "name": "rural_motion_probe",
           "seconds": 650,
           "frames": 24
         },
         {
-          "name": "later_sequence_probe",
+          "name": "facade_contrast_probe",
           "seconds": 2920,
           "frames": 24
         }
       ],
-      "max_download_megabytes": 400
+      "max_download_megabytes": 400,
+      "selected_media_sha256": "d3080b2cb69d63a73cb64e539152fc1c6bb1d5d440efb7cb39177d21cb346836"
     }
   ]
 }
