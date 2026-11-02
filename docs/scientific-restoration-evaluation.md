@@ -143,6 +143,39 @@ Modellgewichte/-rechte von Metrikcode und vermeidet einen
 unbeabsichtigten CUDA-Test oder das Herunterladen nicht
 freigegebener Gewichte.
 
+## Vollautomatische CPU-Kandidatenmatrix (neu)
+
+Für die klassischen Detailverfahren gibt es zusätzlich einen
+**One-Shot-Lauf**, der die bereits vorhandenen ARP-Backends **tatsächlich
+ausführt** und jede Variante mit genau der gleichen künstlich
+beschädigten Datei bewertet. Er erstellt keine generativen Modelle und
+lädt keine Gewichte:
+
+\`\`\`bash
+python scripts/run_scientific_classical_grid.py \
+  --manifest benchmarks/evaluation/caligari_portrait_blur_gentle/manifest.json \
+  --methods off,unsharp,cas,multiscale,richardson_lucy \
+  --presets gentle,balanced,strong --mix 100 \
+  --intermediate-profile lossless \
+  --output-dir benchmarks/evaluation/caligari_portrait_classic_grid
+\`\`\`
+
+Das Modul schreibt die vorhandenen Klassen-FFV1-Kandidaten
+(\`off\` nur einmal), ihre eigenständigen ARP-Signaturdateien und
+die maschinell berechnete \`evaluation/evaluation.json\`.
+Eine **negative Qualitätsdifferenz wird ebenfalls gemeldet**,
+nicht versteckt. Die Rechnung läuft pro ausgewählter Szene;
+eine übergreifende Filmzusammenfassung entsteht erst aus
+mehreren unabhängig erstellten Evaluationen mit \`summarize\`.
+Die kräftigeren Einstellungen sind eigene Testbedingungen,
+kein automatisches Optimierungsversprechen.
+Richardson–Lucy verwendet eine **angenommene** Gauß-PSF
+und wird auf CPU entsprechend langsamer.
+
+Die explizite Modellmatrix und die Rohversion des Programms
+müssen für spätere Reproduzierbarkeit mit archiviert werden;
+es gibt keine GPU- oder kommerzielle Modellfreigabe.
+
 ## Fehler- und Datenleckkontrollen
 
 - Referenz/Degradation werden per SHA-256 aus dem synthetischen
