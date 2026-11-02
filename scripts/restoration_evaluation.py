@@ -33,13 +33,14 @@ import numpy as np
 from skimage.metrics import structural_similarity
 
 SCHEMA = 1
-KINDS = ("gaussian_blur", "read_noise", "temporal_flicker", "vertical_scratches")
+KINDS = ("gaussian_blur", "read_noise", "temporal_flicker", "vertical_scratches", "camera_jitter")
 PRESETS = ("gentle", "balanced", "strong")
 SETTINGS = {
     "gaussian_blur": (0.65, 1.1, 1.65),
     "read_noise": (5.0, 10.0, 18.0),
     "temporal_flicker": (0.05, 0.10, 0.17),
     "vertical_scratches": (1, 2, 4),
+    "camera_jitter": (1.5, 3.0, 5.0),
 }
 NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,40}$")
 MAX_FRAMES = 240
@@ -168,6 +169,14 @@ def corrupt(frame: np.ndarray, *, kind: str, strength: str,
         # Deterministic brightness oscillation. No claim it matches
         # projector/exposure-flicker statistics or intentional fades.
         x *= 1.0 + amount * math.sin((index + 1) * 2 * math.pi / 7.0)
+    elif kind == "camera_jitter":
+        # Framewise known translation, reflected borders. Does not emulate
+        # rolling-shutter distortion, projector gate weave or optical zoom.
+        dx = float(rng.uniform(-amount, amount))
+        dy = float(rng.uniform(-amount, amount))
+        transform = np.array([[1., 0., dx], [0., 1., dy]], np.float32)
+        x = cv2.warpAffine(x, transform, (w, h), flags=cv2.INTER_LINEAR,
+                           borderMode=cv2.BORDER_REFLECT_101)
     else:
         # Sparse approximately vertical synthetically drawn scratches.
         # Time-correlated center plus a bounded per-frame x displacement.
@@ -239,6 +248,8 @@ def synthesize(*, source: Path, output_dir: Path, film: str, scene: str,
             "degraded_path": "degraded.mkv", "degraded_sha256": digest(degraded),
             "mask_dir": "masks" if kind == "vertical_scratches" else None,
             "synthetic_mask_fraction": float(np.mean(affected_fraction)),
+            "synthetic_camera_jitter_max_shift_pixels": (
+                SETTINGS[kind][PRESETS.index(preset)] if kind == "camera_jitter" else None),
             **source_info,
             "limitations": (
                 "This is a controlled degradation of the decoded historical transfer. "
