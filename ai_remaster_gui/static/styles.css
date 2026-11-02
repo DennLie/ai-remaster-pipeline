@@ -303,3 +303,8 @@ input#cleanupCompareSlider[hidden]{display:none !important}
 .frame-inspector[data-fi-stage="cleanup"] .cleanup-exact-wipe-control input[type=range] {
   width:100%;margin:0;padding:0;cursor:ew-resize
 }
+
+/* Zoom is shared by all three separate still panels, including pixel difference. */
+.frame-inspector[data-fi-stage="cleanup"] .fi-exact-media canvas {
+  transform:scale(var(--fi-zoom,1));transform-origin:center;
+}
