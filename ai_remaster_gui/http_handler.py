@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from . import state
 from .frame_inspector import inspection as inspect_frame
 from .frame_differences import cleanup_frame_differences
+from .denoise_review import inspect_denoise, denoise_frame_differences
 from .cache import delete_cache_category, delete_cache_file
 from .config import STATIC_DIR
 from .file_dialogs import browse_path, browse_source_paths
@@ -188,6 +189,25 @@ class Handler(BaseHTTPRequestHandler):
             # No client-selected filesystem paths or method overrides.
             try:
                 self.send_json({"ok": True, **cleanup_frame_differences(state.APP)})
+            except (ValueError, FileNotFoundError, RuntimeError, OSError,
+                    subprocess.SubprocessError) as exc:
+                self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/denoise-inspector":
+            # Candidate is revalidated against the current source and the
+            # completed denoiser's provenance; never serve arbitrary paths.
+            query = parse_qs(parsed.query)
+            try:
+                candidate = query.get("variant", [""])[0]
+                frame = int(query.get("frame", ["0"])[0])
+                self.send_json({"ok": True, **inspect_denoise(state.APP, candidate, frame)})
+            except (ValueError, IndexError, FileNotFoundError, RuntimeError, OSError,
+                    subprocess.SubprocessError) as exc:
+                self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/denoise-frame-differences":
+            query = parse_qs(parsed.query)
+            try:
+                candidate = query.get("variant", [""])[0]
+                self.send_json({"ok": True, **denoise_frame_differences(state.APP, candidate)})
             except (ValueError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
