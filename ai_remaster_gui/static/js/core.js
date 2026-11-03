@@ -394,10 +394,10 @@ function drawTabs() {
 
   function tabButton(tab) {
     const label = names[tab] || stage(tab).title;
-    const activeClass = active === tab ? 'active' : '';
+    const isActive = active === tab;
 
     return `
-      <button class="tab ${activeClass}" onclick="selectTab('${tab}')">
+      <button type="button" class="tab ${isActive ? 'active' : ''}" onclick="selectTab('${tab}')"${isActive ? ' aria-current="page"' : ''}>
         ${label}
       </button>
     `;

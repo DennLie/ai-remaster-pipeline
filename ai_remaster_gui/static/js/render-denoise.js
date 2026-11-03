@@ -10,6 +10,95 @@ let denoiseCompareLength = 4;
 let denoiseCompareZoom = 1;
 let denoiseCompareLayout = 'abc';
 
+const DENOISE_METHODS = [
+  { key: 'hqdn3d', label: 'HQDN3D' },
+  { key: 'nlmeans', label: 'NLMeans' },
+  { key: 'bm3d', label: 'BM3D' },
+];
+const DENOISE_PRESETS = [
+  { key: 'gentle', label: 'Gentle' },
+  { key: 'balanced', label: 'Balanced' },
+  { key: 'strong', label: 'Strong' },
+];
+let denoiseMatrixSelected = null;
+let denoiseMatrixRenderedReady = null;
+
+function denoiseVariantLabelFor(method, preset) {
+  if (method === 'off') return 'Off';
+  const m = DENOISE_METHODS.find(x => x.key === method);
+  const p = DENOISE_PRESETS.find(x => x.key === preset);
+  return m && p ? `${m.label} · ${p.label}` : 'Variant';
+}
+
+function denoiseVariantFromPath(path) {
+  const match = String(path || '').match(/_denoised_(hqdn3d|nlmeans|bm3d)_(gentle|balanced|strong)_[0-9a-f]+\.mkv$/i);
+  if (!match) return null;
+  return { method: match[1].toLowerCase(), preset: match[2].toLowerCase() };
+}
+
+function denoiseVariantLabel(path) {
+  const parsed = denoiseVariantFromPath(path);
+  if (parsed) return denoiseVariantLabelFor(parsed.method, parsed.preset);
+  const name = String(path || '').split(/[\\/]/).pop();
+  return name || 'Variant';
+}
+
+function denoiseVariantPath(method, preset) {
+  const st = (state?.stages || []).find(x => x.key === 'denoise');
+  const files = st?.files || [];
+  const pattern = new RegExp(`_denoised_${method}_${preset}_[0-9a-f]+\\.mkv$`, 'i');
+  return (files.find(file => pattern.test(file.path || '')) || {}).path || '';
+}
+
+function denoiseVariantReady(method, preset) {
+  if (method === 'off') return true;
+  const variants = state?.denoise_matrix?.variants;
+  if (Array.isArray(variants)) return variants.some(v => v.method === method && v.preset === preset);
+  return Boolean(denoiseVariantPath(method, preset));
+}
+
+function denoiseStageVariant() {
+  const values = state?.settings?.denoise || {};
+  const method = values.method || 'off';
+  const preset = values.preset || 'gentle';
+  if (method === 'off' || !DENOISE_METHODS.some(x => x.key === method) ||
+      !DENOISE_PRESETS.some(x => x.key === preset)) return { method: 'off', preset: '' };
+  return { method, preset };
+}
+
+function denoiseSelectedVariant() {
+  if (denoiseMatrixSelected &&
+      (denoiseMatrixSelected.method === 'off' ||
+       (DENOISE_METHODS.some(x => x.key === denoiseMatrixSelected.method) &&
+        DENOISE_PRESETS.some(x => x.key === denoiseMatrixSelected.preset)))) {
+    return denoiseMatrixSelected;
+  }
+  const current = denoiseStageVariant();
+  if (current.method === 'off') {
+    denoiseMatrixSelected = { method: 'off', preset: '' };
+    return denoiseMatrixSelected;
+  }
+  if (denoiseVariantReady(current.method, current.preset)) {
+    denoiseMatrixSelected = { method: current.method, preset: current.preset };
+    return denoiseMatrixSelected;
+  }
+  for (const method of DENOISE_METHODS) {
+    for (const preset of DENOISE_PRESETS) {
+      if (denoiseVariantReady(method.key, preset.key)) {
+        denoiseMatrixSelected = { method: method.key, preset: preset.key };
+        return denoiseMatrixSelected;
+      }
+    }
+  }
+  denoiseMatrixSelected = { method: 'bm3d', preset: 'balanced' };
+  return denoiseMatrixSelected;
+}
+
+function denoiseSelectedPath() {
+  const selected = denoiseSelectedVariant();
+  return selected.method === 'off' ? '' : denoiseVariantPath(selected.method, selected.preset);
+}
+
 function denoisePreviewIsFinal(path) {
   // Server-side stage discovery excludes partials; defend against stale
   // browser snapshots or pre-fix cached state as well.
@@ -29,7 +118,7 @@ function denoiseCompareCandidates(st) {
   for (const file of (st.files || [])) {
     const path = file.path || '';
     if (denoisePreviewIsFinal(path) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
-      candidates.push({ path, label: path });
+      candidates.push({ path, label: denoiseVariantLabel(path) });
     }
   }
   return candidates;
@@ -50,10 +139,13 @@ function denoiseCompareInitializePaths(candidates) {
   const source = candidates[0] ? candidates[0].path : '';
   const variants = candidates.slice(1).map(v => v.path);
   // Preserve manual selections without repeating them when files disappear.
-  // The original is preferred in slot A and processed variants in B/C.
+  // The original is preferred in slot A, the matrix choice in B, and the rest in C.
+  const preferred = typeof denoiseSelectedPath === 'function' ? denoiseSelectedPath() : '';
   const used = new Set();
   denoiseComparePaths = denoiseComparePaths.map((path, index) => {
-    const preferences = index === 0 ? [source, ...variants] : [...variants, source];
+    const preferences = index === 0
+      ? [source, ...variants]
+      : [...(index === 1 && preferred ? [preferred] : []), ...variants, source];
     const current = path && names.has(path) && !used.has(path);
     const selected = current ? path : (preferences.find(x => x && !used.has(x)) || (index === 0 ? source : ''));
     if (selected) used.add(selected);
@@ -66,33 +158,32 @@ function drawDenoise(st, settings, expected, progress) {
   denoiseCompareInitializePaths(candidates);
   document.getElementById('app').innerHTML = `
     <div class="editor-page ${st.key === 'denoise' ? 'denoise-editor-page' : ''}">
-      <section class="card">
+      <aside class="card denoise-settings-sidebar" aria-label="${st.key === 'denoise' ? 'Remove Noise settings' : 'Detail enhancement settings'}">
         <h2>${esc(st.title)}</h2>
         <p>${esc(st.description)}</p>
         ${progressHtml(progress.percent, progress.label)}
-        ${st.fields.map(field => fieldHtml(st, field)).join('')}
+        ${st.key === 'denoise' ? denoiseMatrixHtml() : st.fields.map(field => fieldHtml(st, field)).join('')}
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(settings)}
         <div class="actions">
           <button class="primary" onclick="runStage('${st.key}')" ${state.running ? 'disabled' : ''}>Run ${esc(st.title)}</button>
           <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
         </div>
-        <div class="command" id="cmd"></div>
-      </section>
-      ${st.key === 'denoise' ? denoiseMatrixHtml() : ''}
-      <section class="card ${st.key === 'denoise' ? 'denoise-compare-card' : ''}">
+        <details class="command-details"><summary>Command</summary><div class="command" id="cmd"></div></details>
+      </aside>
+      <section class="card denoise-compare-card">
         <h2>Synchronized A/B/C Comparison</h2>
         <p class="shot-empty">Choose the original and completed ${st.key === 'detail' ? 'detail enhancement' : 'denoising'} outputs. Processing files are hidden until the encoder finishes. Clips share the same source-relative start time; browser seeking is approximate.</p>
         <div class="denoise-compare-toolbar">
-          <label>Start second <input id="denoiseCompareStart" type="number" min="0" max="360000" step="0.1" value="${denoiseCompareStart}"></label>
+          <label>Start time (s) <input id="denoiseCompareStart" type="number" min="0" max="360000" step="0.1" value="${denoiseCompareStart}"></label>
           <label>Clip duration <select id="denoiseCompareLength">
             ${[2, 4, 8, 12].map(x => `<option value="${x}" ${x === denoiseCompareLength ? 'selected' : ''}>${x}s</option>`).join('')}
           </select></label>
-          <button type="button" onclick="denoiseCompareApplyClip()">Load same section</button>
-          <label>Ansicht <select id="denoiseCompareLayout" onchange="denoiseCompareSetLayout(this.value)">
-            <option value="abc">A / B / C · drei Ansichten</option>
-            <option value="ab">A / B · groß</option>
-            <option value="ac">A / C · groß</option>
+          <button type="button" onclick="denoiseCompareApplyClip()">Apply to all three</button>
+          <label>View <select id="denoiseCompareLayout" onchange="denoiseCompareSetLayout(this.value)">
+            <option value="abc">A / B / C · three views</option>
+            <option value="ab">A / B · large</option>
+            <option value="ac">A / C · large</option>
           </select></label>
           <label>Display zoom <select id="denoiseCompareZoom" onchange="denoiseCompareSetZoom(this.value)">
             ${[1, 2, 4].map(x => `<option value="${x}" ${x === denoiseCompareZoom ? 'selected' : ''}>${x}x</option>`).join('')}
@@ -100,8 +191,8 @@ function drawDenoise(st, settings, expected, progress) {
         </div>
         <div id="denoiseComparePlayers"></div>
         <p id="denoiseCompareNotice" class="shot-empty" role="status">The playback preview is re-encoded; the original files are never overwritten.</p>
-        ${st.key === 'denoise' ? denoiseReviewHtml(candidates) : ''}
       </section>
+      ${st.key === 'denoise' ? denoiseReviewHtml(candidates) : ''}
     </div>
   `;
   bindStageFields(st.key);
@@ -109,44 +200,239 @@ function drawDenoise(st, settings, expected, progress) {
   renderDenoiseComparePlayers(candidates);
   if (st.key === 'denoise') {
     denoiseReviewStart();
+    denoiseMatrixUpdateUi();
     updateDenoiseMatrixStatus();
   }
 }
-
-let denoiseMatrixRenderedReady = null;
 
 function denoiseMatrixHtml() {
   const matrix = state.denoise_matrix || {};
   denoiseMatrixRenderedReady = Number(matrix.ready || 0);
   const count = denoiseMatrixRenderedReady;
   const busy = !!state.running;
+  const selected = denoiseSelectedVariant();
+  const stage = denoiseStageVariant();
+  const raw = state?.settings?.denoise || {};
+  const selectedLabel = denoiseVariantLabelFor(selected.method, selected.preset);
+  const stageLabel = denoiseVariantLabelFor(stage.method, stage.preset);
   return `
-    <section class="card denoise-matrix-card">
-      <h2>Remove Noise · alle Methoden vergleichen</h2>
-      <p>HQDN3D, NLMeans und BM3D jeweils in Gentle, Balanced und Strong: 9 unabhängige Render-Varianten.
-        Fertige Varianten werden anhand ihrer Signatur wiederverwendet; das Original bleibt unverändert.</p>
-      <div class="actions">
-        <button id="denoiseMatrixRun" class="primary" type="button" onclick="denoiseMatrixRunAll()" ${busy ? 'disabled' : ''}>
-          Alle 9 Varianten rendern
-        </button>
-      </div>
-      <output id="denoiseMatrixStatus" class="denoise-matrix-status" role="status">${count}/9 Varianten fertig.</output>
-      <div class="denoise-matrix-controls">
-        <label for="denoiseMatrixFrames">Frames im Vergleich (1-basiert, kommasepariert, maximal 5)</label>
-        <input id="denoiseMatrixFrames" type="text" placeholder="Leer = automatisch 10 %, 50 %, 90 %" autocomplete="off" spellcheck="false">
-        <div class="actions">
-          <button type="button" id="denoiseMatrixExport" onclick="denoiseMatrixExport()" ${busy || !count ? 'disabled' : ''}>
-            Frame-Grids als ZIP erstellen
-          </button>
-          <a id="denoiseMatrixDownload" href="/api/denoise-grid-download" download class="denoise-grid-download" ${matrix.download ? '' : 'hidden'}>
-            ZIP herunterladen · Vergleich aller Frames
-          </a>
+    <section class="denoise-variant-picker" aria-labelledby="denoiseVariantHeading">
+      <input type="hidden" data-field="method" value="${esc(raw.method || 'off')}">
+      <input type="hidden" data-field="preset" value="${esc(raw.preset || 'gentle')}">
+      <div class="denoise-variant-head">
+        <div>
+          <h3 id="denoiseVariantHeading">Variant</h3>
+          <p class="denoise-variant-help">Nine method and strength combinations. Ready variants compare immediately; missing variants render on demand.</p>
         </div>
+        <output id="denoiseMatrixStatus" class="denoise-matrix-status" role="status">${count}/9 rendered</output>
       </div>
-      <p class="shot-empty">Die ZIP enthält ein großes Übersichtsgrid, ein Grid je Frame, die Pixeldifferenzen als einzelne
-        PNGs in Quellauflösung, Messwerte als CSV und eine Legende. Nur fertige Varianten kommen hinein.
-        Die farblich verstärkte Differenz zeigt Pixeländerungen, nicht nachgewiesen entferntes Rauschen.</p>
+      <div class="denoise-variant-grid" role="radiogroup" aria-label="Denoise variant" onkeydown="denoiseMatrixKeyboard(event)">
+        <span class="denoise-variant-corner" aria-hidden="true"></span>
+        ${DENOISE_METHODS.map(method => `<span class="denoise-variant-col">${method.label}</span>`).join('')}
+        ${DENOISE_PRESETS.map(preset => `
+          <span class="denoise-variant-row">${preset.label}</span>
+          ${DENOISE_METHODS.map(method => denoiseMatrixCellHtml(method, preset, selected)).join('')}
+        `).join('')}
+      </div>
+      <button type="button" class="denoise-off-option ${stage.method === 'off' ? 'is-current' : ''}" onclick="denoiseMatrixUseOff()" ${busy ? 'disabled' : ''} aria-pressed="${stage.method === 'off'}">
+        Off · keep the source unchanged
+      </button>
+      <div class="denoise-selected-variant" data-denoise-selected aria-live="polite">
+        <div class="denoise-selected-main">
+          <strong class="denoise-selected-name" data-dm-selected-label>${selectedLabel}</strong>
+          <span class="denoise-selected-state" data-dm-selected-state></span>
+        </div>
+        <div class="denoise-selected-meta" data-dm-selected-meta></div>
+        <div class="denoise-selected-output" data-dm-selected-output></div>
+        <div class="denoise-selected-actions">
+          <button type="button" class="primary" id="denoiseUseVariant" onclick="denoiseMatrixUseSelected()" ${busy ? 'disabled' : ''}>Use as stage output</button>
+          <button type="button" id="denoiseCopyVariant" onclick="denoiseMatrixCopySelected()" ${busy ? 'disabled' : ''}>Copy settings</button>
+        </div>
+        <small class="denoise-selected-stage">Stage output: <strong data-dm-stage-output>${stageLabel}</strong></small>
+        <output class="denoise-selected-notice" data-dm-notice role="status"></output>
+      </div>
+      <details class="denoise-batch-export">
+        <summary>Batch export · ${count}/9 rendered</summary>
+        <p>Render all nine variants at once, reuse matching signatures, then export frame grids and pixel differences as a ZIP.</p>
+        <div class="actions">
+          <button id="denoiseMatrixRun" class="primary" type="button" onclick="denoiseMatrixRunAll()" ${busy ? 'disabled' : ''}>Render all 9 variants</button>
+        </div>
+        <div class="denoise-matrix-controls">
+          <label for="denoiseMatrixFrames">Frames to compare (1-based, comma-separated, max 5)</label>
+          <input id="denoiseMatrixFrames" type="text" placeholder="Empty = automatic 10%, 50%, 90%" autocomplete="off" spellcheck="false">
+          <div class="actions">
+            <button type="button" id="denoiseMatrixExport" onclick="denoiseMatrixExport()" ${busy || !count ? 'disabled' : ''}>Create frame grids as ZIP</button>
+            <a id="denoiseMatrixDownload" href="/api/denoise-grid-download" download class="denoise-grid-download" ${matrix.download ? '' : 'hidden'}>Download ZIP · all-frame comparison</a>
+          </div>
+        </div>
+        <p class="shot-empty">The ZIP contains an overview grid, one grid per frame, pixel-difference PNGs at source resolution, metrics as CSV and a legend. Only finished variants are included. The amplified difference shows pixel changes, not proven noise removal.</p>
+      </details>
     </section>`;
+}
+
+function denoiseMatrixCellHtml(method, preset, selected) {
+  const ready = denoiseVariantReady(method.key, preset.key);
+  const isSelected = selected.method === method.key && selected.preset === preset.key;
+  const noSelection = selected.method === 'off';
+  const firstCell = method.key === DENOISE_METHODS[0].key && preset.key === DENOISE_PRESETS[0].key;
+  const tabIndex = isSelected || (noSelection && firstCell) ? '0' : '-1';
+  const label = `${method.label} · ${preset.label}`;
+  const stateLabel = ready ? 'ready' : 'not rendered';
+  return `<button type="button" role="radio" aria-checked="${isSelected}" aria-label="${label}, ${stateLabel}" tabindex="${tabIndex}"
+    class="denoise-variant-cell ${ready ? 'is-ready' : 'is-missing'} ${isSelected ? 'is-selected' : ''}"
+    data-denoise-cell data-method="${method.key}" data-preset="${preset.key}"
+    onclick="denoiseMatrixSelect('${method.key}','${preset.key}')" ${state.running ? 'disabled' : ''}>
+    <span class="denoise-variant-cell-state">${ready ? 'Ready' : '—'}</span>
+  </button>`;
+}
+
+function denoiseMatrixKeyboard(event) {
+  const cell = event.target.closest('[data-denoise-cell]');
+  if (!cell) return;
+  const cells = [...document.querySelectorAll('[data-denoise-cell]')];
+  const index = cells.indexOf(cell);
+  if (index < 0) return;
+  let next = -1;
+  if (event.key === 'ArrowRight') next = index + 1;
+  else if (event.key === 'ArrowLeft') next = index - 1;
+  else if (event.key === 'ArrowDown') next = index + 3;
+  else if (event.key === 'ArrowUp') next = index - 3;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = cells.length - 1;
+  if (next >= 0 && next < cells.length) {
+    event.preventDefault();
+    cells[next].focus();
+    cells[next].click();
+  }
+}
+
+function denoiseSameVariant(a, b) {
+  return a.method === b.method && (a.method === 'off' || a.preset === b.preset);
+}
+
+function denoiseMatrixUpdateUi() {
+  const selected = denoiseSelectedVariant();
+  const stage = denoiseStageVariant();
+  const ready = selected.method !== 'off' && denoiseVariantReady(selected.method, selected.preset);
+  const path = ready ? denoiseVariantPath(selected.method, selected.preset) : '';
+  const same = denoiseSameVariant(selected, stage);
+  const label = denoiseVariantLabelFor(selected.method, selected.preset);
+  const busy = !!state.running;
+
+  const set = (selector, value) => {
+    const element = document.querySelector(selector);
+    if (element) element.textContent = value;
+  };
+  set('[data-dm-selected-label]', label);
+  set('[data-dm-stage-output]', denoiseVariantLabelFor(stage.method, stage.preset));
+  set('[data-dr-current-variant]', selected.method === 'off' ? 'Off' : label);
+
+  if (selected.method === 'off') {
+    set('[data-dm-selected-state]', 'Remove Noise is off.');
+    set('[data-dm-selected-meta]', 'The source passes through unchanged.');
+    set('[data-dm-selected-output]', 'No denoised output.');
+  } else if (!ready) {
+    set('[data-dm-selected-state]', 'Not rendered yet.');
+    set('[data-dm-selected-meta]', 'Render this variant to compare exact frames.');
+    set('[data-dm-selected-output]', 'No output yet.');
+  } else if (same) {
+    set('[data-dm-selected-state]', 'Current stage output.');
+    set('[data-dm-selected-meta]', path === denoiseReviewVariant && denoiseReviewMetrics
+      ? `Mean |ΔY| ${denoiseReviewMetrics.mean.toFixed(2)} / 255 · ${denoiseReviewMetrics.changedPercent.toFixed(2)}% pixels changed`
+      : 'Exact-frame metrics load in the review below.');
+    set('[data-dm-selected-output]', path || 'No output path.');
+  } else {
+    set('[data-dm-selected-state]', 'Ready to use.');
+    set('[data-dm-selected-meta]', path === denoiseReviewVariant && denoiseReviewMetrics
+      ? `Mean |ΔY| ${denoiseReviewMetrics.mean.toFixed(2)} / 255 · ${denoiseReviewMetrics.changedPercent.toFixed(2)}% pixels changed`
+      : 'Exact-frame metrics load in the review below.');
+    set('[data-dm-selected-output]', path || 'No output path.');
+  }
+
+  const action = document.getElementById('denoiseUseVariant');
+  if (action) {
+    if (selected.method === 'off') {
+      action.textContent = same ? 'Remove Noise is off' : 'Turn off Remove Noise';
+      action.disabled = busy || same;
+    } else if (!ready) {
+      action.textContent = 'Render this variant';
+      action.disabled = busy;
+    } else if (same) {
+      action.textContent = 'Current stage output';
+      action.disabled = true;
+    } else {
+      action.textContent = 'Use as stage output';
+      action.disabled = busy;
+    }
+  }
+  const copy = document.getElementById('denoiseCopyVariant');
+  if (copy) copy.disabled = busy || selected.method === 'off' || !ready;
+
+  document.querySelectorAll('[data-denoise-cell]').forEach(cell => {
+    const isSelected = cell.dataset.method === selected.method && cell.dataset.preset === selected.preset;
+    cell.classList.toggle('is-selected', isSelected);
+    cell.setAttribute('aria-checked', String(isSelected));
+    cell.tabIndex = isSelected || (selected.method === 'off' &&
+      cell.dataset.method === DENOISE_METHODS[0].key && cell.dataset.preset === DENOISE_PRESETS[0].key) ? 0 : -1;
+  });
+}
+
+function denoiseMatrixSelect(method, preset) {
+  if (state.running) return;
+  if (!DENOISE_METHODS.some(x => x.key === method) || !DENOISE_PRESETS.some(x => x.key === preset)) return;
+  denoiseMatrixSelected = { method, preset };
+  const path = denoiseVariantPath(method, preset);
+  if (path && denoisePreviewIsFinal(path)) {
+    if (denoiseComparePaths[1] !== path) {
+      denoiseComparePaths[1] = path;
+      const st = (state.stages || []).find(x => x.key === 'denoise');
+      renderDenoiseComparePlayers(denoiseCompareCandidates(st));
+    }
+    if (path !== denoiseReviewVariant) denoiseReviewChoose(path);
+  }
+  denoiseMatrixUpdateUi();
+}
+
+function denoiseMatrixSyncFromPath(path) {
+  const parsed = denoiseVariantFromPath(path);
+  if (!parsed) return;
+  denoiseMatrixSelected = parsed;
+  denoiseMatrixUpdateUi();
+}
+
+async function denoiseMatrixUseSelected() {
+  if (state.running) return;
+  const selected = denoiseSelectedVariant();
+  const method = document.querySelector('[data-field="method"]');
+  const preset = document.querySelector('[data-field="preset"]');
+  const force = document.querySelector('[data-field="force"]');
+  if (method) method.value = selected.method;
+  if (preset) preset.value = selected.preset || 'gentle';
+  if (force) force.checked = false;
+  await saveStage('denoise', true);
+  if (selected.method !== 'off' && !denoiseVariantReady(selected.method, selected.preset)) {
+    await runStage('denoise');
+  }
+}
+
+async function denoiseMatrixUseOff() {
+  if (state.running) return;
+  denoiseMatrixSelected = { method: 'off', preset: '' };
+  await denoiseMatrixUseSelected();
+}
+
+async function denoiseMatrixCopySelected() {
+  const selected = denoiseSelectedVariant();
+  if (selected.method === 'off') return;
+  const path = denoiseVariantPath(selected.method, selected.preset);
+  const text = `method=${selected.method} preset=${selected.preset}${path ? ` output=${path}` : ''}`;
+  const notice = document.querySelector('[data-dm-notice]');
+  try {
+    await navigator.clipboard.writeText(text);
+    if (notice) notice.textContent = 'Settings copied.';
+  } catch (_) {
+    if (notice) notice.textContent = 'Copy failed; select the output path manually.';
+  }
 }
 
 function updateDenoiseMatrixStatus() {
@@ -157,12 +443,14 @@ function updateDenoiseMatrixStatus() {
   if (status) {
     const progress = (state?.phase_progress?.stages || []).find(s => s.key === 'denoise');
     const running = state.running && (state.running_stage === 'Remove Noise Batch' || state.running_stage === 'Remove Noise Grid');
-    status.textContent = `${count}/9 Varianten fertig${running && progress ? ' · ' + progress.label : ''}`;
+    status.textContent = `${count}/9 rendered${running && progress ? ' · ' + progress.label : ''}`;
   }
+  const summary = document.querySelector('.denoise-batch-export > summary');
+  if (summary) summary.textContent = `Batch export · ${count}/9 rendered`;
   const download = document.getElementById('denoiseMatrixDownload');
   if (download) {
     download.hidden = !matrix.download;
-    if (matrix.download) download.textContent = 'ZIP herunterladen · ' + (matrix.filename || 'Frame-Grids');
+    if (matrix.download) download.textContent = 'Download ZIP · ' + (matrix.filename || 'frame grids');
   }
   const run = document.getElementById('denoiseMatrixRun');
   if (run) run.disabled = !!state.running;
@@ -178,17 +466,17 @@ function updateDenoiseMatrixStatus() {
 
 async function denoiseMatrixRunAll() {
   const result = await postJson('/api/denoise-batch', {});
-  if (!result.ok) return alert(result.error || 'Batch konnte nicht gestartet werden.');
+  if (!result.ok) return alert(result.error || 'The batch could not be started.');
   await refresh(true);
 }
 
 async function denoiseMatrixExport() {
   const frames = document.getElementById('denoiseMatrixFrames')?.value.trim() || '';
   if (frames && !/^\d+(\s*,\s*\d+){0,4}$/.test(frames)) {
-    return alert('Bitte 1 bis 5 unterschiedliche Frame-Nummern angeben, mit Kommas getrennt.');
+    return alert('Enter 1 to 5 different frame numbers, separated by commas.');
   }
   const result = await postJson('/api/denoise-grid', {frames});
-  if (!result.ok) return alert(result.error || 'Grid konnte nicht erstellt werden.');
+  if (!result.ok) return alert(result.error || 'The grid could not be created.');
   // A cached grid is immediately downloadable, a new grid appears once complete.
   if (result.state) state = result.state;
   updateDenoiseMatrixStatus();
@@ -249,6 +537,7 @@ function denoiseCompareChoose(index, path) {
   renderDenoiseComparePlayers(candidates);
   if (active === 'denoise' && index > 0 && path !== denoiseReviewVariant && denoisePreviewIsFinal(path)) {
     denoiseReviewChoose(path);
+    denoiseMatrixSyncFromPath(path);
   }
 }
 

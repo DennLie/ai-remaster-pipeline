@@ -38,11 +38,14 @@ test('main page retains A/B/C and adds exact review under it only for denoise',(
 test('batch UI runs all nine algorithms/presets and offers finished ZIP comparison',()=>{
   context.state.denoise_matrix={ready:4,total:9,download:true,filename:'comparison.zip'};
   const markup=context.denoiseMatrixHtml();
-  assert.match(markup,/Alle 9 Varianten rendern/);
-  assert.match(markup,/Frame-Grids als ZIP erstellen/);
+  assert.match(markup,/Render all 9 variants/);
+  assert.match(markup,/Create frame grids as ZIP/);
   assert.match(markup,/\/api\/denoise-grid-download/);
-  assert.match(markup,/4\/9 Varianten fertig/);
-  assert.match(markup,/Pixeldifferenzen als einzelne/);
+  assert.match(markup,/4\/9 rendered/);
+  assert.match(markup,/pixel-difference PNGs at source resolution/);
+  assert.match(markup,/role="radiogroup"/);
+  assert.match(markup,/data-denoise-cell/);
+  assert.match(markup,/Use as stage output/);
   assert.match(compare,/postJson\('\/api\/denoise-batch', \{\}\)/);
   assert.match(compare,/postJson\('\/api\/denoise-grid', \{frames\}\)/);
   assert.match(compare,/^function denoiseMatrixHtml\(/m);
@@ -56,7 +59,7 @@ test('batch UI runs all nine algorithms/presets and offers finished ZIP comparis
 
 test('variant selection excludes Original/partials; no output means a factual empty state',()=>{
   const withNoOutput=context.denoiseReviewHtml([{path:'evaluation/Neighbors_72.mkv',label:'Original'}]);
-  assert.match(withNoOutput,/Noch keine fertige/);
+  assert.match(withNoOutput,/No finished Remove Noise variant/);
   const choices=[
     {path:'evaluation/Neighbors_72.mkv',label:'Original'},
     {path:'intermediate/denoised/Neighbors_hqdn3d_gentle.mkv',label:'HQDN3D'},
@@ -66,12 +69,12 @@ test('variant selection excludes Original/partials; no output means a factual em
   const variants=context.denoiseReviewVariants(choices);
   assert.deepEqual(variants.map(x=>x.label),['HQDN3D','NLMeans']);
   const markup=context.denoiseReviewHtml(choices);
-  assert.match(markup,/Frame-Änderungen/);
-  assert.match(markup,/Wischvergleich/);
-  assert.match(markup,/Links <strong>ORIGINAL<\/strong>, rechts <strong>ERGEBNIS<\/strong>/);
+  assert.match(markup,/Frame changes/);
+  assert.match(markup,/Wipe comparison/);
+  assert.match(markup,/Left <strong>ORIGINAL<\/strong>, right <strong>RESULT<\/strong>/);
   assert.match(markup,/class="denoise-review-wipe-handle" data-dr-wipe-handle/);
   assert.match(markup,/wipe-grip-original">ORIGINAL<\/span>/);
-  assert.match(markup,/wipe-grip-result">ERGEBNIS<\/span>/);
+  assert.match(markup,/wipe-grip-result">RESULT<\/span>/);
   assert.match(css,/\.cleanup-exact-wipe-handle,\s*\.denoise-review-wipe-handle \{[\s\S]*?border-radius:19px/);
   assert.match(markup,/data-dr-wipe-current-view/);
   assert.match(review,/comparisonWipeGripOpacity\(width, grip\.offsetWidth \|\| 180, denoiseReviewWipe\)/);
@@ -80,11 +83,13 @@ test('variant selection excludes Original/partials; no output means a factual em
   assert.equal(context.comparisonWipeGripOpacity(640,180,100),0);
   assert.equal(context.comparisonWipeVisibleState(0),'NUR ERGEBNIS · 100 %');
   assert.equal(context.comparisonWipeVisibleState(100),'NUR ORIGINAL · 100 %');
-  assert.match(markup,/PIXELDIFFERENZ · verstärkt/);
+  assert.equal(context.comparisonWipeVisibleState(0,'RESULT','en'),'ONLY RESULT · 100%');
+  assert.equal(context.comparisonWipeVisibleState(100,'RESULT','en'),'ONLY ORIGINAL · 100%');
+  assert.match(markup,/PIXEL DIFFERENCE · amplified/);
   assert.match(markup,/data-dr-diff-mode/);
-  assert.match(markup,/RGB: Veränderung je Farbkanal/);
+  assert.match(markup,/RGB: change per channel/);
   assert.match(markup,/data-dr-diff-contrast/);
-  assert.match(markup,/Exakte.*Frame/);
+  assert.match(markup,/Exact frame review/);
   assert.doesNotMatch(markup,/Unfinished/);
 });
 
@@ -103,11 +108,11 @@ test('directional chart shows simultaneous brightening and darkening',()=>{
   assert.throws(()=>context.denoiseReviewChartRows({
     metric:'directional_mean_luma_8bit',frames:3,
     samples:[samples[1],samples[0]]
-  }),/Ungültige/);
+  }),/Invalid/);
   assert.throws(()=>context.denoiseReviewChartRows({
     metric:'directional_mean_luma_8bit',frames:3,
     samples:[{frame:0,mean_abs_luma:5,brighten_mean_luma:5,darken_mean_luma:5}]
-  }),/Ungültige/);
+  }),/Invalid/);
 });
 
 test('server API remains read-only and validates signed denoise output',()=>{
