@@ -11,6 +11,9 @@ let denoiseReviewChartEpoch = 0;
 let denoiseReviewEntries = [];
 let denoiseReviewZoom = 1;
 let denoiseReviewWipe = 50;
+let denoiseReviewDiffMode = 'direction';
+let denoiseReviewDiffContrast = 32;
+let denoiseReviewImagePair = null;
 
 function denoiseReviewVariants(candidates) {
   return (candidates || []).slice(1).filter(v => denoisePreviewIsFinal(v.path));
@@ -57,14 +60,24 @@ function denoiseReviewHtml(candidates) {
       </div>
       <input data-dr-timeline type="range" min="0" max="0" value="0" step="1" disabled aria-label="Exakte Frameposition im Clip">
       <output data-dr-status role="status">Bereite Einzelbilder vor.</output>
+      <div class="denoise-review-diff-controls">
+        <label>Pixeldifferenz <select data-dr-diff-mode onchange="denoiseReviewSetDiffMode(this.value)">
+          <option value="direction" ${denoiseReviewDiffMode === 'direction' ? 'selected' : ''}>Falschfarben: heller / dunkler</option>
+          <option value="rgb" ${denoiseReviewDiffMode === 'rgb' ? 'selected' : ''}>RGB: Veränderung je Farbkanal</option>
+        </select></label>
+        <label>Kontrast <select data-dr-diff-contrast onchange="denoiseReviewSetDiffContrast(this.value)">
+          ${[8,32,64].map(n => `<option value="${n}" ${n === denoiseReviewDiffContrast ? 'selected' : ''}>${n}× + Gamma</option>`).join('')}
+        </select></label>
+        <small>Reine Anzeigeverstärkung – die Originalframes, Ergebnisse und Messwerte bleiben unverändert.</small>
+      </div>
       <div class="denoise-review-stills">
         <figure><figcaption>ORIGINAL · Render-Eingang</figcaption>
-          <div class="denoise-review-media"><img data-dr-before alt="Originalframe vor Rauschreduzierung"></div></figure>
+          <div class="denoise-review-media"><img data-dr-before tabindex="0" role="button" alt="Originalframe vor Rauschreduzierung" title="Klicken zum Vergrößern"></div></figure>
         <figure><figcaption>ERGEBNIS · ausgewählte Variante</figcaption>
-          <div class="denoise-review-media"><img data-dr-after alt="Exaktes bearbeitetes Einzelbild"></div></figure>
-        <figure><figcaption>PIXELDIFFERENZ ×8</figcaption>
-          <div class="denoise-review-media"><canvas data-dr-difference aria-label="Verstärkte Pixelhelligkeitsunterschiede"></canvas></div>
-          <small>Türkis = heller · Orange = dunkler · Schwarz = unverändert. Keine Defektmaske.</small></figure>
+          <div class="denoise-review-media"><img data-dr-after tabindex="0" role="button" alt="Exaktes bearbeitetes Einzelbild" title="Klicken zum Vergrößern"></div></figure>
+        <figure><figcaption>PIXELDIFFERENZ · verstärkt</figcaption>
+          <div class="denoise-review-media"><canvas data-dr-difference tabindex="0" role="button" aria-label="Verstärkte Pixelunterschiede, klicken zum Vergrößern" title="Klicken zum Vergrößern"></canvas></div>
+          <small data-dr-diff-caption>Türkis = aufgehellt · Orange = abgedunkelt · Dunkelgrau = unverändert. Keine Defektmaske.</small></figure>
       </div>
       <output data-dr-readout role="status"></output>
       <details class="denoise-review-wipe">
@@ -116,6 +129,7 @@ function denoiseReviewChoose(path) {
   denoiseReviewChartEpoch++;
   denoiseReviewFrame = 0;
   denoiseReviewCount = 0;
+  denoiseReviewImagePair = null;
   denoiseReviewEntries = [];
   const select = denoiseReviewElement('variant');
   if (select) select.value = path;
@@ -207,6 +221,25 @@ function denoiseReviewLoadImage(src) {
   });
 }
 
+function denoiseReviewSetDiffMode(mode) {
+  denoiseReviewDiffMode = ['direction','rgb'].includes(mode) ? mode : 'direction';
+  denoiseReviewRefreshDiff();
+}
+
+function denoiseReviewSetDiffContrast(n) {
+  denoiseReviewDiffContrast = [8,32,64].includes(Number(n)) ? Number(n) : 32;
+  denoiseReviewRefreshDiff();
+}
+
+function denoiseReviewRefreshDiff() {
+  if (!denoiseReviewImagePair || !denoiseReviewRoot()?.isConnected) return;
+  try { denoiseReviewRenderDiff(denoiseReviewImagePair.before,denoiseReviewImagePair.after); }
+  catch (error) {
+    const readout = denoiseReviewElement('readout');
+    if (readout) readout.textContent = 'Differenzansicht: ' + error.message;
+  }
+}
+
 function denoiseReviewRenderDiff(before,after) {
   const width = before.naturalWidth, height = before.naturalHeight;
   if (!(width > 0 && height > 0) || width !== after.naturalWidth || height !== after.naturalHeight)
@@ -223,12 +256,18 @@ function denoiseReviewRenderDiff(before,after) {
   ctx.drawImage(after,0,0);
   const b = ctx.getImageData(0,0,width,height);
   const diff = cleanupDifferencePixels(a.data,b.data,width,height,8);
+  // Only the shown pixels change; mean and changed-percent use the original
+  // unamplified measurements (same as the existing Deflicker inspector).
+  const visible = comparisonContrastPixels(a.data,b.data,width,height,
+    denoiseReviewDiffMode,denoiseReviewDiffContrast);
   const output = denoiseReviewElement('difference');
   output.width = width; output.height = height;
-  output.getContext('2d').putImageData(new ImageData(diff.rgba,width,height),0,0);
+  output.getContext('2d').putImageData(new ImageData(visible,width,height),0,0);
   const readout = denoiseReviewElement('readout');
   if (readout) readout.textContent =
-    `Mittlere absolute Luminanzdifferenz: ${diff.mean.toFixed(2)} / 255 · Pixel mit |ΔY| ≥ 1: ${diff.changedPercent.toFixed(2)} % · Anzeige ×8. Kornbeurteilung separat vornehmen.`;
+    `Mittlere absolute Luminanzdifferenz: ${diff.mean.toFixed(2)} / 255 · Pixel mit |ΔY| ≥ 1: ${diff.changedPercent.toFixed(2)} % · Anzeige ${denoiseReviewDiffContrast}× + Gamma. Kornbeurteilung separat vornehmen.`;
+  const caption = denoiseReviewElement('diff-caption');
+  if (caption) caption.textContent = comparisonContrastCaption(denoiseReviewDiffMode);
 }
 
 function denoiseReviewAlignVideo(frame) {
@@ -280,6 +319,7 @@ async function denoiseReviewSelectFrame(frame, syncVideos = false) {
     denoiseReviewElement('after').src = processed.src;
     denoiseReviewElement('wipe-before').src = original.src;
     denoiseReviewElement('wipe-after').src = processed.src;
+    denoiseReviewImagePair = {before:original,after:processed};
     const wipe = denoiseReviewElement('wipe-picture');
     if (wipe) wipe.style.aspectRatio = `${data.width} / ${data.height}`;
     const slider = denoiseReviewElement('timeline');
@@ -305,6 +345,7 @@ function denoiseReviewStart() {
   denoiseReviewEpoch++;
   denoiseReviewChartEpoch++;
   denoiseReviewCount = 0;
+  denoiseReviewImagePair = null;
   denoiseReviewEntries = [];
   root.style.setProperty('--denoise-review-zoom',String(denoiseReviewZoom));
   for(const [key,delta] of [['prev10',-10],['prev',-1],['next',1],['next10',10]]) {
