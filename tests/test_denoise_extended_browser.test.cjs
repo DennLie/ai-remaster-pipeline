@@ -178,6 +178,76 @@ test('the enlarged still dialog closes on clicking the image again',()=>{
   }
 });
 
+test('Remove Noise wipe drags continuously to both edges and releases capture',()=>{
+  const previousDocument=context.document;
+  const previousSelect=context.denoiseReviewSelectFrame;
+  const previousChart=context.denoiseReviewLoadChart;
+  const listeners={};
+  const activePointers=new Set();
+  const picture={
+    addEventListener(name,handler){listeners[name]=handler},
+    getBoundingClientRect(){return {left:100,width:200}},
+    setPointerCapture(id){activePointers.add(id)},
+    hasPointerCapture(id){return activePointers.has(id)},
+    releasePointerCapture(id){activePointers.delete(id)},
+  };
+  const processed={style:{}},divider={style:{}};
+  const slider={value:''},status={textContent:''};
+  const elements={
+    '[data-dr-variant]':{},
+    '[data-dr-wipe-picture]':picture,
+    '[data-dr-wipe-after]':processed,
+    '[data-dr-wipe-divider]':divider,
+    '[data-dr-wipe-position]':slider,
+    '[data-dr-wipe-status]':status,
+  };
+  const root={
+    style:{setProperty(){}},
+    querySelector(selector){return elements[selector]||null},
+  };
+  const event=(x,id=7)=>({
+    clientX:x,pointerId:id,pointerType:'mouse',button:0,
+    preventDefault(){this.prevented=true},
+  });
+  try {
+    context.document={querySelector:()=>root};
+    context.denoiseReviewSelectFrame=()=>{};
+    context.denoiseReviewLoadChart=()=>{};
+    context.denoiseReviewStart();
+    const down=event(160);
+    listeners.pointerdown(down);
+    assert.equal(down.prevented,true);
+    assert.equal(activePointers.has(7),true);
+    assert.equal(slider.value,'30');
+    listeners.pointermove(event(260));
+    assert.equal(slider.value,'80');
+    listeners.pointermove(event(400));
+    assert.equal(slider.value,'100');
+    assert.equal(divider.style.left,'100%');
+    assert.equal(processed.style.clipPath,'inset(0 0 0 100%)');
+    listeners.pointermove(event(20));
+    assert.equal(slider.value,'0');
+    assert.equal(processed.style.clipPath,'inset(0 0 0 0%)');
+    listeners.pointerup(event(20));
+    assert.equal(activePointers.has(7),false);
+    listeners.pointermove(event(200));
+    assert.equal(slider.value,'0');
+    listeners.pointerdown(event(200));
+    listeners.pointercancel(event(200));
+    assert.equal(activePointers.has(7),false);
+    context.denoiseReviewSetZoom('2');
+    context.denoiseReviewSetWipe('100');
+    assert.equal(processed.style.clipPath,'inset(0 0 0 75%)');
+    assert.equal(divider.style.left,'100%');
+    assert.match(css,/\.denoise-review-wipe-picture \{[\s\S]*?touch-action:none/);
+    assert.match(css,/\.denoise-review-wipe-picture img \{[\s\S]*?pointer-events:none/);
+  } finally {
+    context.document=previousDocument;
+    context.denoiseReviewSelectFrame=previousSelect;
+    context.denoiseReviewLoadChart=previousChart;
+  }
+});
+
 test('Clean Up receives the same contrast chooser without changing measured luma',()=>{
   const frame=fs.readFileSync(path.join(root,'ai_remaster_gui/static/js/frame-inspector.js'),'utf8');
   assert.match(frame,/cleanupSetDifferenceMode/);
