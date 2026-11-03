@@ -211,6 +211,13 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/denoise-grid-download":
+            # Zero path parameters: only the last validated grid for this active source.
+            path = state.APP.denoise_grid_download()
+            if path is None:
+                self.send_error(404, "No completed grid for this source.")
+            else:
+                self.send_attachment(path)
         elif parsed.path == "/api/state":
             query = parse_qs(parsed.query)
             self.send_json(state.APP.state(query.get("active", [""])[0], query.get("retry_section", [""])[0] == "1"))
@@ -425,6 +432,11 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/run":
             ok, message = state.APP.run_all(keep_shots=bool(data.get("keep_shots"))) if data.get("all") else state.APP.run_stage(str(data.get("stage", "")))
             self.send_json({"ok": ok, "message": message})
+        elif parsed.path == "/api/denoise-batch":
+            self._send_action("Remove Noise batch", state.APP.run_denoise_batch, view="denoise")
+        elif parsed.path == "/api/denoise-grid":
+            self._send_action("Remove Noise grid",
+                              lambda: state.APP.run_denoise_grid(str(data.get("frames", ""))), view="denoise")
         elif parsed.path == "/api/upscale-preview":
             ok, message = state.APP.run_upscale_preview()
             self.send_json({"ok": ok, "message": message})
@@ -700,6 +712,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_attachment(self, path: Path) -> None:
+        """Stream only server-selected finished comparison archives to the browser."""
+        if not path.is_file():
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+        self.send_header("Content-Length", str(path.stat().st_size))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            with path.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
 
     def send_static(self, path: Path, content_type: str | None = None) -> None:
         if not path.exists() or not path.is_file():
