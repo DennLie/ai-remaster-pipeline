@@ -2,13 +2,22 @@
  * These are display-only colors. Never use them as measurement values, as a
  * trained defect detector, or to infer that the source has been changed.
  */
-// Pixel offset of a centered two-sided wipe label; never blocks the real split at 0% or 100%.
-function comparisonWipeGripOffset(pictureWidth, gripWidth, percent) {
+// Keep the grip centered precisely on the true divider, never pinned to the frame edge.
+// Fade it away before it could cover the picture boundary. The divider stays draggable.
+function comparisonWipeGripOpacity(pictureWidth, gripWidth, percent) {
   const width = Number(pictureWidth), grip = Number(gripWidth), position = Number(percent);
   if (!(width > 0 && grip > 0 && Number.isFinite(position))) return 0;
-  const half = Math.min(width / 2, grip / 2 + 3);
   const splitX = width * Math.max(0, Math.min(100, position)) / 100;
-  return Math.max(half, Math.min(width - half, splitX)) - splitX;
+  const freeSpace = Math.min(splitX, width - splitX);
+  return Math.max(0, Math.min(1, (freeSpace - grip / 2 - 8) / 24));
+}
+
+// An external label clarifies 0%/100% even when the large grip is hidden.
+function comparisonWipeVisibleState(percent, resultLabel = 'ERGEBNIS') {
+  const original = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+  if (original === 0) return `NUR ${resultLabel} · 100 %`;
+  if (original === 100) return 'NUR ORIGINAL · 100 %';
+  return `${original} % ORIGINAL · ${100-original} % ${resultLabel}`;
 }
 
 function comparisonContrastPixels(before, after, width, height, mode = 'direction', amplification = 32) {
