@@ -24,7 +24,9 @@ test('Clean Up provides permanent three-up exact frame inspection; stabilization
   assert.match(cleanup, /data-fi-still-before/);
   assert.match(cleanup, /data-fi-still-after/);
   assert.match(cleanup, /data-fi-difference/);
-  assert.match(cleanup, /PIXELDIFFERENZ ×8/);
+  assert.match(cleanup, /PIXELDIFFERENZ · verstärkt/);
+  assert.match(cleanup, /data-fi-diff-mode/);
+  assert.match(cleanup, /data-fi-diff-contrast/);
   assert.doesNotMatch(cleanup, /Einzelbilder (anzeigen|ausblenden)/);
   assert.doesNotMatch(cleanup, /data-fi-open|data-fi-close/);
   const stabilize = api.frameInspectorHtml('stabilize');
