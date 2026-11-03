@@ -184,7 +184,7 @@ async function denoiseMatrixRunAll() {
 
 async function denoiseMatrixExport() {
   const frames = document.getElementById('denoiseMatrixFrames')?.value.trim() || '';
-  if (frames && !/^\\d+(\\s*,\\s*\\d+){0,4}$/.test(frames)) {
+  if (frames && !/^\d+(\s*,\s*\d+){0,4}$/.test(frames)) {
     return alert('Bitte 1 bis 5 unterschiedliche Frame-Nummern angeben, mit Kommas getrennt.');
   }
   const result = await postJson('/api/denoise-grid', {frames});
