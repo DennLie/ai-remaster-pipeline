@@ -54,8 +54,13 @@ test('variant selection excludes Original/partials; no output means a factual em
   assert.match(markup,/wipe-grip-original">ORIGINAL<\/span>/);
   assert.match(markup,/wipe-grip-result">ERGEBNIS<\/span>/);
   assert.match(css,/\.cleanup-exact-wipe-handle,\s*\.denoise-review-wipe-handle \{[\s\S]*?border-radius:19px/);
-  assert.equal(context.comparisonWipeGripOffset(640,180,0),93);
-  assert.equal(context.comparisonWipeGripOffset(640,180,100),-93);
+  assert.match(markup,/data-dr-wipe-current-view/);
+  assert.match(review,/comparisonWipeGripOpacity\(width, grip\.offsetWidth \|\| 180, denoiseReviewWipe\)/);
+  assert.equal(context.comparisonWipeGripOpacity(640,180,0),0);
+  assert.equal(context.comparisonWipeGripOpacity(640,180,50),1);
+  assert.equal(context.comparisonWipeGripOpacity(640,180,100),0);
+  assert.equal(context.comparisonWipeVisibleState(0),'NUR ERGEBNIS · 100 %');
+  assert.equal(context.comparisonWipeVisibleState(100),'NUR ORIGINAL · 100 %');
   assert.match(markup,/PIXELDIFFERENZ · verstärkt/);
   assert.match(markup,/data-dr-diff-mode/);
   assert.match(markup,/RGB: Veränderung je Farbkanal/);
