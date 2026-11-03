@@ -27,7 +27,7 @@ VARIANTS = tuple((m, p) for m in METHODS for p in PRESETS)
 EXPORT_ROOT = ROOT / "output" / "denoise_comparisons"
 GRID_VERSION = 1
 TILE_W, TILE_H = 320, 240
-ROW_H, TOP_H, PAD = 284, 70, 12
+ROW_H, TOP_H, PAD = 298, 70, 12
 
 
 def parse_frames(text: str, count: int) -> list[int]:
