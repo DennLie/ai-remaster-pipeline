@@ -256,6 +256,12 @@ test('Remove Noise wipe drags continuously to both edges and releases capture',(
     assert.equal(down.prevented,true);
     assert.equal(activePointers.has(7),true);
     assert.equal(slider.value,'30');
+    // A second finger must not steal the drag or move the split.
+    listeners.pointerdown(event(320,22));
+    assert.equal(activePointers.has(22),false);
+    assert.equal(slider.value,'30');
+    listeners.pointermove(event(500,22));
+    assert.equal(slider.value,'30');
     listeners.pointermove(event(260));
     assert.equal(slider.value,'80');
     listeners.pointermove(event(400));
@@ -272,6 +278,18 @@ test('Remove Noise wipe drags continuously to both edges and releases capture',(
     listeners.pointerdown(event(200));
     listeners.pointercancel(event(200));
     assert.equal(activePointers.has(7),false);
+    // A lost capture ends the gesture; the next drag starts cleanly.
+    listeners.pointerdown(event(120,9));
+    assert.equal(activePointers.has(9),true);
+    listeners.lostpointercapture(event(120,9));
+    assert.equal(activePointers.has(9),false);
+    listeners.pointermove(event(300,9));
+    assert.equal(slider.value,'10');
+    listeners.pointerdown(event(170,9));
+    assert.equal(activePointers.has(9),true);
+    assert.equal(slider.value,'35');
+    listeners.pointerup(event(170,9));
+    assert.equal(activePointers.has(9),false);
     context.denoiseReviewSetZoom('2');
     context.denoiseReviewSetWipe('100');
     assert.equal(processed.style.clipPath,'inset(0 0 0 75%)');
@@ -282,6 +300,59 @@ test('Remove Noise wipe drags continuously to both edges and releases capture',(
     context.document=previousDocument;
     context.denoiseReviewSelectFrame=previousSelect;
     context.denoiseReviewLoadChart=previousChart;
+  }
+});
+
+test('exact review holds stale evidence instead of relabelling it',()=>{
+  const previousState=context.state;
+  const files=[
+    {path:'intermediate/denoised/Neighbors_denoised_hqdn3d_gentle_abc123.mkv'},
+    {path:'intermediate/denoised/Neighbors_denoised_bm3d_strong_def456.mkv'},
+  ];
+  try {
+    context.state={
+      settings:{global:{source:'evaluation/Neighbors_72.mkv'},denoise:{method:'off',preset:'gentle'}},
+      stages:[{key:'denoise',files}],
+      denoise_matrix:{variants:[{method:'hqdn3d',preset:'gentle'},{method:'bm3d',preset:'strong'}]},
+    };
+    const candidates=context.denoiseCompareCandidates(context.state.stages[0]);
+    vm.runInContext("denoiseMatrixSelected = null",context);
+    const off=context.denoiseReviewHtml(candidates);
+    assert.match(off,/data-dr-hold role="status"/);
+    assert.match(off,/Remove Noise is off/);
+    assert.match(off,/data-dr-body hidden/);
+    assert.match(off,/<strong data-dr-current-variant>Off<\/strong>/);
+
+    context.state.settings.denoise={method:'nlmeans',preset:'strong'};
+    vm.runInContext("denoiseMatrixSelected = {method:'nlmeans',preset:'strong'}",context);
+    const missing=context.denoiseReviewHtml(candidates);
+    assert.match(missing,/NLMeans · Strong has not been rendered/);
+    assert.match(missing,/data-dr-body hidden/);
+
+    context.state.settings.denoise={method:'hqdn3d',preset:'gentle'};
+    vm.runInContext("denoiseMatrixSelected = null",context);
+    const ready=context.denoiseReviewHtml(candidates);
+    assert.match(ready,/data-dr-hold role="status" hidden/);
+    assert.match(ready,/data-dr-body >/);
+    assert.match(ready,/HQDN3D · Gentle/);
+
+    assert.equal(context.denoiseReviewErrorText(
+      new Error('Ungültige Differenzdaten oder Kontrasteinstellungen.')),
+      'The pixel-difference data was invalid for these settings.');
+    assert.equal(context.denoiseReviewErrorText(
+      new Error('Bildgrößen stimmen nicht überein.')),
+      'The still images do not have identical dimensions.');
+    assert.equal(context.denoiseReviewErrorText(new Error('x'.repeat(400))).length,301);
+
+    vm.runInContext("denoiseCompareLayout='ac'",context);
+    assert.equal(context.denoiseComparePairIndex(),2);
+    assert.equal(context.denoiseComparePairLabel(),'A–C');
+    vm.runInContext("denoiseCompareLayout='abc'",context);
+    assert.equal(context.denoiseComparePairIndex(),1);
+    assert.equal(context.denoiseComparePairLabel(),'A–B');
+  } finally {
+    context.state=previousState;
+    vm.runInContext("denoiseCompareLayout='abc'",context);
   }
 });
 

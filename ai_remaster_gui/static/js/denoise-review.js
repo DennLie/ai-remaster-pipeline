@@ -23,7 +23,9 @@ let denoiseReviewHold = null;
 let denoiseReviewHasFrame = false;
 let denoiseReviewInFlight = false;
 let denoiseReviewPending = null;
+let denoiseReviewRequestSeq = 0;
 let denoiseWipePointer = null;
+let denoiseWipeBlurHandler = null;
 
 // Shared difference helpers predate the English review and throw German
 // validation text. Never leak that into the English tab.
@@ -119,7 +121,7 @@ function denoiseReviewHtml(candidates) {
         <span>Beyond the A/B/C preview: decoded source frames, not H.264 previews.</span></div>
       <span class="denoise-review-current">Selected: <strong data-dr-current-variant>${esc(label)}</strong></span>
     </div>
-    <div class="denoise-review-hold" data-dr-hold ${holdKind ? '' : 'hidden'}>
+    <div class="denoise-review-hold" data-dr-hold role="status" ${holdKind ? '' : 'hidden'}>
       <p data-dr-hold-text>${esc(holdText)}</p>
     </div>
     <div class="denoise-review-body" data-dr-body ${holdKind ? 'hidden' : ''}>
@@ -242,7 +244,6 @@ function denoiseReviewShowHold(kind, label, detail) {
   denoiseReviewHold = { kind, label };
   denoiseReviewVariant = '';
   denoiseReviewHasFrame = false;
-  denoiseReviewInFlight = false;
   denoiseReviewPending = null;
   denoiseReviewEpoch++;
   denoiseReviewChartEpoch++;
@@ -251,6 +252,7 @@ function denoiseReviewShowHold(kind, label, detail) {
   denoiseReviewEntries = [];
   hold.hidden = false;
   body.hidden = true;
+  denoiseReviewClearEvidence();
   const text = hold.querySelector('[data-dr-hold-text]');
   if (text) text.textContent = denoiseReviewHoldMessage(kind, label, detail);
   denoiseReviewSetLabel(label);
@@ -519,6 +521,7 @@ async function denoiseReviewSelectFrame(frame, syncVideos = false) {
     return;
   }
   denoiseReviewInFlight = true;
+  const requestId = ++denoiseReviewRequestSeq;
   const ticket = ++denoiseReviewEpoch;
   const status = denoiseReviewElement('status');
   if (!status) {
@@ -587,12 +590,14 @@ async function denoiseReviewSelectFrame(frame, syncVideos = false) {
       }
     }
   } finally {
-    denoiseReviewInFlight = false;
-    const queued = denoiseReviewPending;
-    denoiseReviewPending = null;
-    if (queued && queued.path === denoiseReviewVariant &&
-        queued.ticket === denoiseReviewEpoch) {
-      void denoiseReviewSelectFrame(queued.frame, queued.syncVideos);
+    if (requestId === denoiseReviewRequestSeq) {
+      denoiseReviewInFlight = false;
+      const queued = denoiseReviewPending;
+      denoiseReviewPending = null;
+      if (queued && queued.path === denoiseReviewVariant &&
+          queued.ticket === denoiseReviewEpoch) {
+        void denoiseReviewSelectFrame(queued.frame, queued.syncVideos);
+      }
     }
   }
 }
@@ -609,7 +614,12 @@ function denoiseReviewStart() {
   denoiseReviewMetrics = null;
   denoiseReviewInFlight = false;
   denoiseReviewPending = null;
+  denoiseReviewRequestSeq++;
   denoiseWipePointer = null;
+  if (denoiseWipeBlurHandler && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+    window.removeEventListener('blur', denoiseWipeBlurHandler);
+    denoiseWipeBlurHandler = null;
+  }
   root.style.setProperty('--denoise-review-zoom',String(denoiseReviewZoom));
   if (!root.querySelector('[data-dr-wipe-picture]')) return;
   // Bind the body even when a no-result hold hides it: choosing a rendered
@@ -626,7 +636,12 @@ function denoiseReviewStart() {
     if (!(event.key in keys)) return;
     const bars = [...chart.querySelectorAll('[data-dr-bar]')];
     if (!bars.length) return;
-    const current = Math.max(0, bars.findIndex(bar => bar.tabIndex === 0));
+    let current = bars.findIndex(bar => bar.tabIndex === 0);
+    if (current < 0) {
+      current = bars.reduce((best, bar, index) =>
+        Math.abs(Number(bar.dataset.drBar) - denoiseReviewFrame) <
+        Math.abs(Number(bars[best].dataset.drBar) - denoiseReviewFrame) ? index : best, 0);
+    }
     const next = event.key === 'Home' ? 0
       : event.key === 'End' ? bars.length - 1
       : Math.max(0, Math.min(bars.length - 1, current + keys[event.key]));
@@ -646,8 +661,14 @@ function denoiseReviewStart() {
       if (denoiseWipePointer !== null) return;
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       event.preventDefault();
+      try {
+        picture.setPointerCapture(event.pointerId);
+      } catch (_) {
+        // The pointer can already be gone on a synthetic or cancelled event.
+        denoiseWipePointer = null;
+        return;
+      }
       denoiseWipePointer = event.pointerId;
-      picture.setPointerCapture(event.pointerId);
       setFromPointer(event);
     });
     picture.addEventListener('pointermove', event => {
@@ -668,7 +689,8 @@ function denoiseReviewStart() {
     // leave the wipe stuck mid-drag for the next pointer.
     picture.addEventListener('lostpointercapture', endDrag);
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('blur', endDrag);
+      denoiseWipeBlurHandler = endDrag;
+      window.addEventListener('blur', denoiseWipeBlurHandler);
     }
   }
   const wipeFold = root.querySelector('.denoise-review-wipe');

@@ -799,6 +799,7 @@ function denoiseCompareWireVideos() {
             : 'Source variants differ in dimensions or duration. Synchronized playback is disabled; select matching clips.'
         );
       }
+      if (document.getElementById('denoiseCompareDiff')?.checked) denoiseCompareDifference();
     });
     video.addEventListener('error', () => {
       const slot = 'ABC'[index] || '?';
