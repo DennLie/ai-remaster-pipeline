@@ -2,6 +2,15 @@
  * These are display-only colors. Never use them as measurement values, as a
  * trained defect detector, or to infer that the source has been changed.
  */
+// Pixel offset of a centered two-sided wipe label; never blocks the real split at 0% or 100%.
+function comparisonWipeGripOffset(pictureWidth, gripWidth, percent) {
+  const width = Number(pictureWidth), grip = Number(gripWidth), position = Number(percent);
+  if (!(width > 0 && grip > 0 && Number.isFinite(position))) return 0;
+  const half = Math.min(width / 2, grip / 2 + 3);
+  const splitX = width * Math.max(0, Math.min(100, position)) / 100;
+  return Math.max(half, Math.min(width - half, splitX)) - splitX;
+}
+
 function comparisonContrastPixels(before, after, width, height, mode = 'direction', amplification = 32) {
   if (!(Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0) ||
       before?.length !== width * height * 4 || after?.length !== before.length ||
