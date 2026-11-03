@@ -82,10 +82,14 @@ function denoiseReviewHtml(candidates) {
       <output data-dr-readout role="status"></output>
       <details class="denoise-review-wipe">
         <summary><strong>Wischvergleich</strong> · exakter Original/Ergebnis-Schieber</summary>
+        <p class="denoise-review-wipe-hint">Links <strong>ORIGINAL</strong>, rechts <strong>ERGEBNIS</strong>.
+          Ziehe die senkrechte Linie im Bild oder benutze den Schieber darunter.</p>
         <div class="denoise-review-wipe-picture" data-dr-wipe-picture>
           <img data-dr-wipe-before alt="Unverändertes Originalframe">
           <img data-dr-wipe-after alt="Bearbeitetes Frame">
-          <div class="denoise-review-wipe-divider" data-dr-wipe-divider aria-hidden="true"></div>
+          <div class="denoise-review-wipe-divider" data-dr-wipe-divider aria-hidden="true">
+            <span class="denoise-review-wipe-handle"></span>
+          </div>
         </div>
         <label>Original links · Ergebnis rechts
           <input data-dr-wipe-position type="range" min="0" max="100" step="1"
