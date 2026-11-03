@@ -50,7 +50,7 @@ from .manifests import (
 )
 from .commercial_policy import pipeline_issues, stage_issue
 from .models import CLEANUP_NEGATIVE_PROMPT, CLEANUP_PROMPT, COLORIZE_STAGE_KEYS, SHOT_STAGE_KEYS, STAGES, Stage, output_stage
-from .paths import even_int, format_timecode, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
+from .paths import even_int, format_timecode, is_unfinished_media_artifact, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
 from .power import keep_awake, release_keep_awake
 from .naming import manifest_for_outpainted
 from .project_io import (
@@ -634,6 +634,10 @@ class PipelineApp:
             if not folder.exists():
                 continue
             for path in folder.rglob("*"):
+                # Writers expose .partial.mkv while FFmpeg is still encoding.
+                # Do not list, thumbnail, or offer unfinalized media to A/B/C.
+                if is_unfinished_media_artifact(path):
+                    continue
                 if path.is_file() and path.suffix.lower() in exts and self.stage_file_matches(stage.key, path, scoped_prefixes):
                     try:
                         stat = path.stat()
