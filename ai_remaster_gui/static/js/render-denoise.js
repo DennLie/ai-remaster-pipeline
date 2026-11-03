@@ -626,6 +626,7 @@ function renderDenoiseComparePlayers(candidates) {
   const host = document.getElementById('denoiseComparePlayers');
   if (!host) return;
   const compareDuration = denoiseCompareEffectiveLength || denoiseCompareLength;
+  const exactReview = active === 'denoise';
   const optionHtml = candidates.map(v =>
     `<option value="${esc(v.path)}">${esc(v.label)}</option>`).join('');
   host.innerHTML = `
@@ -640,6 +641,14 @@ function renderDenoiseComparePlayers(candidates) {
             ${path ? `<video id="denoiseCompareVideo${i}" preload="metadata" muted playsinline
               src="${mediaClip(path, denoiseCompareStart, denoiseCompareStart + compareDuration, 'denoise-compare-v1')}" aria-label="Denoising comparison variant ${'ABC'[i]}"></video>` : '<p class="shot-empty">Select a video to compare.</p>'}
           </div>
+          ${i > 0 && exactReview ? `
+            <div class="denoise-compare-panel-actions">
+              <button type="button" class="denoise-inspect-frame" data-dc-inspect="${i}"
+                onclick="denoiseCompareInspectFrame(${i})"
+                aria-label="Inspect ${'ABC'[i]} at the current time in Exact frame review"
+                title="Open this frame in Exact Review at source resolution"
+                ${denoiseCompareInspectable(i) ? '' : 'disabled'}>Inspect this frame exactly</button>
+            </div>` : ''}
         </div>
       `).join('')}
     </div>
@@ -651,9 +660,14 @@ function renderDenoiseComparePlayers(candidates) {
       <span id="denoiseCompareTime">0.00 / ${compareDuration.toFixed(2)} s</span>
     </div>
     <div class="denoise-compare-actions">
-      <label><input id="denoiseCompareDiff" type="checkbox" ${denoiseCompareDiffEnabled ? 'checked' : ''} onchange="denoiseCompareSetDiffEnabled(this.checked)"> Show <span data-dc-pair>${denoiseComparePairLabel()}</span> pixel difference · rendered preview</label>
+      <label><input id="denoiseCompareDiff" type="checkbox" ${denoiseCompareDiffEnabled ? 'checked' : ''} onchange="denoiseCompareSetDiffEnabled(this.checked)"> Show <span data-dc-pair>${denoiseComparePairLabel()}</span> live change preview</label>
+      ${exactReview ? `<button type="button" id="denoiseCompareInspectDiff" class="denoise-inspect-frame"
+        onclick="denoiseCompareInspectFrame(denoiseComparePairIndex())"
+        aria-label="Inspect the current ${denoiseComparePairLabel()} preview frame in Exact frame review"
+        title="Open this frame in Exact Review at source resolution"
+        ${denoiseCompareInspectable(denoiseComparePairIndex()) ? '' : 'disabled'}>Inspect this frame exactly</button>` : ''}
     </div>
-    <video id="denoiseCompareDiffVideo" class="denoise-compare-diff-video hidden" muted playsinline preload="metadata" aria-label="Rendered pixel difference between A and B"></video>
+    <video id="denoiseCompareDiffVideo" class="denoise-compare-diff-video hidden" muted playsinline preload="metadata" aria-label="Rendered live change preview between A and B"></video>
     <canvas id="denoiseCompareDiffCanvas" class="denoise-compare-diff hidden" aria-label="Pixel difference between A and B"></canvas>
     <output id="denoiseCompareDiffStatus" class="denoise-diff-status" role="status"></output>
   `;
@@ -694,17 +708,79 @@ function denoiseComparePairLabel() {
   return denoiseCompareLayout === 'ac' ? 'A–C' : 'A–B';
 }
 
+function denoiseCompareFpsValue(value) {
+  const text = String(value ?? '').trim().split(/\s+/)[0];
+  const fraction = text.match(/^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/);
+  const fps = fraction ? Number(fraction[1]) / Number(fraction[2]) : Number(text);
+  return Number.isFinite(fps) && fps > 0 ? fps : 0;
+}
+
+function denoiseCompareFps() {
+  const reviewFps = typeof denoiseReviewFps === 'number' ? denoiseReviewFps : 0;
+  const sourceFps = typeof state === 'object' && state ? state.source_info?.fps : 0;
+  return denoiseCompareFpsValue(reviewFps) || denoiseCompareFpsValue(sourceFps);
+}
+
+function denoiseCompareFrameAt(seconds, start = denoiseCompareStart, fps = denoiseCompareFps()) {
+  const time = Number(seconds);
+  const origin = Number(start);
+  const rate = Number(fps);
+  if (!Number.isFinite(time) || !Number.isFinite(origin) || !(rate > 0)) return null;
+  return Math.max(0, Math.round((origin + Math.max(0, time)) * rate));
+}
+
+function denoiseCompareInspectable(index) {
+  const path = denoiseComparePaths[index] || '';
+  return Boolean(path && path !== denoiseComparePaths[0] && denoisePreviewIsFinal(path));
+}
+
+function denoiseCompareInspectFrame(index) {
+  const panel = Number(index);
+  if (![1, 2].includes(panel)) return;
+  if (typeof active === 'string' && active !== 'denoise') return;
+  const path = denoiseComparePaths[panel] || '';
+  if (!denoiseCompareInspectable(panel)) {
+    denoiseCompareNotice(`Choose a finished Remove Noise variant for ${'ABC'[panel]} before inspecting an exact frame.`);
+    return;
+  }
+  if (typeof denoiseReviewInspectFrame !== 'function') return;
+  const master = document.getElementById('denoiseCompareVideo0');
+  const total = denoiseCompareEffectiveLength || denoiseCompareLength;
+  const time = Math.max(0, Math.min(Number(master?.currentTime) || 0, total));
+  const frame = denoiseCompareFrameAt(time, denoiseCompareStart, denoiseCompareFps());
+  if (frame === null) {
+    denoiseCompareNotice('The source frame rate is not available yet; exact frame inspection needs it.');
+    return;
+  }
+  denoiseCompareVideos().forEach(video => video.pause());
+  document.getElementById('denoiseCompareDiffVideo')?.pause();
+  if (!denoiseReviewInspectFrame(path, frame)) {
+    denoiseCompareNotice('Exact frame review is not available for this variant.');
+    return;
+  }
+  if (typeof denoiseMatrixSyncFromPath === 'function') denoiseMatrixSyncFromPath(path);
+}
+
 function denoiseCompareSyncDiffAvailability() {
-  // The previewed difference must describe the pair the user can actually see.
+  // The previewed change must describe the pair the user can actually see.
   const toggle = document.getElementById('denoiseCompareDiff');
   const canvas = document.getElementById('denoiseCompareDiffCanvas');
   const video = document.getElementById('denoiseCompareDiffVideo');
+  const inspect = document.getElementById('denoiseCompareInspectDiff');
   const pair = denoiseComparePairIndex();
   const second = denoiseComparePaths[pair] || '';
   const duplicate = !second || second === denoiseComparePaths[0];
   if (toggle) {
     toggle.disabled = duplicate;
     if (duplicate) toggle.checked = false;
+  }
+  if (inspect) {
+    const canInspect = denoiseCompareInspectable(pair);
+    inspect.disabled = !canInspect;
+    inspect.setAttribute('aria-label', `Inspect the current ${denoiseComparePairLabel()} preview frame in Exact frame review`);
+    inspect.title = canInspect
+      ? 'Open this frame in Exact Review at source resolution'
+      : 'Choose a different finished variant to inspect an exact frame';
   }
   if (duplicate) {
     denoiseCompareDiffEnabled = false;
@@ -715,11 +791,11 @@ function denoiseCompareSyncDiffAvailability() {
   if (label) label.textContent = denoiseComparePairLabel();
   if (canvas) {
     if (duplicate) canvas.classList.add('hidden');
-    canvas.setAttribute('aria-label', `Pixel difference between A and ${'ABC'[pair]}`);
+    canvas.setAttribute('aria-label', `Live change preview between A and ${'ABC'[pair]}`);
   }
-  if (video) video.setAttribute('aria-label', `Rendered pixel difference between A and ${'ABC'[pair]}`);
+  if (video) video.setAttribute('aria-label', `Rendered live change preview between A and ${'ABC'[pair]}`);
   if (duplicate && second) {
-    denoiseCompareNotice(`A and ${'ABC'[pair]} are the same file. Choose a different variant to compare pixels.`);
+    denoiseCompareNotice(`A and ${'ABC'[pair]} are the same file. Choose a different variant to compare live changes.`);
   }
   if (!duplicate && denoiseCompareDiffEnabled) void denoiseCompareEnsureDiffVideo();
 }
@@ -1098,20 +1174,20 @@ async function denoiseCompareEnsureDiffVideo() {
   }
   const requestId = ++denoiseCompareDiffRequest;
   denoiseCompareDiffLoading = true;
-  if (status) status.textContent = 'Rendering difference preview…';
+  if (status) status.textContent = 'Rendering live change preview…';
   if (canvas) canvas.classList.add('hidden');
   video.classList.add('hidden');
   try {
     const result = await postJson('/api/denoise-diff', { first, second, start, end });
     if (requestId !== denoiseCompareDiffRequest || !denoiseCompareDiffEnabled) return;
     if (!result || !result.ok) {
-      throw new Error((result && result.error) || 'The difference preview could not be rendered.');
+      throw new Error((result && result.error) || 'The live change preview could not be rendered.');
     }
     denoiseCompareDiffUrl = result.url;
     denoiseCompareDiffKey = key;
     const loaded = new Promise((resolve, reject) => {
       const onReady = () => { cleanup(); resolve(); };
-      const onError = () => { cleanup(); reject(new Error('The rendered difference preview could not be loaded.')); };
+      const onError = () => { cleanup(); reject(new Error('The rendered live change preview could not be loaded.')); };
       const cleanup = () => {
         video.removeEventListener('loadedmetadata', onReady);
         video.removeEventListener('error', onError);
@@ -1129,7 +1205,7 @@ async function denoiseCompareEnsureDiffVideo() {
     if (requestId !== denoiseCompareDiffRequest) return;
     denoiseCompareDiffUrl = '';
     denoiseCompareDiffKey = '';
-    if (status) status.textContent = 'Difference preview unavailable: ' + (error?.message || 'unknown error');
+    if (status) status.textContent = 'Live change preview unavailable: ' + (error?.message || 'unknown error');
     denoiseCompareHideDiff();
   } finally {
     if (requestId === denoiseCompareDiffRequest) denoiseCompareDiffLoading = false;

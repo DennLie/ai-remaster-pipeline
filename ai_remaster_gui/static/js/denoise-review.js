@@ -82,7 +82,7 @@ function denoiseReviewHoldMessage(kind, label, detail) {
 function denoiseReviewHtml(candidates) {
   const options = denoiseReviewVariants(candidates);
   if (!options.length) {
-    return `<section class="card denoise-review-card denoise-review" data-denoise-review data-review-lang="en" aria-label="Exact frame review">
+    return `<section class="card denoise-review-card denoise-review" data-denoise-review data-review-lang="en" aria-label="Exact frame review" tabindex="-1">
       <h3>Exact frame review</h3>
       <p class="shot-empty">No finished Remove Noise variant yet. After rendering, exact original/result frames, pixel difference, frame bars and the wipe comparison appear here.</p>
     </section>`;
@@ -115,7 +115,7 @@ function denoiseReviewHtml(candidates) {
     denoiseReviewHold = null;
   }
   denoiseReviewHasFrame = false;
-  return `<section class="card denoise-review-card denoise-review" data-denoise-review data-review-lang="en" aria-label="Exact frame review">
+  return `<section class="card denoise-review-card denoise-review" data-denoise-review data-review-lang="en" aria-label="Exact frame review" tabindex="-1">
     <div class="denoise-review-heading">
       <div><h3>Exact frame review</h3>
         <span>Beyond the A/B/C preview: decoded source frames, not H.264 previews.</span></div>
@@ -314,7 +314,7 @@ function denoiseReviewSetWipe(value) {
   if (status) status.textContent = `${denoiseReviewWipe.toFixed(0)}% original left · ${(100-denoiseReviewWipe).toFixed(0)}% result right`;
 }
 
-function denoiseReviewChoose(path, preserveFrame = true) {
+function denoiseReviewChoose(path, preserveFrame = true, syncVideos = false) {
   if (!denoiseReviewPathValid(path)) return;
   if (path === denoiseReviewVariant &&
       (denoiseReviewPhase === 'ready' || denoiseReviewPhase === 'loading')) return;
@@ -336,8 +336,27 @@ function denoiseReviewChoose(path, preserveFrame = true) {
   const status = denoiseReviewElement('status');
   if (status) status.textContent = `Loading exact frames for ${denoiseVariantLabel(path)}...`;
   // Reuse the existing event handlers; re-running Start would attach them twice.
-  void denoiseReviewSelectFrame(denoiseReviewFrame, false);
+  void denoiseReviewSelectFrame(denoiseReviewFrame, syncVideos);
   void denoiseReviewLoadChart(path);
+}
+
+function denoiseReviewInspectFrame(path, frame) {
+  if (!denoiseReviewPathValid(path)) return false;
+  const limit = denoiseReviewCount > 0 ? denoiseReviewCount - 1 : Number.MAX_SAFE_INTEGER;
+  const target = Math.max(0, Math.min(limit, Math.round(Number(frame) || 0)));
+  if (path === denoiseReviewVariant &&
+      (denoiseReviewPhase === 'ready' || denoiseReviewPhase === 'loading')) {
+    void denoiseReviewSelectFrame(target, true);
+  } else {
+    denoiseReviewFrame = target;
+    denoiseReviewChoose(path, true, true);
+  }
+  const root = denoiseReviewRoot();
+  if (root) {
+    if (typeof root.scrollIntoView === 'function') root.scrollIntoView({block: 'start'});
+    try { root.focus({preventScroll: true}); } catch (_) { root.focus?.(); }
+  }
+  return true;
 }
 
 function denoiseReviewChartRows(report) {

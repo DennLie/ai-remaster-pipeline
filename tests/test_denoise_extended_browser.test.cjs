@@ -315,6 +315,122 @@ test('rendered difference key follows the visible pair and clip range',()=>{
   );
 });
 
+test('exact-frame bridge maps preview time to a source frame',()=>{
+  assert.equal(context.denoiseCompareFrameAt(1.5,10,24),276);
+  assert.equal(context.denoiseCompareFrameAt(-4,10,24),240);
+  assert.equal(context.denoiseCompareFrameAt(1,0,0),null);
+  assert.equal(context.denoiseCompareFrameAt('x',0,24),null);
+});
+
+test('exact-frame bridge reads the decoded frame rate before source metadata',()=>{
+  const previous=context.state;
+  try {
+    context.state={source_info:{fps:'24'},settings:{global:{}},stages:[]};
+    vm.runInContext('denoiseReviewFps=0',context);
+    assert.equal(context.denoiseCompareFps(),24);
+    vm.runInContext('denoiseReviewFps=24000/1001',context);
+    assert.ok(Math.abs(context.denoiseCompareFps()-23.976)<0.001);
+    context.state={source_info:{fps:'30000/1001'},settings:{global:{}},stages:[]};
+    vm.runInContext('denoiseReviewFps=0',context);
+    assert.ok(Math.abs(context.denoiseCompareFps()-29.97)<0.001);
+  } finally {
+    context.state=previous;
+    vm.runInContext('denoiseReviewFps=0',context);
+  }
+});
+
+test('exact-frame inspection is only offered for a distinct finished variant',()=>{
+  const previous=vm.runInContext('denoiseComparePaths.slice()',context);
+  try {
+    vm.runInContext("denoiseComparePaths=['source.mkv','source.mkv','variant.mkv']",context);
+    assert.equal(context.denoiseCompareInspectable(1),false);
+    assert.equal(context.denoiseCompareInspectable(2),true);
+    vm.runInContext("denoiseComparePaths=['source.mkv','','variant.partial.mkv']",context);
+    assert.equal(context.denoiseCompareInspectable(1),false);
+    assert.equal(context.denoiseCompareInspectable(2),false);
+  } finally {
+    vm.runInContext(`denoiseComparePaths=${JSON.stringify(previous)}`,context);
+  }
+});
+
+test('inspect-frame bridge pauses playback and opens the C frame exactly',()=>{
+  const previousDocument=context.document;
+  const previousPaths=vm.runInContext('denoiseComparePaths.slice()',context);
+  const previousVideos=context.denoiseCompareVideos;
+  const previousInspect=context.denoiseReviewInspectFrame;
+  const previousSync=context.denoiseMatrixSyncFromPath;
+  const previousActive=vm.runInContext("typeof active==='string'?active:null",context);
+  const calls=[],paused=[];
+  context.document={
+    getElementById(id){
+      if(id==='denoiseCompareVideo0')return {currentTime:1.5};
+      if(id==='denoiseCompareDiffVideo')return {pause(){paused.push('diff')}};
+      return null;
+    },
+    querySelector(){return null},
+    querySelectorAll(){return []},
+  };
+  context.denoiseCompareVideos=()=>[{pause(){paused.push('preview')}}];
+  context.denoiseReviewInspectFrame=(path,frame)=>{calls.push({path,frame});return true};
+  context.denoiseMatrixSyncFromPath=path=>calls.push({sync:path});
+  try {
+    vm.runInContext("active='denoise';denoiseComparePaths=['a.mkv','b.mkv','c.mkv'];denoiseCompareStart=10;denoiseCompareLength=4;denoiseCompareEffectiveLength=2;denoiseReviewFps=24",context);
+    context.denoiseCompareInspectFrame(2);
+    assert.deepEqual(calls,[{path:'c.mkv',frame:276},{sync:'c.mkv'}]);
+    assert.deepEqual(paused,['preview','diff']);
+  } finally {
+    context.document=previousDocument;
+    context.denoiseCompareVideos=previousVideos;
+    context.denoiseReviewInspectFrame=previousInspect;
+    context.denoiseMatrixSyncFromPath=previousSync;
+    vm.runInContext(`denoiseComparePaths=${JSON.stringify(previousPaths)};active=${JSON.stringify(previousActive)}`,context);
+  }
+});
+
+test('exact-review inspect selects the variant at the requested frame',()=>{
+  const previousDocument=context.document;
+  const previousValid=context.denoiseReviewPathValid;
+  const previousChoose=context.denoiseReviewChoose;
+  const previousSelect=context.denoiseReviewSelectFrame;
+  const calls=[];
+  const root={scrolled:false,focused:false,scrollIntoView(){this.scrolled=true},focus(){this.focused=true}};
+  context.document={querySelector:selector=>selector==='[data-denoise-review]'?root:null};
+  context.denoiseReviewPathValid=()=>true;
+  context.denoiseReviewChoose=(path,preserveFrame,syncVideos)=>{
+    calls.push({kind:'choose',path,preserveFrame,syncVideos});
+  };
+  context.denoiseReviewSelectFrame=(frame,syncVideos)=>{
+    calls.push({kind:'frame',frame,syncVideos});
+  };
+  try {
+    vm.runInContext("denoiseReviewVariant='old.mkv';denoiseReviewPhase='ready';denoiseReviewCount=0",context);
+    assert.equal(context.denoiseReviewInspectFrame('new.mkv',42),true);
+    assert.deepEqual(calls,[{kind:'choose',path:'new.mkv',preserveFrame:true,syncVideos:true}]);
+    assert.equal(root.scrolled,true);
+    assert.equal(root.focused,true);
+
+    vm.runInContext("denoiseReviewVariant='new.mkv';denoiseReviewPhase='ready';denoiseReviewCount=0",context);
+    calls.length=0;
+    context.denoiseReviewInspectFrame('new.mkv',7);
+    assert.deepEqual(calls,[{kind:'frame',frame:7,syncVideos:true}]);
+  } finally {
+    context.document=previousDocument;
+    context.denoiseReviewPathValid=previousValid;
+    context.denoiseReviewChoose=previousChoose;
+    context.denoiseReviewSelectFrame=previousSelect;
+  }
+});
+
+test('A/B/C panels offer exact frame inspection without a second live diff',()=>{
+  assert.match(compare,/denoiseCompareInspectFrame\(\$\{i\}\)/);
+  assert.match(compare,/data-dc-inspect="\$\{i\}"/);
+  assert.match(compare,/Inspect this frame exactly/);
+  assert.match(compare,/id="denoiseCompareInspectDiff"/);
+  assert.match(compare,/live change preview/);
+  assert.match(compare,/const exactReview = active === 'denoise'/);
+  assert.doesNotMatch(compare,/denoiseCompareDiffState/);
+});
+
 test('A/B/C zoom pans the shared crop within the picture bounds',()=>{
   const previousDocument=context.document;
   const classes=new Set();
