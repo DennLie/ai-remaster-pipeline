@@ -68,6 +68,21 @@ test('cleanup playback has no mode lock and the exact wipe uses inspector stills
   assert.match(css, /\.comparison-player\.cleanup-two-up\.frame-inspector-active \.compare-before,[\s\S]*?visibility:visible !important;/);
 });
 
+test('Clean Up wipe grip labels original and result, stays legible at both edges', () => {
+  assert.match(review, /class="cleanup-exact-wipe-handle"/);
+  assert.match(review, /wipe-grip-original">ORIGINAL<\/span>/);
+  assert.match(review, /wipe-grip-result">ERGEBNIS<\/span>/);
+  assert.match(review, /comparisonWipeGripOffset\(width, grip\.getBoundingClientRect\(\)\.width \|\| 180, amount\)/);
+  assert.match(css, /\.cleanup-exact-wipe-handle,\s*\.denoise-review-wipe-handle \{/);
+  assert.match(css, /\.wipe-grip-side\s*\{[\s\S]*?color:#fff/);
+  const contrast = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/review-contrast.js'), 'utf8');
+  const ctx = vm.createContext({});
+  vm.runInContext(contrast, ctx);
+  assert.equal(ctx.comparisonWipeGripOffset(640, 180, 0), 93);
+  assert.equal(ctx.comparisonWipeGripOffset(640, 180, 50), 0);
+  assert.equal(ctx.comparisonWipeGripOffset(640, 180, 100), -93);
+});
+
 test('Clean Up settings are a permanent left sidebar and metrics are above the video', () => {
   const start = helpers.indexOf('function drawCleanup(');
   const end = helpers.indexOf('function drawStabilization(', start);
