@@ -134,7 +134,7 @@ test('raw image differences remain exact while RGB and signed false colors gain 
 
 test('the enlarged still dialog closes on clicking the image again',()=>{
   const title={textContent:''};
-  const image={src:'',id:'large'};
+  const image={src:'',id:'large',closest(){return null}};
   const closer={focus(){this.focused=true}};
   const handlers={};
   let modal=false, removed=false, restored=false;
