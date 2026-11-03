@@ -951,7 +951,13 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   margin:6px 0 2px;
   font-variant-numeric:tabular-nums;
 }
-.denoise-matrix-card {grid-column:1/-1;min-width:0}
+.denoise-editor-page > .denoise-matrix-card {grid-column:2;grid-row:1;min-width:0}
+.denoise-editor-page > .denoise-compare-card {grid-column:1/-1;grid-row:2;min-width:0}
+@media (max-width:950px) {
+  .denoise-editor-page {grid-template-columns:minmax(0,1fr)}
+  .denoise-editor-page > .denoise-matrix-card,
+  .denoise-editor-page > .denoise-compare-card {grid-column:1;grid-row:auto}
+}
 .denoise-matrix-card h2 {margin:0 0 9px}
 .denoise-matrix-card > p {max-width:85ch}
 .denoise-matrix-status {display:block;margin:9px 0;font-size:12px;font-weight:700;color:var(--text)}
