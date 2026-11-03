@@ -609,6 +609,13 @@ class PipelineApp:
             return False, "ARP is shutting down."
         if not self.denoise_enabled():
             return False, "Enable Remove Noise on Overview first."
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                return False, "A command is already running."
+        try:
+            self.ensure_pipeline_source()
+        except Exception as exc:
+            return False, f"Could not prepare source section: {exc}"
         source_text = pipeline_source_text(self.settings)
         if not source_text or not resolve_video_source(source_text).is_file():
             return False, "Choose valid source material first."
