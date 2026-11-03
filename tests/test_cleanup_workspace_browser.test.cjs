@@ -76,7 +76,7 @@ test('Clean Up wipe grip tracks exact split, fades near edges and labels final s
   assert.match(review, /comparisonWipeGripOpacity\(width, grip\.offsetWidth \|\| 180, amount\)/);
   assert.match(review, /comparisonWipeVisibleState\(amount, resultLabel\)/);
   assert.doesNotMatch(review, /comparisonWipeGripOffset/);
-  assert.match(css, /\.cleanup-exact-wipe-handle,\s*\.denoise-review-wipe-handle \{/);
+  assert.match(css, /\.cleanup-exact-wipe-handle \{/);
   assert.match(css, /\.wipe-current-view\s*\{/);
   assert.match(css, /\.wipe-grip-side\s*\{[\s\S]*?color:#fff/);
   const contrast = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/review-contrast.js'), 'utf8');

@@ -78,7 +78,6 @@ function comparisonContrastCaption(mode, lang = 'de') {
  * Clicking the enlarged picture again closes it. Escape works via dialog.
  */
 const comparisonLightboxSelector =
-  '.denoise-review-media img, .denoise-review-media canvas, ' +
   '.fi-exact-media img, .fi-exact-media canvas, .cleanup-source-still img';
 
 function comparisonLightboxOpen(target) {

@@ -1,616 +1,177 @@
-/* Extended Remove Noise (A/B/C + exact still + wipe + directional bars). */
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const path = require('node:path');
-
-const root = path.resolve(__dirname, '..');
-const compare = fs.readFileSync(path.join(root,'ai_remaster_gui/static/js/render-denoise.js'),'utf8');
-const review = fs.readFileSync(path.join(root,'ai_remaster_gui/static/js/denoise-review.js'),'utf8');
-const contrast = fs.readFileSync(path.join(root,'ai_remaster_gui/static/js/review-contrast.js'),'utf8');
-const html = fs.readFileSync(path.join(root,'ai_remaster_gui/static/index.html'),'utf8');
-const css = fs.readFileSync(path.join(root,'ai_remaster_gui/static/styles.css'),'utf8');
-const api = fs.readFileSync(path.join(root,'ai_remaster_gui/http_handler.py'),'utf8');
-
-const context = vm.createContext({
-  state:{settings:{global:{source:'evaluation/Neighbors_72.mkv'}},stages:[]},
+/* Unified Remove Noise comparison; Clean Up and Detail keep their own paths. */
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const read=file=>fs.readFileSync(path.join(root,file),'utf8');
+const compare=read('ai_remaster_gui/static/js/render-denoise.js');
+const workspace=read('ai_remaster_gui/static/js/denoise-workspace.js');
+const review=read('ai_remaster_gui/static/js/denoise-review.js');
+const contrast=read('ai_remaster_gui/static/js/review-contrast.js');
+const html=read('ai_remaster_gui/static/index.html');
+const context=vm.createContext({state:{settings:{global:{}},stages:[]},
   document:{querySelector:()=>null,querySelectorAll:()=>[],getElementById:()=>null},
-  esc:x=>String(x).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
-});
-vm.runInContext(compare+'\n'+contrast+'\n'+review, context);
+  esc:x=>String(x).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')});
+vm.runInContext(read('ai_remaster_gui/static/js/review-zoom.js')+'\n'+compare+'\n'+workspace+'\n'+contrast+'\n'+review,context);
 
-test('main page retains A/B/C and adds exact review under it only for denoise',()=>{
-  assert.match(compare,/st\.key === 'denoise' \? denoiseReviewHtml\(candidates\)/);
-  assert.match(compare,/denoiseCompareLayout/);
+test('one comparison owns exact stills, shared transport, zoom, grid and wipe',()=>{
+  assert.doesNotMatch(compare,/denoiseReviewHtml|Exact frame review|Inspect this frame exactly/);
+  assert.doesNotMatch(review,/createReviewZoom|data-dr-timeline|data-dr-prev|scrollIntoView/);
+  assert.equal((compare.match(/id="denoiseComparePlay"/g)||[]).length,1);
+  assert.equal((compare.match(/id="denoiseCompareSeek"/g)||[]).length,1);
+  assert.match(compare,/data-ds-exact/);
+  assert.match(workspace,/\['wipe','Wipe'\]/);
+  assert.match(workspace,/data-ds-wipe="\$\{slot\}" role="slider"/);
+  assert.match(workspace,/denoiseWorkspaceSetExact\(true\)/);
+  assert.match(workspace,/denoise-results-grid/);
+  assert.match(workspace,/denoise-original-column/);
+  assert.doesNotMatch(workspace,/<select/);
+  assert.ok(html.indexOf('review-contrast.js')<html.indexOf('denoise-review.js'));
+  assert.ok(html.indexOf('frame-inspector.js')<html.indexOf('denoise-review.js'));
+});
+
+test('Detail still uses legacy A/B/C layout, independent of matrix membership',()=>{
+  assert.match(compare,/if \(active === 'denoise'\) \{\s*denoiseWorkspaceRender\(candidates\)/);
   assert.match(compare,/denoise-layout-\$\{denoiseCompareLayout\}/);
-  assert.match(compare,/denoiseReviewStart\(\)/);
-  assert.match(html, /<script src="\/static\/js\/frame-inspector.js"><\/script>/);
-  assert.match(html, /<script src="\/static\/js\/denoise-review.js"><\/script>/);
-  assert.ok(html.indexOf('frame-inspector.js') < html.indexOf('denoise-review.js'));
-  assert.match(css,/\.denoise-review-stills/);
-  assert.match(css,/dialog\.comparison-review-lightbox/);
-  assert.match(html,/<script src="\/static\/js\/review-contrast.js"><\/script>/);
-  assert.ok(html.indexOf('review-contrast.js') < html.indexOf('frame-inspector.js'));
-  assert.match(css,/\.denoise-layout-ac .denoise-compare-panel:nth-child\(2\)/);
+  const previous=context.document;
+  const classes=new Set(['denoise-layout-abc']);
+  context.document={getElementById:()=>null,querySelector:()=>({classList:{add:value=>classes.add(value),remove:(...values)=>values.forEach(value=>classes.delete(value))}})};
+  try {
+    context.denoiseCompareSetLayout('ac');assert.ok(classes.has('denoise-layout-ac'));
+    context.denoiseCompareSetLayout('junk');assert.ok(classes.has('denoise-layout-abc'));
+  }finally{context.document=previous}
 });
 
-test('batch UI runs all nine algorithms/presets and offers finished ZIP comparison',()=>{
-  context.state.denoise_matrix={ready:4,total:9,download:true,filename:'comparison.zip'};
+test('batch UI keeps validated exports and separate pipeline adoption',()=>{
+  context.state.denoise_matrix={ready:4,total:9,download:true};
   const markup=context.denoiseMatrixHtml();
   assert.match(markup,/Render all 9 variants/);
   assert.match(markup,/Create frame grids as ZIP/);
   assert.match(markup,/\/api\/denoise-grid-download/);
   assert.match(markup,/4\/9 rendered/);
-  assert.match(markup,/pixel-difference PNGs at source resolution/);
-  assert.match(markup,/role="radiogroup"/);
-  assert.match(markup,/data-denoise-cell/);
-  assert.match(markup,/Use as stage output/);
-  assert.match(compare,/postJson\('\/api\/denoise-batch', \{\}\)/);
-  assert.match(compare,/postJson\('\/api\/denoise-grid', \{frames\}\)/);
-  assert.match(compare,/^function denoiseMatrixHtml\(/m);
+  assert.equal((markup.match(/role="checkbox"/g)||[]).length,9);
+  assert.match(markup,/Use for pipeline/);
   assert.match(compare,/values\.length > 5/);
   assert.match(compare,/new Set\(values\)\.size/);
-  const handler=fs.readFileSync(path.join(root,'ai_remaster_gui/http_handler.py'),'utf8');
-  assert.match(handler,/parsed\.path == "\/api\/denoise-batch"/);
-  assert.match(handler,/parsed\.path == "\/api\/denoise-grid"/);
-  assert.match(handler,/parsed\.path == "\/api\/denoise-grid-download"/);
   context.state.denoise_matrix={};
 });
 
-test('variant selection excludes Original/partials; no output means a factual empty state',()=>{
-  const withNoOutput=context.denoiseReviewHtml([{path:'evaluation/Neighbors_72.mkv',label:'Original'}]);
-  assert.match(withNoOutput,/No finished Remove Noise variant/);
-  const choices=[
-    {path:'evaluation/Neighbors_72.mkv',label:'Original'},
-    {path:'intermediate/denoised/Neighbors_hqdn3d_gentle.mkv',label:'HQDN3D'},
-    {path:'intermediate/denoised/Neighbors_nlmeans_gentle.partial.mkv',label:'Unfinished'},
-    {path:'intermediate/denoised/Neighbors_nlmeans_gentle.mkv',label:'NLMeans'},
-  ];
-  const variants=context.denoiseReviewVariants(choices);
-  assert.deepEqual(variants.map(x=>x.label),['HQDN3D','NLMeans']);
-  const markup=context.denoiseReviewHtml(choices);
-  assert.match(markup,/Frame changes/);
-  assert.match(markup,/Wipe comparison/);
-  assert.match(markup,/Left <strong>ORIGINAL<\/strong>, right <strong>RESULT<\/strong>/);
-  assert.match(markup,/class="denoise-review-wipe-handle" data-dr-wipe-handle/);
-  assert.match(markup,/wipe-grip-original">ORIGINAL<\/span>/);
-  assert.match(markup,/wipe-grip-result">RESULT<\/span>/);
-  assert.match(css,/\.cleanup-exact-wipe-handle,\s*\.denoise-review-wipe-handle \{[\s\S]*?border-radius:19px/);
-  assert.match(markup,/data-dr-wipe-current-view/);
-  assert.match(review,/comparisonWipeGripOpacity\(width, grip\.offsetWidth \|\| 180, denoiseReviewWipe\)/);
+test('review candidates exclude Original and partial outputs',()=>{
+  const candidates=[{path:'source.mkv',kind:'source'},
+    {path:'result.mkv',kind:'variant',label:'Ready'},
+    {path:'result.partial.mkv',kind:'variant',label:'Unfinished'}];
+  assert.deepEqual(Array.from(context.denoiseReviewVariants(candidates),item=>item.label),['Ready']);
+  assert.equal(context.denoiseReviewVariants([{path:'source.mkv',kind:'source'}]).length,0);
+  assert.match(workspace,/No matching output for the current input/);
+});
+
+test('chart validates simultaneous brightening and darkening, ordering and totals',()=>{
+  const samples=[{frame:0,mean_abs_luma:4,brighten_mean_luma:3,darken_mean_luma:1},
+    {frame:1,mean_abs_luma:5,brighten_mean_luma:2,darken_mean_luma:3}];
+  const rows=context.denoiseReviewChartRows({metric:'directional_mean_luma_8bit',frames:2,samples});
+  assert.equal(rows[0].brightHeight,100);assert.ok(rows[0].darkHeight>0);
+  assert.ok(rows[1].brightHeight>0);assert.equal(rows[1].darkHeight,100);
+  assert.throws(()=>context.denoiseReviewChartRows({metric:'directional_mean_luma_8bit',frames:2,samples:[samples[1],samples[0]]}),/Invalid/);
+  assert.throws(()=>context.denoiseReviewChartRows({metric:'directional_mean_luma_8bit',frames:2,samples:[{...samples[0],mean_abs_luma:8}]}),/Invalid/);
+});
+
+test('chart highlighting follows the shared playhead without changing exact-frame measurements',()=>{
+  const previous=context.document;
+  let selected=false;
+  const bar={dataset:{drBar:'4'},classList:{toggle(key,value){selected=value}},setAttribute(){}};
+  const chart={querySelectorAll:()=>[bar]},status={textContent:''};
+  context.document={querySelector:selector=>selector==='[data-dr-chart]'?chart:selector==='[data-dr-chart-status]'?status:null};
+  try {
+    vm.runInContext('denoiseReviewFrame=4;denoiseReviewEntries=[{frame:4,bright:1,dark:2}]',context);
+    context.denoiseReviewHighlight(4);assert.equal(selected,true);assert.equal(bar.tabIndex,0);assert.match(status.textContent,/Frame 5/);
+    context.denoiseReviewHighlight(8);assert.equal(selected,false);assert.equal(bar.tabIndex,0);assert.match(status.textContent,/Frame 9: not in the chart sample/);
+    assert.equal(vm.runInContext('denoiseReviewFrame',context),4);
+  }finally{context.document=previous}
+});
+
+test('chart navigation seeks the shared clock rather than decoding an independent inspector',()=>{
+  assert.match(review,/button\.addEventListener\('click',[\s\S]*?denoiseWorkspacePlayback\?\.seekFrame\(item.frame\)/);
+  assert.doesNotMatch(review,/denoiseReviewSelectFrame|denoiseReviewAlignVideo/);
+  assert.ok(compare.indexOf('data-dr-chart role')<compare.indexOf('id="denoiseComparePlayers"'));
+});
+
+test('transport icon and accessible label change together',()=>{
+  const previous=context.document,button={setAttribute(key,value){this[key]=value}};
+  context.document={getElementById:()=>button};
+  try {
+    context.denoiseCompareSetPlaying(true);assert.equal(button['aria-label'],'Pause all');assert.match(button.innerHTML,/M8 5v14M16 5v14/);
+    context.denoiseCompareSetPlaying(false);assert.equal(button['aria-label'],'Play all');assert.match(button.innerHTML,/m8 5 11 7-11 7Z/);
+  }finally{context.document=previous}
+});
+
+test('legacy stepping clamps one- and ten-frame moves to clip boundaries',()=>{
+  const previous={videos:context.denoiseCompareVideos,seek:context.denoiseCompareSeek,state:context.state};
+  const video={readyState:4,currentTime:1};let target;
+  context.denoiseCompareVideos=()=>[video];context.denoiseCompareSeek=value=>{target=value};context.state={source_info:{fps:'25'}};
+  try {
+    vm.runInContext("active='detail';denoiseCompareEffectiveLength=2",context);
+    for(const [frames,expected] of [[-10,.6],[-1,.96],[1,1.04],[10,1.4]]) {context.denoiseCompareStep(frames);assert.ok(Math.abs(target-expected)<1e-9)}
+    video.currentTime=.1;context.denoiseCompareStep(-10);assert.equal(target,0);
+    video.currentTime=1.9;context.denoiseCompareStep(10);assert.equal(target,2);
+  }finally{context.denoiseCompareVideos=previous.videos;context.denoiseCompareSeek=previous.seek;context.state=previous.state}
+});
+
+test('difference modes and amplification reject unsupported values',()=>{
+  context.denoiseCompareSetDiffMode('rainbow');assert.equal(vm.runInContext('denoiseCompareDiffMode',context),'direction');
+  context.denoiseCompareSetDiffMode('rgb');assert.equal(vm.runInContext('denoiseCompareDiffMode',context),'rgb');
+  context.denoiseCompareSetDiffContrast(16);assert.equal(vm.runInContext('denoiseCompareDiffContrast',context),32);
+  context.denoiseCompareSetDiffContrast(64);assert.equal(vm.runInContext('denoiseCompareDiffContrast',context),64);
+  context.denoiseCompareSetDiffMode('direction');context.denoiseCompareSetDiffContrast(32);
+});
+
+test('pixel differences preserve raw inputs and distinguish signed luma from RGB changes',()=>{
+  const a=Uint8ClampedArray.from([100,100,100,255,100,100,100,255,100,100,100,255]);
+  const b=Uint8ClampedArray.from([100,100,100,255,101,101,101,255,99,99,99,255]);
+  const original=Array.from(a),result=Array.from(b);
+  const mapped=context.comparisonContrastPixels(a,b,3,1,'direction',32);
+  assert.deepEqual(Array.from(mapped.slice(0,4)),[15,23,31,255]);
+  assert.ok(mapped[5]>60 && mapped[6]>60 && mapped[4]<mapped[5]);
+  assert.ok(mapped[8]>60 && mapped[8]>mapped[9]);
+  assert.deepEqual(Array.from(a),original);assert.deepEqual(Array.from(b),result);
+  assert.ok(context.comparisonContrastPixels(a,b,3,1,'direction',8)[5]<mapped[5]);
+  const rgb=context.comparisonContrastPixels(Uint8ClampedArray.from([10,20,30,255]),Uint8ClampedArray.from([11,20,30,255]),1,1,'rgb',32);
+  assert.ok(rgb[0]>60);assert.equal(rgb[1],0);assert.equal(rgb[2],0);
+  assert.throws(()=>context.comparisonContrastPixels(a,b,3,1,'rainbow',32));
+  assert.throws(()=>context.comparisonContrastPixels(a,b,6,1,'rgb',32));
+});
+
+test('wipe endpoints are factual and the grip fades at both image edges',()=>{
   assert.equal(context.comparisonWipeGripOpacity(640,180,0),0);
   assert.equal(context.comparisonWipeGripOpacity(640,180,50),1);
   assert.equal(context.comparisonWipeGripOpacity(640,180,100),0);
-  assert.equal(context.comparisonWipeVisibleState(0),'NUR ERGEBNIS · 100 %');
-  assert.equal(context.comparisonWipeVisibleState(100),'NUR ORIGINAL · 100 %');
   assert.equal(context.comparisonWipeVisibleState(0,'RESULT','en'),'ONLY RESULT · 100%');
   assert.equal(context.comparisonWipeVisibleState(100,'RESULT','en'),'ONLY ORIGINAL · 100%');
-  assert.match(markup,/PIXEL DIFFERENCE · amplified/);
-  assert.match(markup,/data-dr-diff-mode/);
-  assert.match(markup,/RGB: change per channel/);
-  assert.match(markup,/data-dr-diff-contrast/);
-  assert.match(markup,/Exact frame review/);
-  assert.doesNotMatch(markup,/Unfinished/);
 });
 
-test('directional chart shows simultaneous brightening and darkening',()=>{
-  const samples=[
-    {frame:0,mean_abs_luma:4,brighten_mean_luma:3,darken_mean_luma:1},
-    {frame:1,mean_abs_luma:5,brighten_mean_luma:2,darken_mean_luma:3},
-    {frame:2,mean_abs_luma:2,brighten_mean_luma:0,darken_mean_luma:2}
-  ];
-  const rows=context.denoiseReviewChartRows({metric:'directional_mean_luma_8bit',frames:3,samples});
-  assert.equal(rows.length,3);
-  assert.equal(rows[0].brightHeight,100);
-  assert.ok(rows[0].darkHeight>0);
-  assert.ok(rows[1].brightHeight>0);
-  assert.equal(rows[2].brightHeight,0);
-  assert.throws(()=>context.denoiseReviewChartRows({
-    metric:'directional_mean_luma_8bit',frames:3,
-    samples:[samples[1],samples[0]]
-  }),/Invalid/);
-  assert.throws(()=>context.denoiseReviewChartRows({
-    metric:'directional_mean_luma_8bit',frames:3,
-    samples:[{frame:0,mean_abs_luma:5,brighten_mean_luma:5,darken_mean_luma:5}]
-  }),/Invalid/);
-});
-
-test('server API remains read-only and validates signed denoise output',()=>{
-  assert.match(api,/parsed\.path == "\/api\/denoise-inspector"/);
-  assert.match(api,/parsed\.path == "\/api\/denoise-frame-differences"/);
-  const backend=fs.readFileSync(path.join(root,'ai_remaster_gui/denoise_review.py'),'utf8');
-  assert.match(backend,/provenance\.get\("tool"\) != "denoise_video\.py"/);
-  assert.match(backend,/provenance\.get\("source"/);
-  assert.match(backend,/is_unfinished_media_artifact\(output\)/);
-  assert.match(backend,/output\.resolve\(\)\.parent != _OUTPUTS\.resolve\(\)/);
-  assert.match(backend,/inspect_denoise/);
-  assert.match(review,/cleanupDifferencePixels/);
-  assert.match(review,/denoiseReviewAlignVideo/);
-});
-
-test('layout controls select enlarged A/B or A/C without removing video data',()=>{
-  vm.runInContext("denoiseCompareLayout = 'abc'",context);
-  const classes=new Set(['denoise-compare-grid','denoise-layout-abc']);
-  context.document.querySelector=()=>({classList:{
-    add(x){classes.add(x)},remove(...values){values.forEach(v=>classes.delete(v))}
-  }});
-  context.denoiseCompareSetLayout('ac');
-  assert.equal(vm.runInContext('denoiseCompareLayout',context),'ac');
-  assert.ok(classes.has('denoise-layout-ac'));
-  assert.ok(!classes.has('denoise-layout-abc'));
-  context.denoiseCompareSetLayout('junk');
-  assert.equal(vm.runInContext('denoiseCompareLayout',context),'abc');
-});
-
-test('raw image differences remain exact while RGB and signed false colors gain contrast',()=>{
-  const a=Uint8ClampedArray.from([100,100,100,255,100,100,100,255,100,100,100,255]);
-  const b=Uint8ClampedArray.from([100,100,100,255,101,101,101,255,99,99,99,255]);
-  const orig=Array.from(a), rendered=Array.from(b);
-  const directional=context.comparisonContrastPixels(a,b,3,1,'direction',32);
-  const brighter=directional.slice(4,8);
-  const darker=directional.slice(8,12);
-  assert.deepEqual(Array.from(directional.slice(0,4)),[15,23,31,255]);
-  assert.ok(brighter[1]>60 && brighter[2]>60 && brighter[0]<brighter[1]);
-  assert.ok(darker[0]>60 && darker[1]>20 && darker[0]>darker[1]);
-  assert.deepEqual(Array.from(a),orig);
-  assert.deepEqual(Array.from(b),rendered);
-  const lower=context.comparisonContrastPixels(a,b,3,1,'direction',8);
-  assert.ok(lower[5]<directional[5]);
-  const rgb=context.comparisonContrastPixels(
-    Uint8ClampedArray.from([10,20,30,255]),
-    Uint8ClampedArray.from([11,20,30,255]),1,1,'rgb',32);
-  assert.ok(rgb[0]>60);
-  assert.equal(rgb[1],0);
-  assert.equal(rgb[2],0);
-  assert.equal(rgb[3],255);
-  assert.throws(()=>context.comparisonContrastPixels(a,b,3,1,'rainbow',32),/Ungültige/);
-  assert.throws(()=>context.comparisonContrastPixels(a,b,3,1,'rgb',0),/Ungültige/);
-  assert.throws(()=>context.comparisonContrastPixels(a,b,6,1,'rgb',32),/Ungültige/);
-});
-
-test('the enlarged still dialog closes on clicking the image again',()=>{
-  const title={textContent:''};
-  const image={src:'',id:'large',closest(){return null}};
-  const closer={focus(){this.focused=true}};
-  const handlers={};
-  let modal=false, removed=false, restored=false;
-  const dialog={
-    className:'',innerHTML:'',attrs:{},
-    setAttribute(key,value){this.attrs[key]=value},
-    querySelector(key){
-      return key==='[data-lightbox-title]' ? title
-        : key==='[data-lightbox-image]' ? image : closer;
-    },
-    addEventListener(kind,func){handlers[kind]=func},
-    showModal(){modal=true},
-    close(){modal=false;handlers.close?.()},
-    remove(){removed=true},
-  };
-  const old=context.document;
-  context.document={
-    querySelector(){return null},
-    createElement(tag){assert.equal(tag,'dialog');return dialog},
-    activeElement:{isConnected:true,focus(){restored=true}},
-    body:{appendChild(element){assert.equal(element,dialog)}},
-  };
-  const clicked={
-    tagName:'CANVAS',width:960,height:720,
-    toDataURL(){return 'data:image/png;base64,iVBORw0KGgo='},
-    closest(){return {querySelector(){return {textContent:'PIXELDIFFERENZ'}}}},
-    getAttribute(){return null},
-  };
-  try {
-    assert.equal(context.comparisonLightboxOpen(clicked),true);
-    assert.equal(modal,true);
-    assert.equal(title.textContent,'PIXELDIFFERENZ');
-    assert.ok(image.src.startsWith('data:image/png;'));
-    assert.equal(closer.focused,true);
-    handlers.click({target:image});
-    assert.equal(modal,false);
-    assert.equal(removed,true);
-    assert.equal(restored,true);
-  } finally {
-    context.document=old;
-  }
-});
-
-test('Remove Noise wipe drags continuously to both edges and releases capture',()=>{
-  const previousDocument=context.document;
-  const previousSelect=context.denoiseReviewSelectFrame;
-  const previousChart=context.denoiseReviewLoadChart;
-  const listeners={};
-  const activePointers=new Set();
-  const picture={
-    addEventListener(name,handler){listeners[name]=handler},
-    getBoundingClientRect(){return {left:100,width:200}},
-    setPointerCapture(id){activePointers.add(id)},
-    hasPointerCapture(id){return activePointers.has(id)},
-    releasePointerCapture(id){activePointers.delete(id)},
-  };
-  const processed={style:{}},divider={style:{}};
-  const slider={value:''},status={textContent:''};
-  const elements={
-    '[data-dr-variant]':{},
-    '[data-dr-wipe-picture]':picture,
-    '[data-dr-wipe-after]':processed,
-    '[data-dr-wipe-divider]':divider,
-    '[data-dr-wipe-position]':slider,
-    '[data-dr-wipe-status]':status,
-  };
-  const root={
-    style:{setProperty(){}},
-    querySelector(selector){return elements[selector]||null},
-  };
-  const event=(x,id=7)=>({
-    clientX:x,pointerId:id,pointerType:'mouse',button:0,
-    preventDefault(){this.prevented=true},
-  });
-  try {
-    context.document={querySelector:()=>root};
-    context.denoiseReviewSelectFrame=()=>{};
-    context.denoiseReviewLoadChart=()=>{};
-    context.denoiseReviewStart();
-    const down=event(160);
-    listeners.pointerdown(down);
-    assert.equal(down.prevented,true);
-    assert.equal(activePointers.has(7),true);
-    assert.equal(slider.value,'30');
-    // A second finger must not steal the drag or move the split.
-    listeners.pointerdown(event(320,22));
-    assert.equal(activePointers.has(22),false);
-    assert.equal(slider.value,'30');
-    listeners.pointermove(event(500,22));
-    assert.equal(slider.value,'30');
-    listeners.pointermove(event(260));
-    assert.equal(slider.value,'80');
-    listeners.pointermove(event(400));
-    assert.equal(slider.value,'100');
-    assert.equal(divider.style.left,'100%');
-    assert.equal(processed.style.clipPath,'inset(0 0 0 100%)');
-    listeners.pointermove(event(20));
-    assert.equal(slider.value,'0');
-    assert.equal(processed.style.clipPath,'inset(0 0 0 0%)');
-    listeners.pointerup(event(20));
-    assert.equal(activePointers.has(7),false);
-    listeners.pointermove(event(200));
-    assert.equal(slider.value,'0');
-    listeners.pointerdown(event(200));
-    listeners.pointercancel(event(200));
-    assert.equal(activePointers.has(7),false);
-    // A lost capture ends the gesture; the next drag starts cleanly.
-    listeners.pointerdown(event(120,9));
-    assert.equal(activePointers.has(9),true);
-    listeners.lostpointercapture(event(120,9));
-    assert.equal(activePointers.has(9),false);
-    listeners.pointermove(event(300,9));
-    assert.equal(slider.value,'10');
-    listeners.pointerdown(event(170,9));
-    assert.equal(activePointers.has(9),true);
-    assert.equal(slider.value,'35');
-    listeners.pointerup(event(170,9));
-    assert.equal(activePointers.has(9),false);
-    context.denoiseReviewSetZoom('2');
-    context.denoiseReviewSetWipe('100');
-    assert.equal(processed.style.clipPath,'inset(0 0 0 75%)');
-    assert.equal(divider.style.left,'100%');
-    assert.match(css,/\.denoise-review-wipe-picture \{[\s\S]*?touch-action:none/);
-    assert.match(css,/\.denoise-review-wipe-picture img \{[\s\S]*?pointer-events:none/);
-  } finally {
-    context.document=previousDocument;
-    context.denoiseReviewSelectFrame=previousSelect;
-    context.denoiseReviewLoadChart=previousChart;
-  }
-});
-
-test('rendered difference key follows pair, range, and display settings',()=>{
-  vm.runInContext("denoiseCompareDiffMode='direction';denoiseCompareDiffContrast=32",context);
-  assert.equal(context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),'a.mkv|b.mkv|0.000|2.400|direction|32');
-  assert.notEqual(
-    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
-    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,4),
-  );
-  assert.notEqual(
-    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
-    context.denoiseCompareDiffKeyFor('a.mkv','c.mkv',0,2.4),
-  );
-  assert.notEqual(
-    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
-    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4,'rgb',32),
-  );
-  assert.notEqual(
-    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
-    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4,'direction',64),
-  );
-});
-
-test('live change display validates mode and amplification',()=>{
-  const previousMode=vm.runInContext('denoiseCompareDiffMode',context);
-  const previousContrast=vm.runInContext('denoiseCompareDiffContrast',context);
-  try {
-    context.denoiseCompareSetDiffMode('rainbow');
-    assert.equal(vm.runInContext('denoiseCompareDiffMode',context),'direction');
-    context.denoiseCompareSetDiffMode('rgb');
-    assert.equal(vm.runInContext('denoiseCompareDiffMode',context),'rgb');
-    context.denoiseCompareSetDiffContrast(16);
-    assert.equal(vm.runInContext('denoiseCompareDiffContrast',context),32);
-    context.denoiseCompareSetDiffContrast(64);
-    assert.equal(vm.runInContext('denoiseCompareDiffContrast',context),64);
-  } finally {
-    vm.runInContext(`denoiseCompareDiffMode=${JSON.stringify(previousMode)};denoiseCompareDiffContrast=${previousContrast}`,context);
-  }
-});
-
-test('exact-frame bridge maps preview time to a source frame',()=>{
-  assert.equal(context.denoiseCompareFrameAt(1.5,10,24),276);
-  assert.equal(context.denoiseCompareFrameAt(-4,10,24),240);
-  assert.equal(context.denoiseCompareFrameAt(1,0,0),null);
-  assert.equal(context.denoiseCompareFrameAt('x',0,24),null);
-});
-
-test('exact-frame bridge reads the decoded frame rate before source metadata',()=>{
+test('decoded frame rate takes priority over source metadata, including fractional rates',()=>{
   const previous=context.state;
   try {
-    context.state={source_info:{fps:'24'},settings:{global:{}},stages:[]};
-    vm.runInContext('denoiseReviewFps=0',context);
-    assert.equal(context.denoiseCompareFps(),24);
-    vm.runInContext('denoiseReviewFps=24000/1001',context);
-    assert.ok(Math.abs(context.denoiseCompareFps()-23.976)<0.001);
-    context.state={source_info:{fps:'30000/1001'},settings:{global:{}},stages:[]};
-    vm.runInContext('denoiseReviewFps=0',context);
-    assert.ok(Math.abs(context.denoiseCompareFps()-29.97)<0.001);
-  } finally {
-    context.state=previous;
-    vm.runInContext('denoiseReviewFps=0',context);
-  }
+    context.state={source_info:{fps:'30000/1001'}};
+    vm.runInContext('denoiseReviewFps=0',context);assert.ok(Math.abs(context.denoiseCompareFps()-29.97)<.001);
+    vm.runInContext('denoiseReviewFps=24000/1001',context);assert.ok(Math.abs(context.denoiseCompareFps()-23.976)<.001);
+  }finally{context.state=previous;vm.runInContext('denoiseReviewFps=0',context)}
 });
 
-test('exact-frame inspection is only offered for a distinct finished variant',()=>{
-  const previous=vm.runInContext('denoiseComparePaths.slice()',context);
-  try {
-    vm.runInContext("denoiseComparePaths=['source.mkv','source.mkv','variant.mkv']",context);
-    assert.equal(context.denoiseCompareInspectable(1),false);
-    assert.equal(context.denoiseCompareInspectable(2),true);
-    vm.runInContext("denoiseComparePaths=['source.mkv','','variant.partial.mkv']",context);
-    assert.equal(context.denoiseCompareInspectable(1),false);
-    assert.equal(context.denoiseCompareInspectable(2),false);
-  } finally {
-    vm.runInContext(`denoiseComparePaths=${JSON.stringify(previous)}`,context);
-  }
+test('server inspection remains read-only and verifies signed output lineage',()=>{
+  const api=read('ai_remaster_gui/http_handler.py'),backend=read('ai_remaster_gui/denoise_review.py');
+  assert.match(api,/parsed\.path == "\/api\/denoise-inspector"/);
+  assert.match(backend,/provenance\.get\("tool"\) != "denoise_video\.py"/);
+  assert.match(backend,/output\.resolve\(\)\.parent != _OUTPUTS\.resolve\(\)/);
+  assert.match(backend,/is_unfinished_media_artifact\(output\)/);
+  assert.match(review,/cleanupDifferencePixels/);
 });
 
-test('inspect-frame bridge pauses playback and opens the C frame exactly',()=>{
-  const previousDocument=context.document;
-  const previousPaths=vm.runInContext('denoiseComparePaths.slice()',context);
-  const previousVideos=context.denoiseCompareVideos;
-  const previousInspect=context.denoiseReviewInspectFrame;
-  const previousSync=context.denoiseMatrixSyncFromPath;
-  const previousActive=vm.runInContext("typeof active==='string'?active:null",context);
-  const calls=[],paused=[];
-  context.document={
-    getElementById(id){
-      if(id==='denoiseCompareVideo0')return {currentTime:1.5};
-      if(id==='denoiseCompareDiffVideo1'||id==='denoiseCompareDiffVideo2')return {pause(){paused.push('diff')}};
-      return null;
-    },
-    querySelector(){return null},
-    querySelectorAll(){return []},
-  };
-  context.denoiseCompareVideos=()=>[{pause(){paused.push('preview')}}];
-  context.denoiseReviewInspectFrame=(path,frame)=>{calls.push({path,frame});return true};
-  context.denoiseMatrixSyncFromPath=path=>calls.push({sync:path});
-  try {
-    vm.runInContext("active='denoise';denoiseComparePaths=['a.mkv','b.mkv','c.mkv'];denoiseCompareStart=10;denoiseCompareLength=4;denoiseCompareEffectiveLength=2;denoiseReviewFps=24",context);
-    context.denoiseCompareInspectFrame(2);
-    assert.deepEqual(calls,[{path:'c.mkv',frame:276},{sync:'c.mkv'}]);
-    assert.deepEqual(paused,['preview','diff','diff']);
-  } finally {
-    context.document=previousDocument;
-    context.denoiseCompareVideos=previousVideos;
-    context.denoiseReviewInspectFrame=previousInspect;
-    context.denoiseMatrixSyncFromPath=previousSync;
-    vm.runInContext(`denoiseComparePaths=${JSON.stringify(previousPaths)};active=${JSON.stringify(previousActive)}`,context);
-  }
-});
-
-test('exact-review inspect selects the variant at the requested frame',()=>{
-  const previousDocument=context.document;
-  const previousValid=context.denoiseReviewPathValid;
-  const previousChoose=context.denoiseReviewChoose;
-  const previousSelect=context.denoiseReviewSelectFrame;
-  const calls=[];
-  const root={scrolled:false,focused:false,scrollIntoView(){this.scrolled=true},focus(){this.focused=true}};
-  context.document={querySelector:selector=>selector==='[data-denoise-review]'?root:null};
-  context.denoiseReviewPathValid=()=>true;
-  context.denoiseReviewChoose=(path,preserveFrame,syncVideos)=>{
-    calls.push({kind:'choose',path,preserveFrame,syncVideos});
-  };
-  context.denoiseReviewSelectFrame=(frame,syncVideos)=>{
-    calls.push({kind:'frame',frame,syncVideos});
-  };
-  try {
-    vm.runInContext("denoiseReviewVariant='old.mkv';denoiseReviewPhase='ready';denoiseReviewCount=0",context);
-    assert.equal(context.denoiseReviewInspectFrame('new.mkv',42),true);
-    assert.deepEqual(calls,[{kind:'choose',path:'new.mkv',preserveFrame:true,syncVideos:true}]);
-    assert.equal(root.scrolled,true);
-    assert.equal(root.focused,true);
-
-    vm.runInContext("denoiseReviewVariant='new.mkv';denoiseReviewPhase='ready';denoiseReviewCount=0",context);
-    calls.length=0;
-    context.denoiseReviewInspectFrame('new.mkv',7);
-    assert.deepEqual(calls,[{kind:'frame',frame:7,syncVideos:true}]);
-  } finally {
-    context.document=previousDocument;
-    context.denoiseReviewPathValid=previousValid;
-    context.denoiseReviewChoose=previousChoose;
-    context.denoiseReviewSelectFrame=previousSelect;
-  }
-});
-
-test('A/B/C panels keep independent live change previews in B and C',()=>{
-  assert.match(compare,/denoiseCompareDiffToggle\$\{i\}/);
-  assert.match(compare,/denoiseCompareDiffVideo\$\{i\}/);
-  assert.match(compare,/denoiseCompareDiffStatus\$\{i\}/);
-  assert.match(compare,/data-dc-diff-slot="\$\{i\}"/);
-  assert.match(compare,/denoiseCompareDiffLabel\(i\)/);
-  assert.match(compare,/denoiseCompareDiffMode/);
-  assert.match(compare,/denoiseCompareDiffContrast/);
-  assert.match(compare,/Live change display/);
-  assert.match(compare,/denoiseCompareInspectFrame\(\$\{i\}\)/);
-  assert.match(compare,/data-dc-inspect="\$\{i\}"/);
-  assert.match(compare,/Inspect this frame exactly/);
-  assert.match(compare,/const exactReview = active === 'denoise'/);
-  assert.match(compare,/const denoiseCompareDiffState = \{/);
-  assert.doesNotMatch(compare,/id="denoiseCompareDiff"/);
-  assert.doesNotMatch(compare,/denoiseComparePairIndex/);
-});
-
-test('A/B/C zoom pans the shared crop within the picture bounds',()=>{
-  const previousDocument=context.document;
-  const classes=new Set();
-  const video={style:{transform:''}};
-  const wrap={
-    clientWidth:400,clientHeight:300,
-    classList:{
-      add(...values){values.forEach(value=>classes.add(value))},
-      remove(...values){values.forEach(value=>classes.delete(value))},
-      toggle(value,on){on?classes.add(value):classes.delete(value)},
-    },
-    querySelectorAll(selector){return selector==='video'?[video]:[]},
-  };
-  const reset={hidden:true};
-  context.document={
-    querySelector(selector){return selector==='[data-dc-pan-reset]'?reset:null},
-    querySelectorAll(selector){return selector==='.denoise-compare-video-wrap'?[wrap]:[]},
-    getElementById(){return null},
-  };
-  try {
-    vm.runInContext("denoiseCompareZoom=2; denoiseComparePan={x:0.5,y:-0.5}",context);
-    context.denoiseCompareApplyTransform();
-    assert.equal(video.style.transform,'translate3d(100.00px, -75.00px, 0) scale(2)');
-    assert.ok(classes.has('is-zoomed'));
-    assert.equal(reset.hidden,false);
-    vm.runInContext("denoiseCompareZoom=1",context);
-    context.denoiseCompareApplyTransform();
-    assert.equal(video.style.transform,'');
-    assert.ok(!classes.has('is-zoomed'));
-    assert.equal(reset.hidden,true);
-    assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('denoiseComparePan',context))),{x:0,y:0});
-  } finally {
-    context.document=previousDocument;
-  }
-});
-
-test('pointer drag pans all three previews and releases capture',()=>{
-  const previousDocument=context.document;
-  const classes=new Set();
-  const video={style:{transform:''}};
-  const wrap={
-    clientWidth:400,clientHeight:300,
-    classList:{
-      add(...values){values.forEach(value=>classes.add(value))},
-      remove(...values){values.forEach(value=>classes.delete(value))},
-      toggle(value,on){on?classes.add(value):classes.delete(value)},
-    },
-    querySelectorAll(selector){return selector==='video'?[video]:[]},
-  };
-  const host={
-    setPointerCapture(id){this.captured=id},
-    hasPointerCapture(id){return this.captured===id},
-    releasePointerCapture(id){this.released=id},
-    addEventListener(){},
-  };
-  context.document={
-    querySelector(){return null},
-    querySelectorAll(selector){return selector==='.denoise-compare-video-wrap'?[wrap]:[]},
-    getElementById(id){return id==='denoiseComparePlayers'?host:null},
-  };
-  try {
-    vm.runInContext("denoiseCompareZoom=2; denoiseComparePan={x:0,y:0}; denoiseComparePanDrag=null",context);
-    let prevented=false;
-    context.denoiseComparePanStart({
-      pointerId:7,pointerType:'mouse',button:0,clientX:100,clientY:100,
-      target:{closest(){return wrap}},currentTarget:host,
-      preventDefault(){prevented=true},
-    });
-    assert.equal(prevented,true);
-    assert.equal(host.captured,7);
-    assert.ok(classes.has('is-panning'));
-    context.denoiseComparePanMove({pointerId:7,clientX:200,clientY:200,preventDefault(){}});
-    assert.equal(video.style.transform,'translate3d(100.00px, 100.00px, 0) scale(2)');
-    context.denoiseComparePanEnd({type:'pointerup',pointerId:7});
-    assert.equal(host.released,7);
-    assert.ok(!classes.has('is-panning'));
-    assert.equal(vm.runInContext('denoiseComparePanDrag',context),null);
-  } finally {
-    context.document=previousDocument;
-  }
-});
-
-test('exact review holds stale evidence instead of relabelling it',()=>{
-  const previousState=context.state;
-  const files=[
-    {path:'intermediate/denoised/Neighbors_denoised_hqdn3d_gentle_abc123.mkv'},
-    {path:'intermediate/denoised/Neighbors_denoised_bm3d_strong_def456.mkv'},
-  ];
-  try {
-    context.state={
-      settings:{global:{source:'evaluation/Neighbors_72.mkv'},denoise:{method:'off',preset:'gentle'}},
-      stages:[{key:'denoise',files}],
-      denoise_matrix:{variants:[{method:'hqdn3d',preset:'gentle'},{method:'bm3d',preset:'strong'}]},
-    };
-    const candidates=context.denoiseCompareCandidates(context.state.stages[0]);
-    vm.runInContext("denoiseMatrixSelected = null",context);
-    const off=context.denoiseReviewHtml(candidates);
-    assert.match(off,/data-dr-hold role="status"/);
-    assert.match(off,/Remove Noise is off/);
-    assert.match(off,/data-dr-body hidden/);
-    assert.match(off,/<strong data-dr-current-variant>Off<\/strong>/);
-
-    context.state.settings.denoise={method:'nlmeans',preset:'strong'};
-    vm.runInContext("denoiseMatrixSelected = {method:'nlmeans',preset:'strong'}",context);
-    const missing=context.denoiseReviewHtml(candidates);
-    assert.match(missing,/NLMeans · Strong has not been rendered/);
-    assert.match(missing,/data-dr-body hidden/);
-
-    context.state.settings.denoise={method:'hqdn3d',preset:'gentle'};
-    vm.runInContext("denoiseMatrixSelected = null",context);
-    const ready=context.denoiseReviewHtml(candidates);
-    assert.match(ready,/data-dr-hold role="status" hidden/);
-    assert.match(ready,/data-dr-body >/);
-    assert.match(ready,/HQDN3D · Gentle/);
-
-    assert.equal(context.denoiseReviewErrorText(
-      new Error('Ungültige Differenzdaten oder Kontrasteinstellungen.')),
-      'The pixel-difference data was invalid for these settings.');
-    assert.equal(context.denoiseReviewErrorText(
-      new Error('Bildgrößen stimmen nicht überein.')),
-      'The still images do not have identical dimensions.');
-    assert.equal(context.denoiseReviewErrorText(new Error('x'.repeat(400))).length,301);
-
-    assert.equal(context.denoiseCompareDiffLabel(1),'A–B');
-    assert.equal(context.denoiseCompareDiffLabel(2),'A–C');
-    vm.runInContext("denoiseCompareLayout='ac'",context);
-    assert.equal(context.denoiseCompareDiffVisible(1),false);
-    assert.equal(context.denoiseCompareDiffVisible(2),true);
-    vm.runInContext("denoiseCompareLayout='ab'",context);
-    assert.equal(context.denoiseCompareDiffVisible(1),true);
-    assert.equal(context.denoiseCompareDiffVisible(2),false);
-    vm.runInContext("denoiseCompareLayout='abc'",context);
-  } finally {
-    context.state=previousState;
-    vm.runInContext("denoiseCompareLayout='abc'",context);
-  }
-});
-
-test('Clean Up receives the same contrast chooser without changing measured luma',()=>{
-  const frame=fs.readFileSync(path.join(root,'ai_remaster_gui/static/js/frame-inspector.js'),'utf8');
-  assert.match(frame,/cleanupSetDifferenceMode/);
-  assert.match(frame,/cleanupSetDifferenceContrast/);
-  assert.match(frame,/comparisonContrastPixels\(a\.data,b\.data,width,height/);
+test('Clean Up retains exact stills, contrast controls and its lightbox',()=>{
+  const frame=read('ai_remaster_gui/static/js/frame-inspector.js');
+  assert.match(frame,/cleanupSetDifferenceMode/);assert.match(frame,/cleanupSetDifferenceContrast/);
   assert.match(frame,/const diff = cleanupDifferencePixels\(a\.data, b\.data, width, height\)/);
-  assert.match(frame,/data-fi-diff-mode/);
-  assert.match(frame,/data-fi-difference/);
   assert.match(contrast,/dialog\.showModal\(\)/);
   assert.match(contrast,/event\.target === dialog\.querySelector\('\[data-lightbox-image\]'\)/);
 });

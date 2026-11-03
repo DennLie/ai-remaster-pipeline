@@ -81,6 +81,14 @@ async function refresh(force = false) {
     return;
   }
 
+  // The matrix owns membership; reconcile only changed tiles, even when no output exists yet.
+  if (!force && active === 'denoise' && document.querySelector('.denoise-workspace')) {
+    updateDenoiseMatrixStatus();
+    updateRunLogs();
+    lastRenderSignature = sig;
+    return;
+  }
+
   if (!force && !editing && active === 'references' && document.getElementById('app')?.children.length) {
     updateReferencesDynamicStatus();
     updateRunLogs();

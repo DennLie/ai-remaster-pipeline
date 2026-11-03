@@ -95,6 +95,18 @@ class DenoiseReviewTests(unittest.TestCase):
             again = denoise_review.denoise_frame_differences(MinimalApp(),str(self.variant))
         self.assertEqual(first,again)
 
+    def test_original_only_still_uses_the_processing_source_without_a_result(self):
+        self.sidecar.unlink()
+        item = denoise_review.inspect_denoise(MinimalApp(), "", 8)
+        self.assertTrue(item["exact"])
+        self.assertEqual(item["method"], "off")
+        self.assertEqual(item["frame"], 8)
+        self.assertEqual(item["before"], item["after"])
+        self.assertTrue((self.folder / item["before"]).is_file())
+        for frame in (-1, True, "8"):
+            with self.subTest(frame=frame), self.assertRaises(ValueError):
+                denoise_review.inspect_denoise(MinimalApp(), "", frame)
+
     def test_reject_unsigned_stale_and_unrelated_results(self):
         self.sidecar.unlink()
         with self.assertRaisesRegex(ValueError,"provenance"):

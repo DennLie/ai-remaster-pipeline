@@ -50,7 +50,7 @@ from .manifests import (
 )
 from .commercial_policy import pipeline_issues, stage_issue
 from .models import CLEANUP_NEGATIVE_PROMPT, CLEANUP_PROMPT, COLORIZE_STAGE_KEYS, SHOT_STAGE_KEYS, STAGES, Stage, output_stage
-from .denoise_matrix import VARIANTS as DENOISE_MATRIX_VARIANTS, parse_frames as denoise_matrix_parse_frames, export_identity as denoise_matrix_identity, output_path as denoise_matrix_output
+from .denoise_matrix import VARIANTS as DENOISE_MATRIX_VARIANTS, parse_frames as denoise_matrix_parse_frames, export_identity as denoise_matrix_identity, output_path as denoise_matrix_output, validate_variants as denoise_matrix_validate_variants
 from .denoise_review import review_pair as denoise_review_pair
 from .denoise_diff_video import render_diff_preview as render_denoise_diff_preview
 from .frame_inspector import _metadata as denoise_frame_metadata
@@ -580,7 +580,8 @@ class PipelineApp:
                     continue
                 if canonical_intermediate_profile(signature.get("intermediate_profile")) != profile:
                     continue
-                rows.append(item)
+                stat = output.stat()
+                rows.append({**item, "revision": f"{stat.st_mtime_ns}-{stat.st_size}"})
             except (OSError, ValueError, FileNotFoundError, KeyError, TypeError):
                 continue
         return rows
@@ -600,8 +601,18 @@ class PipelineApp:
                 )
             except (OSError, ValueError, FileNotFoundError, KeyError):
                 downloadable = False
+        source = pipeline_source_text(self.settings)
+        source_revision = ""
+        try:
+            source_path = resolve_video_source(source)
+            stat = source_path.stat()
+            source = rel(source_path)
+            source_revision = f"{stat.st_mtime_ns}-{stat.st_size}"
+        except (OSError, ValueError):
+            pass
         return {"ready": len(ready), "total": len(DENOISE_MATRIX_VARIANTS),
-                "variants": [{"method": row["method"], "preset": row["preset"]} for row in ready],
+                "source": source, "source_revision": source_revision,
+                "variants": ready,
                 "download": downloadable, "filename": Path(request["path"]).name if downloadable else "",
                 "running": self.running_stage in {"Remove Noise Batch", "Remove Noise Grid"}}
 
@@ -636,7 +647,12 @@ class PipelineApp:
             self.log.append(f"Rendered Remove Noise live change preview: {result.get('token', '')[:12]}")
         return result
 
-    def run_denoise_batch(self) -> tuple[bool, str]:
+    def run_denoise_batch(self, variants: list[dict] | None = None) -> tuple[bool, str]:
+        if variants is not None:
+            try:
+                denoise_matrix_validate_variants(variants)
+            except ValueError as exc:
+                return False, str(exc)
         if self.quitting:
             return False, "ARP is shutting down."
         if not self.denoise_enabled():
@@ -653,6 +669,10 @@ class PipelineApp:
             return False, "Choose valid source material first."
         profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
         rows = self.denoise_matrix_rows()
+        if variants is not None:
+            requested = {(row["method"], row["preset"]) for row in variants}
+            # Browser requests only select pairs; output paths stay server-owned.
+            rows = [row for row in rows if (row["method"], row["preset"]) in requested]
         command = [sys.executable, "-u", "-m", "ai_remaster_gui.denoise_matrix", "batch",
                    "--source", str(resolve_video_source(source_text)), "--profile", profile,
                    "--variants", json.dumps(rows)]

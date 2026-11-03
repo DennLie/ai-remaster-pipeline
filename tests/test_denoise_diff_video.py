@@ -27,6 +27,12 @@ def _write_clip(path: Path, pattern: str) -> None:
 
 
 class DiffFrameTests(unittest.TestCase):
+    def test_memory_bounded_amplification_keeps_the_original_float64_mapping(self) -> None:
+        values = np.random.default_rng(42).uniform(-255, 255, (256, 128))
+        for amplification in (8, 32, 64):
+            expected = np.floor(255.0 * np.sqrt(np.clip(np.abs(values).astype(np.float64) * amplification / 255.0, 0.0, 1.0)) + 0.5).astype(np.uint8)
+            np.testing.assert_array_equal(diff._boost(values, amplification), expected)
+
     def test_direction_mapping_matches_the_frame_inspector(self) -> None:
         before = np.zeros((1, 1, 3), dtype=np.uint8)
         after = np.array([[[3, 2, 1]]], dtype=np.uint8)  # BGR: RGB 1,2,3

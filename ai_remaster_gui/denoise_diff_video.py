@@ -75,8 +75,16 @@ def diff_video_path(token: str) -> Path | None:
 
 
 def _boost(values: np.ndarray, amplification: int) -> np.ndarray:
-    scaled = np.clip(np.abs(values).astype(np.float64) * amplification / 255.0, 0.0, 1.0)
-    return np.floor(255.0 * np.sqrt(scaled) + 0.5).astype(np.uint8)
+    scaled = np.array(values, dtype=np.float64, copy=True)
+    np.abs(scaled, out=scaled)
+    scaled *= amplification
+    scaled /= 255.0
+    np.clip(scaled, 0.0, 1.0, out=scaled)
+    np.sqrt(scaled, out=scaled)
+    scaled *= 255.0
+    scaled += 0.5
+    np.floor(scaled, out=scaled)
+    return scaled.astype(np.uint8)
 
 
 def _diff_frame(before: np.ndarray, after: np.ndarray, mode: str = "direction",
@@ -88,9 +96,9 @@ def _diff_frame(before: np.ndarray, after: np.ndarray, mode: str = "direction",
         raise ValueError("Preview clips must be BGR images.")
     if mode not in _DIFF_MODES or int(amplification) not in _CONTRASTS:
         raise ValueError("Invalid live change display settings.")
-    dr = after[:, :, 2].astype(np.int32) - before[:, :, 2].astype(np.int32)
-    dg = after[:, :, 1].astype(np.int32) - before[:, :, 1].astype(np.int32)
-    db = after[:, :, 0].astype(np.int32) - before[:, :, 0].astype(np.int32)
+    dr = after[:, :, 2].astype(np.int16) - before[:, :, 2].astype(np.int16)
+    dg = after[:, :, 1].astype(np.int16) - before[:, :, 1].astype(np.int16)
+    db = after[:, :, 0].astype(np.int16) - before[:, :, 0].astype(np.int16)
     height, width = before.shape[:2]
     # Neutral graphite for unchanged pixels, matching comparisonContrastPixels.
     red = np.full((height, width), 15, dtype=np.uint8)
@@ -102,7 +110,9 @@ def _diff_frame(before: np.ndarray, after: np.ndarray, mode: str = "direction",
         green[changed] = _boost(dg, amplification)[changed]
         blue[changed] = _boost(db, amplification)[changed]
     else:
-        signed = 0.2126 * dr + 0.7152 * dg + 0.0722 * db
+        signed = 0.2126 * dr
+        signed += 0.7152 * dg
+        signed += 0.0722 * db
         positive = signed > 1e-9
         negative = signed < -1e-9
         value = _boost(signed, amplification)

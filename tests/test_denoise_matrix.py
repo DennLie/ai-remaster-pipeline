@@ -5,10 +5,11 @@ import csv
 import io
 import json
 import tempfile
+import threading
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -29,12 +30,78 @@ class DenoiseMatrixTests(unittest.TestCase):
         self.assertEqual(len(matrix.VARIANTS), 9)
         matrix.validate_variants([{"method": a, "preset": b} for a, b in matrix.VARIANTS])
         for bad in (
+            None, {}, "hqdn3d", [], [None], [{"method": [], "preset": "gentle"}],
             [{"method": "off", "preset": "gentle"}],
             [{"method": "nlmeans", "preset": "extreme"}],
             [{"method": "nlmeans", "preset": "gentle"}] * 2,
         ):
             with self.assertRaises(ValueError):
                 matrix.validate_variants(bad)
+
+    def test_selected_batch_uses_server_paths_and_does_not_adopt_pipeline_settings(self):
+        from ai_remaster_gui import server
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source.mkv"
+            source.write_bytes(b"source")
+            app = server.PipelineApp.__new__(server.PipelineApp)
+            app.settings = {"global": {"source": str(source)}, "denoise": {"method": "off", "preset": "gentle"}}
+            before = json.dumps(app.settings, sort_keys=True)
+            app.quitting = False
+            app.process = None
+            app.lock = threading.Lock()
+            app.denoise_enabled = Mock(return_value=True)
+            app.ensure_pipeline_source = Mock()
+            app.denoise_matrix_rows = Mock(return_value=[
+                {"method": method, "preset": preset, "output": f"server/{method}_{preset}.mkv"}
+                for method, preset in matrix.VARIANTS
+            ])
+            app._start_denoise_matrix = Mock(return_value=(True, "started"))
+            requested = [{"method": "hqdn3d", "preset": "gentle", "output": "untrusted/overwrite.mkv"},
+                         {"method": "bm3d", "preset": "strong"}]
+            self.assertTrue(app.run_denoise_batch(requested)[0])
+            command = app._start_denoise_matrix.call_args.args[1]
+            rows = json.loads(command[command.index("--variants") + 1])
+            self.assertEqual(rows, [
+                {"method": "hqdn3d", "preset": "gentle", "output": "server/hqdn3d_gentle.mkv"},
+                {"method": "bm3d", "preset": "strong", "output": "server/bm3d_strong.mkv"},
+            ])
+            self.assertEqual(json.dumps(app.settings, sort_keys=True), before)
+            app._start_denoise_matrix.reset_mock()
+            self.assertFalse(app.run_denoise_batch([{"method": "off", "preset": "gentle"}])[0])
+            app._start_denoise_matrix.assert_not_called()
+            app.ensure_pipeline_source.reset_mock()
+            app.process = Mock()
+            app.process.poll.return_value = None
+            self.assertFalse(app.run_denoise_batch(requested)[0])
+            app.ensure_pipeline_source.assert_not_called()
+
+    def test_batch_cli_accepts_a_single_validated_variant(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source.mkv"
+            source.write_bytes(b"source")
+            rows = [{"method": "bm3d", "preset": "strong", "output": "server/result.mkv"}]
+            args = ["denoise_matrix", "batch", "--source", str(source), "--profile", "high", "--variants", json.dumps(rows)]
+            with patch("sys.argv", args), patch.object(matrix, "batch") as batch:
+                matrix.main()
+            batch.assert_called_once_with(source, rows, "high")
+
+    def test_matrix_state_exposes_matching_outputs_and_source_revision(self):
+        from ai_remaster_gui import server
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source.mkv"
+            source.write_bytes(b"source")
+            app = server.PipelineApp.__new__(server.PipelineApp)
+            app.settings = {"global": {"source": str(source)}}
+            app.denoise_grid_request = None
+            app.running_stage = ""
+            rows = [{"method": "bm3d", "preset": "gentle", "output": "server/ready.mkv", "revision": "123-456"}]
+            app.denoise_matrix_ready = Mock(return_value=rows)
+            first = app.denoise_matrix_state()
+            self.assertEqual(first["variants"], rows)
+            self.assertEqual(first["ready"], 1)
+            self.assertTrue(first["source_revision"])
+            source.write_bytes(b"changed source")
+            self.assertNotEqual(first["source_revision"], app.denoise_matrix_state()["source_revision"])
 
     def test_directional_difference_preserves_polarity_and_values(self):
         original = Image.new("RGB", (2, 1))

@@ -41,6 +41,7 @@ EXPECTED_GET_ROUTES = {
     "/api/denoise-frame-differences",
     "/api/denoise-grid-download",
     "/api/denoise-diff-video",
+    "/api/denoise-playback-video",
     "/api/cleanup-frame-differences",
     "/api/frame-inspector",
     "/media",
@@ -64,6 +65,7 @@ EXPECTED_POST_ROUTES = {
     "/api/browse", "/api/browse-global-source", "/api/source-sequence-fps", "/api/overview-clear", "/api/project-save",
     "/api/project-load", "/api/cache-delete",
     "/api/denoise-batch", "/api/denoise-grid", "/api/denoise-diff",
+    "/api/denoise-playback",
 }
 
 
@@ -113,6 +115,30 @@ class HelperBehaviourTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         state.APP = self._real_app
+
+    def test_denoise_batch_passes_selection_and_preserves_legacy_all_request(self) -> None:
+        state.APP.run_denoise_batch = mock.Mock(return_value=(True, "started"))
+        variants = [{"method": "bm3d", "preset": "strong"}]
+        handler = _Handler("/api/denoise-batch", {"variants": variants})
+        handler.do_POST()
+        state.APP.run_denoise_batch.assert_called_once_with(variants)
+        self.assertTrue(handler.responses["json"]["ok"])
+        state.APP.run_denoise_batch.reset_mock()
+        _Handler("/api/denoise-batch").do_POST()
+        state.APP.run_denoise_batch.assert_called_once_with(None)
+
+    def test_denoise_playback_passes_frame_index_without_coercing_fractional_input(self) -> None:
+        from ai_remaster_gui import denoise_playback
+        handler = _Handler('/api/denoise-playback', {'variant': 'ready.mkv', 'frame': 11400, 'mode': 'rgb', 'contrast': 64})
+        with mock.patch.object(denoise_playback, 'playback_segment', return_value={'url': 'cached.mp4'}) as render:
+            handler.do_POST()
+        render.assert_called_once_with(state.APP, 'ready.mkv', 11400, 'rgb', 64)
+        self.assertEqual(handler.responses['json'], {'ok': True, 'url': 'cached.mp4'})
+
+    def test_denoise_playback_video_rejects_unknown_tokens(self) -> None:
+        handler = _Handler('/api/denoise-playback-video?token=../../unrelated.mp4')
+        handler.do_GET()
+        self.assertEqual(handler.responses['error'], 404)
 
     def test_send_result_success_merges_dict_and_state(self) -> None:
         with mock.patch.object(http_handler, "merge_manifest_shots", return_value={"merged": 2}):

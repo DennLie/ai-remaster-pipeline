@@ -63,22 +63,25 @@ def review_pair(app, candidate: str) -> tuple[Path, Path]:
 
 
 def inspect_denoise(app, candidate: str, frame: int) -> dict:
-    if not isinstance(frame, int) or frame < 0:
+    if type(frame) is not int or frame < 0:
         raise ValueError("Frame must be a nonnegative integer.")
-    source, output = review_pair(app, candidate)
-    count = _validate_pair(source, output)
+    if not isinstance(candidate, str):
+        raise ValueError("Choose a finished Remove Noise output.")
+    source, output = review_pair(app, candidate) if candidate else (_video_path(pipeline_source_text(app.settings)), None)
+    metadata = _metadata(source)
+    count = _validate_pair(source, output) if output is not None else metadata["frames"]
     if frame >= count:
         raise IndexError(f"Frame {frame} exceeds total {count}.")
-    before, after = _decode(source, frame), _decode(output, frame)
+    before = _decode(source, frame)
+    after = _decode(output, frame) if output is not None else before
     _prune()
-    metadata = _metadata(source)
     return {
         "stage": "denoise", "frame": frame, "frames": count,
         "fps": metadata["fps"], "width": metadata["width"],
         "height": metadata["height"], "before": before, "after": after,
         "exact": True,
-        "method": json.loads(output.with_suffix(output.suffix + ".sig.json").read_text(encoding="utf-8"))["method"],
-        "note": "Matched decoded frame indices of the actual Remove Noise processing input and the selected signed output.",
+        "method": json.loads(output.with_suffix(output.suffix + ".sig.json").read_text(encoding="utf-8"))["method"] if output is not None else "off",
+        "note": "Matched decoded frame indices of the actual Remove Noise processing input and the selected signed output." if output is not None else "Decoded frame of the actual Remove Noise processing input.",
     }
 
 

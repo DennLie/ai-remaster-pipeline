@@ -226,6 +226,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404, "No rendered difference preview for this token.")
             else:
                 self.send_media(path)
+        elif parsed.path == "/api/denoise-playback-video":
+            from .denoise_playback import segment_video_path
+            path = segment_video_path(parse_qs(parsed.query).get("token", [""])[0])
+            if path is None:
+                self.send_error(404, "No comparison segment for this token.")
+            else:
+                self.send_media(path)
         elif parsed.path == "/api/state":
             query = parse_qs(parsed.query)
             self.send_json(state.APP.state(query.get("active", [""])[0], query.get("retry_section", [""])[0] == "1"))
@@ -441,7 +448,13 @@ class Handler(BaseHTTPRequestHandler):
             ok, message = state.APP.run_all(keep_shots=bool(data.get("keep_shots"))) if data.get("all") else state.APP.run_stage(str(data.get("stage", "")))
             self.send_json({"ok": ok, "message": message})
         elif parsed.path == "/api/denoise-batch":
-            self._send_action("Remove Noise batch", state.APP.run_denoise_batch, view="denoise")
+            self._send_action("Remove Noise batch",
+                              lambda: state.APP.run_denoise_batch(data.get("variants")), view="denoise")
+        elif parsed.path == "/api/denoise-playback":
+            from .denoise_playback import playback_segment
+            self._send_result("Remove Noise playback", lambda: playback_segment(
+                state.APP, data.get("variant", ""), data.get("frame", 0),
+                data.get("mode", "direction"), data.get("contrast", 32)))
         elif parsed.path == "/api/denoise-grid":
             self._send_action("Remove Noise grid",
                               lambda: state.APP.run_denoise_grid(str(data.get("frames", ""))), view="denoise")
