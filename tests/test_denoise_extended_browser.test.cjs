@@ -49,6 +49,9 @@ test('variant selection excludes Original/partials; no output means a factual em
   const markup=context.denoiseReviewHtml(choices);
   assert.match(markup,/Frame-Änderungen/);
   assert.match(markup,/Wischvergleich/);
+  assert.match(markup,/Links <strong>ORIGINAL<\/strong>, rechts <strong>ERGEBNIS<\/strong>/);
+  assert.match(markup,/class="denoise-review-wipe-handle"/);
+  assert.match(css,/\.denoise-review-wipe-handle \{[\s\S]*?border-radius:50%/);
   assert.match(markup,/PIXELDIFFERENZ · verstärkt/);
   assert.match(markup,/data-dr-diff-mode/);
   assert.match(markup,/RGB: Veränderung je Farbkanal/);
