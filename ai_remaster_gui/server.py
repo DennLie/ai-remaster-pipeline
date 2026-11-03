@@ -50,6 +50,9 @@ from .manifests import (
 )
 from .commercial_policy import pipeline_issues, stage_issue
 from .models import CLEANUP_NEGATIVE_PROMPT, CLEANUP_PROMPT, COLORIZE_STAGE_KEYS, SHOT_STAGE_KEYS, STAGES, Stage, output_stage
+from .denoise_matrix import VARIANTS as DENOISE_MATRIX_VARIANTS, parse_frames as denoise_matrix_parse_frames, export_identity as denoise_matrix_identity, output_path as denoise_matrix_output
+from .denoise_review import review_pair as denoise_review_pair
+from .frame_inspector import _metadata as denoise_frame_metadata
 from .paths import even_int, format_timecode, is_unfinished_media_artifact, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
 from .power import keep_awake, release_keep_awake
 from .naming import manifest_for_outpainted
@@ -440,6 +443,7 @@ class PipelineApp:
         self.running_stage_key = ""
         self.running_reference_manifest = ""
         self.running_reference_index: int | None = None
+        self.denoise_grid_request: dict = {}
         self.run_started_at = 0.0
         # The composite's frame count is announced once, before thousands of ffmpeg
         # status lines push it out of the log window the estimator reads, so remember
@@ -551,6 +555,123 @@ class PipelineApp:
     def denoise_output(self) -> str:
         source = pipeline_source_text(self.settings)
         return denoise_output_for(source, self.settings.get('denoise', {}), self.settings.get('cloud', {}).get('intermediate_format', 'high')) if source else ''
+
+    def denoise_matrix_rows(self) -> list[dict]:
+        source = pipeline_source_text(self.settings)
+        if not source:
+            return []
+        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+        return [
+            {"method": method, "preset": preset,
+             "output": denoise_output_for(source, {"method": method, "preset": preset}, profile)}
+            for method, preset in DENOISE_MATRIX_VARIANTS
+        ]
+
+    def denoise_matrix_ready(self) -> list[dict]:
+        from .paths import resolve
+        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+        rows = []
+        for item in self.denoise_matrix_rows():
+            try:
+                _, output = denoise_review_pair(self, item["output"])
+                signature = json.loads(output.with_suffix(output.suffix + ".sig.json").read_text(encoding="utf-8"))
+                if (signature.get("method"), signature.get("preset")) != (item["method"], item["preset"]):
+                    continue
+                if canonical_intermediate_profile(signature.get("intermediate_profile")) != profile:
+                    continue
+                rows.append(item)
+            except (OSError, ValueError, FileNotFoundError, KeyError, TypeError):
+                continue
+        return rows
+
+    def denoise_matrix_state(self) -> dict:
+        ready = self.denoise_matrix_ready()
+        request = self.denoise_grid_request
+        downloadable = False
+        if request and request.get("path"):
+            try:
+                source = resolve_video_source(pipeline_source_text(self.settings))
+                profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+                downloadable = (
+                    request["identity"] == denoise_matrix_identity(source, ready, request["frames"], profile)
+                    and len(ready) == request["variant_count"]
+                    and Path(request["path"]).is_file()
+                )
+            except (OSError, ValueError, FileNotFoundError, KeyError):
+                downloadable = False
+        return {"ready": len(ready), "total": len(DENOISE_MATRIX_VARIANTS),
+                "variants": [{"method": row["method"], "preset": row["preset"]} for row in ready],
+                "download": downloadable, "filename": Path(request["path"]).name if downloadable else "",
+                "running": self.running_stage in {"Remove Noise Batch", "Remove Noise Grid"}}
+
+    def run_denoise_batch(self) -> tuple[bool, str]:
+        if self.quitting:
+            return False, "ARP is shutting down."
+        if not self.denoise_enabled():
+            return False, "Enable Remove Noise on Overview first."
+        source_text = pipeline_source_text(self.settings)
+        if not source_text or not resolve_video_source(source_text).is_file():
+            return False, "Choose valid source material first."
+        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+        rows = self.denoise_matrix_rows()
+        command = [sys.executable, "-u", "-m", "ai_remaster_gui.denoise_matrix", "batch",
+                   "--source", str(resolve_video_source(source_text)), "--profile", profile,
+                   "--variants", json.dumps(rows)]
+        return self._start_denoise_matrix("Remove Noise Batch", command)
+
+    def run_denoise_grid(self, frames_text: str = "") -> tuple[bool, str]:
+        if self.quitting:
+            return False, "ARP is shutting down."
+        source_text = pipeline_source_text(self.settings)
+        if not source_text or not resolve_video_source(source_text).is_file():
+            return False, "Choose a source film first."
+        source = resolve_video_source(source_text)
+        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+        ready = self.denoise_matrix_ready()
+        if not ready:
+            return False, "Render at least one Remove Noise method before exporting a grid."
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                return False, "A command is already running."
+        frames = denoise_matrix_parse_frames(frames_text, denoise_frame_metadata(source)["frames"])
+        identity = denoise_matrix_identity(source, ready, frames, profile)
+        target = denoise_matrix_output(source, identity)
+        self.denoise_grid_request = {"identity": identity, "frames": frames,
+                                     "variant_count": len(ready), "path": str(target)}
+        if target.is_file():
+            return True, "Grid already available for these unchanged inputs."
+        command = [sys.executable, "-u", "-m", "ai_remaster_gui.denoise_matrix", "grid",
+                   "--source", str(source), "--profile", profile, "--variants", json.dumps(ready),
+                   "--frames", json.dumps(frames), "--output", str(target)]
+        return self._start_denoise_matrix("Remove Noise Grid", command)
+
+    def denoise_grid_download(self) -> Path | None:
+        status = self.denoise_matrix_state()
+        if not status["download"]:
+            return None
+        path = Path(self.denoise_grid_request["path"]).resolve()
+        destination = (ROOT / "output" / "denoise_comparisons").resolve()
+        return path if path.parent == destination and path.suffix.lower() == ".zip" else None
+
+    def _start_denoise_matrix(self, title: str, command: list[str]) -> tuple[bool, str]:
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                return False, "A command is already running."
+            self.running_stage = title
+            self.running_stage_key = "denoise"
+            self.run_started_at = time.time()
+            self.log.append("> " + redact_command_for_log(command))
+            try:
+                self.process = subprocess.Popen(command, **self.child_process_kwargs())
+                keep_awake(title)
+            except Exception as exc:
+                self.running_stage = ""
+                self.running_stage_key = ""
+                self.run_started_at = 0.0
+                self.log.append(f"Could not start {title}: {exc}")
+                return False, str(exc)
+            threading.Thread(target=self._collect_output, args=("denoise",), daemon=True).start()
+        return True, f"Started {title}"
 
     def denoised_source_for_downstream(self) -> str:
         return self.denoise_output() if self.denoise_enabled() else pipeline_source_text(self.settings)
@@ -736,7 +857,27 @@ class PipelineApp:
         install_percent = int(install_status["percent"]) if install_status else None
         percent = min(90, 5 + int(elapsed / 60 * 20))
         label = "Running"
-        if self.running_stage_key == "stabilize":
+        if self.running_stage in {"Remove Noise Batch", "Remove Noise Grid"}:
+            grid_mode = self.running_stage == "Remove Noise Grid"
+            total = 0
+            current = 0
+            finished = 0
+            item_label = ""
+            pattern = (r"Remove Noise grid (?:frame|complete) (\d+)/(\d+)(.*)"
+                       if grid_mode else r"Remove Noise batch (?:complete )?(\d+)/(\d+)(.*)")
+            for line in log_text.splitlines():
+                match = re.search(pattern, line)
+                if match:
+                    current, total = int(match.group(1)), int(match.group(2))
+                    item_label = match.group(3).strip(": ")
+                    if " complete " in line or line.startswith("Remove Noise grid complete"):
+                        finished = current
+            if total:
+                percent = min(99, int(100 * finished / total))
+                label = f"{'Grid' if grid_mode else 'Batch'} {current}/{total}: {item_label}"
+            else:
+                label = "Preparing grid" if grid_mode else "Preparing 9 denoise variants"
+        elif self.running_stage_key == "stabilize":
             label = "Analysing shot motion"
             total = first_int_after(log_text, "detected ")
             current = 0
@@ -1058,6 +1199,7 @@ class PipelineApp:
                 "cleanup_diagnostics": self.cleanup_diagnostics_state(),
                 "stabilization_comparison": self.stabilization_comparison_state(),
                 "detail_comparison": self.detail_comparison_state(),
+                "denoise_matrix": self.denoise_matrix_state() if view == "denoise" else {},
                 "reference_luminance": {"enabled": False, "plan": [], "matched_shots": 0},
                 "upscale_preview": self.upscale_preview_state(),
                 "upscale_auto_target": self.upscale_auto_target_state() if view == "upscale" else "",
