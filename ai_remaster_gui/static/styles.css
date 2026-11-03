@@ -1054,6 +1054,16 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   background:#15232d;
   box-shadow:0 2px 11px rgba(0,0,0,.85),0 0 0 1px rgba(0,0,0,.6);
   pointer-events:none;
+  transition:opacity .12s ease;
+}
+.wipe-current-view {
+  display:block;
+  margin:8px 0 5px;
+  color:#e5edf2;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.02em;
+  font-variant-numeric:tabular-nums;
 }
 .wipe-grip-side {
   display:flex;
