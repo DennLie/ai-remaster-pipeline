@@ -79,6 +79,7 @@ function drawDenoise(st, settings, expected, progress) {
         </div>
         <div class="command" id="cmd"></div>
       </section>
+      ${st.key === 'denoise' ? denoiseMatrixHtml() : ''}
       <section class="card">
         <h2>Synchronized A/B/C Comparison</h2>
         <p class="shot-empty">Choose the original and completed ${st.key === 'detail' ? 'detail enhancement' : 'denoising'} outputs. Processing files are hidden until the encoder finishes. Clips share the same source-relative start time; browser seeking is approximate.</p>
@@ -106,7 +107,91 @@ function drawDenoise(st, settings, expected, progress) {
   bindStageFields(st.key);
   showCommand(st.key);
   renderDenoiseComparePlayers(candidates);
-  if (st.key === 'denoise') denoiseReviewStart();
+  if (st.key === 'denoise') {
+    denoiseReviewStart();
+    updateDenoiseMatrixStatus();
+  }
+}
+
+let denoiseMatrixRenderedReady = null;
+
+function denoiseMatrixHtml() {
+  const matrix = state.denoise_matrix || {};
+  denoiseMatrixRenderedReady = Number(matrix.ready || 0);
+  const count = denoiseMatrixRenderedReady;
+  const busy = !!state.running;
+  return `
+    <section class="card denoise-matrix-card">
+      <h2>Remove Noise · alle Methoden vergleichen</h2>
+      <p>HQDN3D, NLMeans und BM3D jeweils in Gentle, Balanced und Strong: 9 unabhängige Render-Varianten.
+        Fertige Varianten werden anhand ihrer Signatur wiederverwendet; das Original bleibt unverändert.</p>
+      <div class="actions">
+        <button id="denoiseMatrixRun" class="primary" type="button" onclick="denoiseMatrixRunAll()" ${busy ? 'disabled' : ''}>
+          Alle 9 Varianten rendern
+        </button>
+      </div>
+      <output id="denoiseMatrixStatus" class="denoise-matrix-status" role="status">${count}/9 Varianten fertig.</output>
+      <div class="denoise-matrix-controls">
+        <label for="denoiseMatrixFrames">Frames im Vergleich (1-basiert, kommasepariert, maximal 5)</label>
+        <input id="denoiseMatrixFrames" type="text" placeholder="Leer = automatisch 10 %, 50 %, 90 %" autocomplete="off" spellcheck="false">
+        <div class="actions">
+          <button type="button" id="denoiseMatrixExport" onclick="denoiseMatrixExport()" ${busy || !count ? 'disabled' : ''}>
+            Frame-Grids als ZIP erstellen
+          </button>
+          <a id="denoiseMatrixDownload" href="/api/denoise-grid-download" download class="denoise-grid-download" ${matrix.download ? '' : 'hidden'}>
+            ZIP herunterladen · Vergleich aller Frames
+          </a>
+        </div>
+      </div>
+      <p class="shot-empty">Die ZIP enthält ein großes Übersichtsgrid, ein Grid je Frame, die Pixeldifferenzen als einzelne
+        PNGs in Quellauflösung, Messwerte als CSV und eine Legende. Nur fertige Varianten kommen hinein.
+        Die farblich verstärkte Differenz zeigt Pixeländerungen, nicht nachgewiesen entferntes Rauschen.</p>
+    </section>`;
+}
+
+function updateDenoiseMatrixStatus() {
+  if (active !== 'denoise') return;
+  const matrix = state?.denoise_matrix || {};
+  const count = Number(matrix.ready || 0);
+  const status = document.getElementById('denoiseMatrixStatus');
+  if (status) {
+    const progress = (state?.phase_progress?.stages || []).find(s => s.key === 'denoise');
+    const running = state.running && (state.running_stage === 'Remove Noise Batch' || state.running_stage === 'Remove Noise Grid');
+    status.textContent = `${count}/9 Varianten fertig${running && progress ? ' · ' + progress.label : ''}`;
+  }
+  const download = document.getElementById('denoiseMatrixDownload');
+  if (download) {
+    download.hidden = !matrix.download;
+    if (matrix.download) download.textContent = 'ZIP herunterladen · ' + (matrix.filename || 'Frame-Grids');
+  }
+  const run = document.getElementById('denoiseMatrixRun');
+  if (run) run.disabled = !!state.running;
+  const exportButton = document.getElementById('denoiseMatrixExport');
+  if (exportButton) exportButton.disabled = !!state.running || !count;
+  // The batch completed while polling preserved the video DOM. Rebuild once to
+  // discover all new variants, then preserve interactive videos again.
+  if (!state.running && denoiseMatrixRenderedReady !== null && count !== denoiseMatrixRenderedReady) {
+    denoiseMatrixRenderedReady = count;
+    void refresh(true);
+  }
+}
+
+async function denoiseMatrixRunAll() {
+  const result = await postJson('/api/denoise-batch', {});
+  if (!result.ok) return alert(result.error || 'Batch konnte nicht gestartet werden.');
+  await refresh(true);
+}
+
+async function denoiseMatrixExport() {
+  const frames = document.getElementById('denoiseMatrixFrames')?.value.trim() || '';
+  if (frames && !/^\\d+(\\s*,\\s*\\d+){0,4}$/.test(frames)) {
+    return alert('Bitte 1 bis 5 unterschiedliche Frame-Nummern angeben, mit Kommas getrennt.');
+  }
+  const result = await postJson('/api/denoise-grid', {frames});
+  if (!result.ok) return alert(result.error || 'Grid konnte nicht erstellt werden.');
+  // A cached grid is immediately downloadable, a new grid appears once complete.
+  if (result.state) state = result.state;
+  updateDenoiseMatrixStatus();
 }
 
 function renderDenoiseComparePlayers(candidates) {
