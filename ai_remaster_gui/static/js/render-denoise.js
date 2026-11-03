@@ -8,6 +8,7 @@ let denoiseComparePaths = ['', '', ''];
 let denoiseCompareStart = 0;
 let denoiseCompareLength = 4;
 let denoiseCompareZoom = 1;
+let denoiseCompareLayout = 'abc';
 
 function denoisePreviewIsFinal(path) {
   // Server-side stage discovery excludes partials; defend against stale
@@ -87,18 +88,25 @@ function drawDenoise(st, settings, expected, progress) {
             ${[2, 4, 8, 12].map(x => `<option value="${x}" ${x === denoiseCompareLength ? 'selected' : ''}>${x}s</option>`).join('')}
           </select></label>
           <button type="button" onclick="denoiseCompareApplyClip()">Load same section</button>
+          <label>Ansicht <select id="denoiseCompareLayout" onchange="denoiseCompareSetLayout(this.value)">
+            <option value="abc">A / B / C · drei Ansichten</option>
+            <option value="ab">A / B · groß</option>
+            <option value="ac">A / C · groß</option>
+          </select></label>
           <label>Display zoom <select id="denoiseCompareZoom" onchange="denoiseCompareSetZoom(this.value)">
             ${[1, 2, 4].map(x => `<option value="${x}" ${x === denoiseCompareZoom ? 'selected' : ''}>${x}x</option>`).join('')}
           </select></label>
         </div>
         <div id="denoiseComparePlayers"></div>
         <p id="denoiseCompareNotice" class="shot-empty" role="status">The playback preview is re-encoded; the original files are never overwritten.</p>
+        ${st.key === 'denoise' ? denoiseReviewHtml(candidates) : ''}
       </section>
     </div>
   `;
   bindStageFields(st.key);
   showCommand(st.key);
   renderDenoiseComparePlayers(candidates);
+  if (st.key === 'denoise') denoiseReviewStart();
 }
 
 function renderDenoiseComparePlayers(candidates) {
@@ -107,7 +115,7 @@ function renderDenoiseComparePlayers(candidates) {
   const optionHtml = candidates.map(v =>
     `<option value="${esc(v.path)}">${esc(v.label)}</option>`).join('');
   host.innerHTML = `
-    <div class="denoise-compare-grid">
+    <div class="denoise-compare-grid denoise-layout-${denoiseCompareLayout}">
       ${denoiseComparePaths.map((path, i) => `
         <div class="denoise-compare-panel">
           <label for="denoiseCompareVariant${i}">${'ABC'[i]} · Variant</label>
@@ -137,6 +145,8 @@ function renderDenoiseComparePlayers(candidates) {
     const select = document.getElementById(`denoiseCompareVariant${i}`);
     if (select) select.value = denoiseComparePaths[i] || '';
   }
+  const layout = document.getElementById('denoiseCompareLayout');
+  if (layout) layout.value = denoiseCompareLayout;
   denoiseCompareSetZoom(denoiseCompareZoom);
   denoiseCompareWireVideos();
 }
@@ -152,6 +162,18 @@ function denoiseCompareChoose(index, path) {
   if (!candidates.some(v => v.path === path)) return;
   denoiseComparePaths[index] = path;
   renderDenoiseComparePlayers(candidates);
+  if (active === 'denoise' && index > 0 && path !== denoiseReviewVariant && denoisePreviewIsFinal(path)) {
+    denoiseReviewChoose(path);
+  }
+}
+
+function denoiseCompareSetLayout(value) {
+  denoiseCompareLayout = ['abc','ab','ac'].includes(value) ? value : 'abc';
+  const grid = document.querySelector('.denoise-compare-grid');
+  if (grid) {
+    grid.classList.remove('denoise-layout-abc','denoise-layout-ab','denoise-layout-ac');
+    grid.classList.add('denoise-layout-' + denoiseCompareLayout);
+  }
 }
 
 function denoiseCompareApplyClip() {
