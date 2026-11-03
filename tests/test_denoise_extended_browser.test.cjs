@@ -303,6 +303,18 @@ test('Remove Noise wipe drags continuously to both edges and releases capture',(
   }
 });
 
+test('rendered difference key follows the visible pair and clip range',()=>{
+  assert.equal(context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),'a.mkv|b.mkv|0.000|2.400');
+  assert.notEqual(
+    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
+    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,4),
+  );
+  assert.notEqual(
+    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
+    context.denoiseCompareDiffKeyFor('a.mkv','c.mkv',0,2.4),
+  );
+});
+
 test('A/B/C zoom pans the shared crop within the picture bounds',()=>{
   const previousDocument=context.document;
   const classes=new Set();

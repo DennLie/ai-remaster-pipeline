@@ -52,6 +52,7 @@ from .commercial_policy import pipeline_issues, stage_issue
 from .models import CLEANUP_NEGATIVE_PROMPT, CLEANUP_PROMPT, COLORIZE_STAGE_KEYS, SHOT_STAGE_KEYS, STAGES, Stage, output_stage
 from .denoise_matrix import VARIANTS as DENOISE_MATRIX_VARIANTS, parse_frames as denoise_matrix_parse_frames, export_identity as denoise_matrix_identity, output_path as denoise_matrix_output
 from .denoise_review import review_pair as denoise_review_pair
+from .denoise_diff_video import render_diff_preview as render_denoise_diff_preview
 from .frame_inspector import _metadata as denoise_frame_metadata
 from .paths import even_int, format_timecode, is_unfinished_media_artifact, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
 from .power import keep_awake, release_keep_awake
@@ -603,6 +604,36 @@ class PipelineApp:
                 "variants": [{"method": row["method"], "preset": row["preset"]} for row in ready],
                 "download": downloadable, "filename": Path(request["path"]).name if downloadable else "",
                 "running": self.running_stage in {"Remove Noise Batch", "Remove Noise Grid"}}
+
+    def denoise_diff_preview(self, first_text: str, second_text: str,
+                             start: float, end: float) -> dict:
+        """Render a stable A/B/C difference video from the selected known clips."""
+        stage = next((item for item in self.active_stages() if item.key == "denoise"), None)
+        if stage is None:
+            raise ValueError("Enable Remove Noise on Overview first.")
+        allowed: set[str] = set()
+        for source_text in (
+            str(self.settings.get("global", {}).get("source", "")),
+            str(self.settings.get("global", {}).get("source_sequence_preview", "")),
+            pipeline_source_text(self.settings),
+        ):
+            if source_text:
+                try:
+                    allowed.add(str(resolve_video_source(source_text).resolve()))
+                except (OSError, ValueError):
+                    continue
+        for item in self.files_for(stage):
+            allowed.add(str(resolve(str(item.get("path", ""))).resolve()))
+        first = resolve(str(first_text))
+        second = resolve(str(second_text))
+        if str(first.resolve()) not in allowed or str(second.resolve()) not in allowed:
+            raise ValueError("Choose the current source or a finished Remove Noise variant.")
+        if is_unfinished_media_artifact(first) or is_unfinished_media_artifact(second):
+            raise ValueError("Wait for the selected clip to finish encoding.")
+        result = render_denoise_diff_preview(first, second, start, end)
+        if not result.get("cached"):
+            self.log.append(f"Rendered Remove Noise difference preview: {result.get('token', '')[:12]}")
+        return result
 
     def run_denoise_batch(self) -> tuple[bool, str]:
         if self.quitting:

@@ -13,6 +13,7 @@ from . import state
 from .frame_inspector import inspection as inspect_frame
 from .frame_differences import cleanup_frame_differences
 from .denoise_review import inspect_denoise, denoise_frame_differences
+from .denoise_diff_video import diff_video_path
 from .cache import delete_cache_category, delete_cache_file
 from .config import STATIC_DIR
 from .file_dialogs import browse_path, browse_source_paths
@@ -218,6 +219,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404, "No completed grid for this source.")
             else:
                 self.send_attachment(path)
+        elif parsed.path == "/api/denoise-diff-video":
+            token = parse_qs(parsed.query).get("token", [""])[0]
+            path = diff_video_path(token)
+            if path is None:
+                self.send_error(404, "No rendered difference preview for this token.")
+            else:
+                self.send_media(path)
         elif parsed.path == "/api/state":
             query = parse_qs(parsed.query)
             self.send_json(state.APP.state(query.get("active", [""])[0], query.get("retry_section", [""])[0] == "1"))
@@ -437,6 +445,18 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/denoise-grid":
             self._send_action("Remove Noise grid",
                               lambda: state.APP.run_denoise_grid(str(data.get("frames", ""))), view="denoise")
+        elif parsed.path == "/api/denoise-diff":
+            try:
+                result = state.APP.denoise_diff_preview(
+                    str(data.get("first", "")),
+                    str(data.get("second", "")),
+                    float(data.get("start", 0)),
+                    float(data.get("end", 0)),
+                )
+                self.send_json({"ok": True, **result})
+            except (ValueError, FileNotFoundError, RuntimeError, OSError,
+                    subprocess.SubprocessError) as exc:
+                self.send_json({"ok": False, "error": str(exc)})
         elif parsed.path == "/api/upscale-preview":
             ok, message = state.APP.run_upscale_preview()
             self.send_json({"ok": ok, "message": message})

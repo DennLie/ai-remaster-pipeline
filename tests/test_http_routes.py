@@ -37,6 +37,12 @@ EXPECTED_GET_ROUTES = {
     "/api/outpaint-frame-mask",
     "/api/outpaint-chunk-preview",
     "/api/outpaint-guide-preview",
+    "/api/denoise-inspector",
+    "/api/denoise-frame-differences",
+    "/api/denoise-grid-download",
+    "/api/denoise-diff-video",
+    "/api/cleanup-frame-differences",
+    "/api/frame-inspector",
     "/media",
 }
 
@@ -57,6 +63,7 @@ EXPECTED_POST_ROUTES = {
     "/api/guide-frame-edit-accept", "/api/guide-frame-edit-revert", "/api/guide-paint-save",
     "/api/browse", "/api/browse-global-source", "/api/source-sequence-fps", "/api/overview-clear", "/api/project-save",
     "/api/project-load", "/api/cache-delete",
+    "/api/denoise-batch", "/api/denoise-grid", "/api/denoise-diff",
 }
 
 

@@ -14,6 +14,11 @@ let denoiseCompareLengthSection = '';
 let denoiseComparePan = { x: 0, y: 0 };
 let denoiseComparePanDrag = null;
 let denoiseCompareResizeWired = false;
+let denoiseCompareDiffEnabled = false;
+let denoiseCompareDiffUrl = '';
+let denoiseCompareDiffKey = '';
+let denoiseCompareDiffRequest = 0;
+let denoiseCompareDiffLoading = false;
 
 const DENOISE_METHODS = [
   { key: 'hqdn3d', label: 'HQDN3D' },
@@ -646,9 +651,11 @@ function renderDenoiseComparePlayers(candidates) {
       <span id="denoiseCompareTime">0.00 / ${compareDuration.toFixed(2)} s</span>
     </div>
     <div class="denoise-compare-actions">
-      <label><input id="denoiseCompareDiff" type="checkbox" onchange="denoiseCompareDifference()"> Show <span data-dc-pair>${denoiseComparePairLabel()}</span> pixel differences (preview only)</label>
+      <label><input id="denoiseCompareDiff" type="checkbox" ${denoiseCompareDiffEnabled ? 'checked' : ''} onchange="denoiseCompareSetDiffEnabled(this.checked)"> Show <span data-dc-pair>${denoiseComparePairLabel()}</span> pixel difference · rendered preview</label>
     </div>
+    <video id="denoiseCompareDiffVideo" class="denoise-compare-diff-video hidden" muted playsinline preload="metadata" aria-label="Rendered pixel difference between A and B"></video>
     <canvas id="denoiseCompareDiffCanvas" class="denoise-compare-diff hidden" aria-label="Pixel difference between A and B"></canvas>
+    <output id="denoiseCompareDiffStatus" class="denoise-diff-status" role="status"></output>
   `;
   for (let i = 0; i < 3; i++) {
     const select = document.getElementById(`denoiseCompareVariant${i}`);
@@ -691,6 +698,7 @@ function denoiseCompareSyncDiffAvailability() {
   // The previewed difference must describe the pair the user can actually see.
   const toggle = document.getElementById('denoiseCompareDiff');
   const canvas = document.getElementById('denoiseCompareDiffCanvas');
+  const video = document.getElementById('denoiseCompareDiffVideo');
   const pair = denoiseComparePairIndex();
   const second = denoiseComparePaths[pair] || '';
   const duplicate = !second || second === denoiseComparePaths[0];
@@ -698,15 +706,22 @@ function denoiseCompareSyncDiffAvailability() {
     toggle.disabled = duplicate;
     if (duplicate) toggle.checked = false;
   }
+  if (duplicate) {
+    denoiseCompareDiffEnabled = false;
+    denoiseCompareDiffRequest++;
+    denoiseCompareHideDiff();
+  }
   const label = document.querySelector('[data-dc-pair]');
   if (label) label.textContent = denoiseComparePairLabel();
   if (canvas) {
     if (duplicate) canvas.classList.add('hidden');
     canvas.setAttribute('aria-label', `Pixel difference between A and ${'ABC'[pair]}`);
   }
+  if (video) video.setAttribute('aria-label', `Rendered pixel difference between A and ${'ABC'[pair]}`);
   if (duplicate && second) {
     denoiseCompareNotice(`A and ${'ABC'[pair]} are the same file. Choose a different variant to compare pixels.`);
   }
+  if (!duplicate && denoiseCompareDiffEnabled) void denoiseCompareEnsureDiffVideo();
 }
 
 function denoiseComparePairReady(first, second) {
@@ -723,8 +738,6 @@ function denoiseCompareSetLayout(value) {
     grid.classList.add('denoise-layout-' + denoiseCompareLayout);
   }
   denoiseCompareSyncDiffAvailability();
-  const toggle = document.getElementById('denoiseCompareDiff');
-  if (toggle && toggle.checked) denoiseCompareDifference();
   denoiseCompareApplyTransform();
 }
 
@@ -893,17 +906,21 @@ function denoiseCompareWireVideos() {
     if (seek) seek.value = String(t);
     const label = document.getElementById('denoiseCompareTime');
     if (label) label.textContent = `${t.toFixed(2)} / ${total.toFixed(2)} s`;
-    denoiseCompareDifference();
+    denoiseCompareSyncDiffVideo(t);
   };
   master.addEventListener('timeupdate', sync);
   master.addEventListener('seeked', sync);
   master.addEventListener('pause', () => {
     videos.slice(1).forEach(v => v.pause());
+    document.getElementById('denoiseCompareDiffVideo')?.pause();
     const button = document.getElementById('denoiseComparePlay');
     if (button) button.textContent = 'Play all';
     sync();
   });
-  master.addEventListener('ended', () => videos.slice(1).forEach(v => v.pause()));
+  master.addEventListener('ended', () => {
+    videos.slice(1).forEach(v => v.pause());
+    document.getElementById('denoiseCompareDiffVideo')?.pause();
+  });
   videos.forEach((video, index) => {
     video.addEventListener('loadedmetadata', () => {
       if (videos.every(v => v.readyState >= 1)) {
@@ -915,7 +932,7 @@ function denoiseCompareWireVideos() {
             : 'Source variants differ in dimensions or duration. Synchronized playback is disabled; select matching clips.'
         );
       }
-      if (document.getElementById('denoiseCompareDiff')?.checked) denoiseCompareDifference();
+      if (denoiseCompareDiffEnabled) denoiseCompareSyncDiffVideo(master.currentTime || 0);
     });
     video.addEventListener('error', () => {
       const slot = 'ABC'[index] || '?';
@@ -936,6 +953,11 @@ function denoiseCompareSeek(value) {
       try { v.currentTime = t; } catch (_) { /* not yet seekable */ }
     }
   });
+  const diffVideo = document.getElementById('denoiseCompareDiffVideo');
+  if (diffVideo && denoiseCompareDiffEnabled && diffVideo.readyState) {
+    diffVideo.pause();
+    try { diffVideo.currentTime = Math.min(t, diffVideo.duration || total); } catch (_) { /* not yet seekable */ }
+  }
   const label = document.getElementById('denoiseCompareTime');
   if (label) label.textContent = `${t.toFixed(2)} / ${total.toFixed(2)} s`;
 }
@@ -956,6 +978,7 @@ function denoiseComparePlayPause() {
   Promise.all(videos.map(v => v.play())).then(() => {
     const button = document.getElementById('denoiseComparePlay');
     if (button) button.textContent = 'Pause all';
+    if (denoiseCompareDiffEnabled) denoiseCompareSyncDiffVideo(t);
   }).catch(() => {
     videos.forEach(v => v.pause());
     denoiseCompareNotice('Browser blocked playback or a codec failed. Use the playback controls to retry.');
@@ -974,47 +997,141 @@ function denoiseCompareStep(direction) {
 }
 
 function denoiseCompareDifference() {
-  const enabled = document.getElementById('denoiseCompareDiff');
-  const canvas = document.getElementById('denoiseCompareDiffCanvas');
-  if (!enabled || !canvas) return;
-  const pair = denoiseComparePairIndex();
-  const first = document.getElementById('denoiseCompareVideo0');
-  const second = document.getElementById(`denoiseCompareVideo${pair}`);
-  const sameFile = !second || denoiseComparePaths[0] === denoiseComparePaths[pair];
-  if (sameFile) {
-    enabled.checked = false;
-    enabled.disabled = true;
-  }
-  canvas.classList.toggle('hidden', !enabled.checked);
-  if (!enabled.checked) return;
-  if (!denoiseComparePairReady(first, second)) {
-    denoiseCompareNotice(`A and ${'ABC'[pair]} must both load with matching dimensions before a pixel difference.`);
+  const checkbox = document.getElementById('denoiseCompareDiff');
+  denoiseCompareSetDiffEnabled(Boolean(checkbox && checkbox.checked));
+}
+
+function denoiseCompareDiffKeyFor(first, second, start, end) {
+  return [first, second, Number(start).toFixed(3), Number(end).toFixed(3)].join('|');
+}
+
+function denoiseCompareSetDiffEnabled(enabled) {
+  denoiseCompareDiffEnabled = Boolean(enabled);
+  const checkbox = document.getElementById('denoiseCompareDiff');
+  if (checkbox) checkbox.checked = denoiseCompareDiffEnabled;
+  if (!denoiseCompareDiffEnabled) {
+    denoiseCompareDiffRequest++;
+    denoiseCompareHideDiff();
     return;
   }
-  const width = Math.min(512, first.videoWidth), height = Math.round(width * first.videoHeight / first.videoWidth);
-  if (!width || !height) return;
-  // The two clips are same-origin H.264 previews; pixel differences include preview compression.
-  const tmp = document.createElement('canvas');
-  tmp.width = width; tmp.height = height;
-  const ctx = tmp.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return;
-  try {
-    ctx.drawImage(first, 0, 0, width, height);
-    const a = ctx.getImageData(0, 0, width, height);
-    ctx.drawImage(second, 0, 0, width, height);
-    const b = ctx.getImageData(0, 0, width, height);
-    for (let i = 0; i < a.data.length; i += 4) {
-      const d = Math.min(255, 4 * (
-        Math.abs(a.data[i] - b.data[i]) +
-        Math.abs(a.data[i+1] - b.data[i+1]) +
-        Math.abs(a.data[i+2] - b.data[i+2])) / 3);
-      a.data[i] = d; a.data[i+1] = 0; a.data[i+2] = Math.round(d * 0.6); a.data[i+3] = 255;
+  void denoiseCompareEnsureDiffVideo();
+}
+
+function denoiseCompareHideDiff() {
+  const video = document.getElementById('denoiseCompareDiffVideo');
+  const canvas = document.getElementById('denoiseCompareDiffCanvas');
+  const status = document.getElementById('denoiseCompareDiffStatus');
+  if (video) {
+    video.pause();
+    video.classList.add('hidden');
+    video.removeAttribute('src');
+    try { video.load(); } catch (_) { /* no source to release */ }
+  }
+  if (canvas) canvas.classList.add('hidden');
+  if (status) status.textContent = '';
+}
+
+function denoiseCompareShowDiffVideo() {
+  const video = document.getElementById('denoiseCompareDiffVideo');
+  const canvas = document.getElementById('denoiseCompareDiffCanvas');
+  if (!video) return;
+  if (canvas) canvas.classList.add('hidden');
+  video.classList.remove('hidden');
+  const master = document.getElementById('denoiseCompareVideo0');
+  const syncPlayback = () => {
+    if (!master || video.readyState < 1) return;
+    const total = denoiseCompareEffectiveLength || denoiseCompareLength;
+    const target = Math.min(master.currentTime || 0, total);
+    try { video.currentTime = Math.min(target, video.duration || total); } catch (_) { /* not seekable yet */ }
+    if (!master.paused) video.play().catch(() => { /* autoplay can be refused */ });
+    else video.pause();
+  };
+  if (video.readyState >= 1) syncPlayback();
+  else video.addEventListener('loadedmetadata', syncPlayback, {once: true});
+}
+
+function denoiseCompareSyncDiffVideo(time) {
+  if (!denoiseCompareDiffEnabled) return;
+  const video = document.getElementById('denoiseCompareDiffVideo');
+  const master = document.getElementById('denoiseCompareVideo0');
+  if (!video || video.classList.contains('hidden') || video.readyState < 1) return;
+  const total = Math.min(
+    denoiseCompareEffectiveLength || denoiseCompareLength,
+    Number.isFinite(video.duration) ? video.duration : Number.POSITIVE_INFINITY,
+  );
+  const target = Math.max(0, Math.min(Number(time) || 0, total));
+  if (Math.abs(video.currentTime - target) > 0.09) {
+    try { video.currentTime = target; } catch (_) { /* not seekable yet */ }
+  }
+  if (master && !master.paused) {
+    if (video.paused) video.play().catch(() => { /* autoplay can be refused */ });
+  } else if (!video.paused) {
+    video.pause();
+  }
+}
+
+async function denoiseCompareEnsureDiffVideo() {
+  if (!denoiseCompareDiffEnabled) return;
+  const video = document.getElementById('denoiseCompareDiffVideo');
+  const canvas = document.getElementById('denoiseCompareDiffCanvas');
+  const status = document.getElementById('denoiseCompareDiffStatus');
+  if (!video) return;
+  const pair = denoiseComparePairIndex();
+  const first = denoiseComparePaths[0];
+  const second = denoiseComparePaths[pair];
+  const start = denoiseCompareStart;
+  const end = denoiseCompareStart + (denoiseCompareEffectiveLength || denoiseCompareLength);
+  if (!first || !second || first === second) {
+    denoiseCompareHideDiff();
+    if (status) status.textContent = `A and ${'ABC'[pair]} must be different clips.`;
+    return;
+  }
+  const key = denoiseCompareDiffKeyFor(first, second, start, end);
+  if (denoiseCompareDiffUrl && denoiseCompareDiffKey === key) {
+    if (video.getAttribute('src') !== denoiseCompareDiffUrl) {
+      video.src = denoiseCompareDiffUrl;
+      video.load();
     }
-    canvas.width = width; canvas.height = height;
-    const output = canvas.getContext('2d');
-    if (!output) throw new Error('No 2D canvas context.');
-    output.putImageData(a, 0, 0);
-  } catch (_) {
-    denoiseCompareNotice('Difference preview is unavailable for these video sources.');
+    denoiseCompareShowDiffVideo();
+    if (status) status.textContent = '';
+    return;
+  }
+  const requestId = ++denoiseCompareDiffRequest;
+  denoiseCompareDiffLoading = true;
+  if (status) status.textContent = 'Rendering difference preview…';
+  if (canvas) canvas.classList.add('hidden');
+  video.classList.add('hidden');
+  try {
+    const result = await postJson('/api/denoise-diff', { first, second, start, end });
+    if (requestId !== denoiseCompareDiffRequest || !denoiseCompareDiffEnabled) return;
+    if (!result || !result.ok) {
+      throw new Error((result && result.error) || 'The difference preview could not be rendered.');
+    }
+    denoiseCompareDiffUrl = result.url;
+    denoiseCompareDiffKey = key;
+    const loaded = new Promise((resolve, reject) => {
+      const onReady = () => { cleanup(); resolve(); };
+      const onError = () => { cleanup(); reject(new Error('The rendered difference preview could not be loaded.')); };
+      const cleanup = () => {
+        video.removeEventListener('loadedmetadata', onReady);
+        video.removeEventListener('error', onError);
+      };
+      video.addEventListener('loadedmetadata', onReady, {once: true});
+      video.addEventListener('error', onError, {once: true});
+    });
+    video.src = result.url;
+    video.load();
+    await loaded;
+    if (requestId !== denoiseCompareDiffRequest || !denoiseCompareDiffEnabled) return;
+    if (status) status.textContent = '';
+    denoiseCompareShowDiffVideo();
+  } catch (error) {
+    if (requestId !== denoiseCompareDiffRequest) return;
+    denoiseCompareDiffUrl = '';
+    denoiseCompareDiffKey = '';
+    if (status) status.textContent = 'Difference preview unavailable: ' + (error?.message || 'unknown error');
+    denoiseCompareHideDiff();
+  } finally {
+    if (requestId === denoiseCompareDiffRequest) denoiseCompareDiffLoading = false;
   }
 }
