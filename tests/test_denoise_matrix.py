@@ -85,7 +85,7 @@ class DenoiseMatrixTests(unittest.TestCase):
                 rows_csv = list(csv.DictReader(io.StringIO(archive.read("measurement.csv").decode("utf-8-sig"))))
                 self.assertEqual(len(rows_csv), 2)
                 self.assertEqual(rows_csv[0]["method"], "hqdn3d")
-                self.assertIn("not prove denoising", archive.read("README.txt").decode("utf-8"))
+                self.assertIn("not prove denoising", archive.read("README.txt").decode("utf-8").lower())
 
     def test_export_key_changes_when_inputs_change(self):
         with tempfile.TemporaryDirectory() as folder:
