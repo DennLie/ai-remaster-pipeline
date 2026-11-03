@@ -60,14 +60,21 @@ def batch(source: Path, rows: list[dict], profile: str) -> None:
     from common import find_ffmpeg
     ffmpeg = find_ffmpeg(None)
     total = len(rows)
+    failures = []
     for index, item in enumerate(rows, 1):
         label = f"{item['method'].upper()} / {item['preset']}"
         print(f"Remove Noise batch {index}/{total}: {label}", flush=True)
-        result = run(source, resolve(item["output"]), method=item["method"],
-                     preset=item["preset"], intermediate_profile=profile,
-                     ffmpeg=ffmpeg)
-        status = "reused" if result.get("reused") else "rendered"
-        print(f"Remove Noise batch complete {index}/{total}: {label} ({status})", flush=True)
+        try:
+            result = run(source, resolve(item["output"]), method=item["method"],
+                         preset=item["preset"], intermediate_profile=profile,
+                         ffmpeg=ffmpeg)
+            status = "reused" if result.get("reused") else "rendered"
+            print(f"Remove Noise batch complete {index}/{total}: {label} ({status})", flush=True)
+        except Exception as exc:
+            failures.append(label)
+            print(f"Remove Noise batch failed {index}/{total}: {label}: {exc}", flush=True)
+    if failures:
+        raise RuntimeError(f"{len(failures)}/{total} Remove Noise variants failed: {', '.join(failures)}")
     print("Remove Noise batch all complete", flush=True)
 
 
