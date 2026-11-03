@@ -244,11 +244,7 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   position:absolute;top:0;bottom:0;width:0;border-left:2px solid #e2f8ff;
   z-index:3;pointer-events:none;filter:drop-shadow(0 0 2px #111);
 }
-.cleanup-exact-wipe-handle {
-  position:absolute;left:0;top:50%;transform:translate(-50%,-50%);
-  width:30px;height:30px;border-radius:50%;
-  background:#d8f3fc;border:2px solid #31515d;
-}
+/* Shared dark two-sided wipe grip is styled with Remove Noise below. */
 .comparison-player.cleanup-two-up .cleanup-exact-wipe-control {
   display:grid;gap:5px;font-size:12px;color:var(--text);max-width:960px;
 }
@@ -1040,18 +1036,42 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   pointer-events:none;
   box-shadow:0 0 6px #000;
 }
+/* Accessible contrast on black-and-white film; labels are inside the draggable split grip. */
+.cleanup-exact-wipe-handle,
 .denoise-review-wipe-handle {
   position:absolute;
-  left:1px;
+  left:0;
   top:50%;
   transform:translate(-50%,-50%);
-  width:30px;
-  height:30px;
-  border-radius:50%;
-  background:#d8f3fc;
-  border:2px solid #31515d;
-  box-shadow:0 0 0 2px rgba(0,0,0,0.25);
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  width:180px;
+  height:38px;
+  box-sizing:border-box;
+  border:2px solid #f0f3f5;
+  border-radius:19px;
+  overflow:hidden;
+  background:#15232d;
+  box-shadow:0 2px 11px rgba(0,0,0,.85),0 0 0 1px rgba(0,0,0,.6);
+  pointer-events:none;
 }
+.wipe-grip-side {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 4px;
+  min-width:0;
+  box-sizing:border-box;
+  color:#fff;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.035em;
+  line-height:1;
+  white-space:nowrap;
+  text-shadow:0 1px 1px #000;
+}
+.wipe-grip-original {background:#1a2833;border-right:1px solid #e9f0f4}
+.wipe-grip-result {background:#24515c}
 .denoise-review-wipe label {
   display:flex;align-items:center;gap:15px;
   flex-wrap:wrap;font-size:12px;
