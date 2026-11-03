@@ -1,0 +1,42 @@
+name: Remove Noise extended exact review (CPU)
+
+on:
+  push:
+    branches:
+      - feature/denoise-extended-review-workspace
+  pull_request:
+    paths:
+      - "ai_remaster_gui/denoise_review.py"
+      - "ai_remaster_gui/http_handler.py"
+      - "ai_remaster_gui/static/js/denoise-review.js"
+      - "ai_remaster_gui/static/js/render-denoise.js"
+      - "ai_remaster_gui/static/index.html"
+      - "ai_remaster_gui/static/styles.css"
+      - "tests/test_denoise_review.py"
+      - "tests/test_denoise_extended_browser.test.cjs"
+      - ".github/workflows/denoise-review-ui.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install real FFmpeg and required Python packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
+      - name: Compile exact-frame backend
+        run: python -m py_compile ai_remaster_gui/denoise_review.py
+      - name: Signed variant, FFV1 frames and chart tests
+        run: python -m unittest -v tests.test_denoise_review tests.test_incomplete_media_preview
+      - name: A/B/C and extended browser contracts
+        run: node --test tests/test_denoise_comparison_browser.test.cjs tests/test_denoise_extended_browser.test.cjs
