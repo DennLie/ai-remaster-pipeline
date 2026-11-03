@@ -4,11 +4,15 @@ on:
   push:
     branches:
       - feature/denoise-extended-review-workspace
+      - feature/review-image-zoom-rgb-difference
   pull_request:
     paths:
       - "ai_remaster_gui/denoise_review.py"
       - "ai_remaster_gui/http_handler.py"
       - "ai_remaster_gui/static/js/denoise-review.js"
+      - "ai_remaster_gui/static/js/review-contrast.js"
+      - "ai_remaster_gui/static/js/frame-inspector.js"
+      - "tests/test_cleanup_workspace_browser.test.cjs"
       - "ai_remaster_gui/static/js/render-denoise.js"
       - "ai_remaster_gui/static/index.html"
       - "ai_remaster_gui/static/styles.css"
@@ -39,4 +43,4 @@ jobs:
       - name: Signed variant, FFV1 frames and chart tests
         run: python -m unittest -v tests.test_denoise_review tests.test_incomplete_media_preview
       - name: A/B/C and extended browser contracts
-        run: node --test tests/test_denoise_comparison_browser.test.cjs tests/test_denoise_extended_browser.test.cjs
+        run: node --test tests/test_denoise_comparison_browser.test.cjs tests/test_denoise_extended_browser.test.cjs tests/test_cleanup_workspace_browser.test.cjs
