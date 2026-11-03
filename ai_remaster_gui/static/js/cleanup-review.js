@@ -449,7 +449,7 @@ function setupCleanupExactWipe(player) {
       <img data-wipe-before alt="Original, unberührter Frame">
       <img data-wipe-after alt="Derselbe Frame nach ${resultLabel}">
       <div class="cleanup-exact-wipe-divider" data-wipe-divider aria-hidden="true">
-        <span class="cleanup-exact-wipe-handle"></span>
+        <span class="cleanup-exact-wipe-handle"><span class="wipe-grip-side wipe-grip-original">ORIGINAL</span><span class="wipe-grip-side wipe-grip-result">ERGEBNIS</span></span>
       </div>
     </div>
     <label class="cleanup-exact-wipe-control">Trennlinie
@@ -475,6 +475,7 @@ function setupCleanupExactWipe(player) {
   const original = card.querySelector('[data-wipe-before]');
   const result = card.querySelector('[data-wipe-after]');
   const divider = card.querySelector('[data-wipe-divider]');
+  const grip = divider.querySelector('.cleanup-exact-wipe-handle');
   const position = card.querySelector('[data-wipe-position]');
   const status = card.querySelector('[data-wipe-status]');
 
@@ -485,6 +486,9 @@ function setupCleanupExactWipe(player) {
     const edge = 50 + (amount - 50) / zoom;
     result.style.clipPath = `inset(0 0 0 ${edge}%)`;
     divider.style.left = amount + '%';
+    // Keep both grip labels visible at the image edges while the divider reaches 0–100%.
+    const width = picture.getBoundingClientRect().width;
+    if (width > 0) grip.style.left = comparisonWipeGripOffset(width, grip.getBoundingClientRect().width || 180, amount) + 'px';
     status.textContent = `${amount.toFixed(0)} % Original links · ${(100-amount).toFixed(0)} % Ergebnis rechts`;
   }
   function setFromPointer(event) {
@@ -532,6 +536,7 @@ function setupCleanupExactWipe(player) {
   document.addEventListener('arp-frame-inspected', onFrame);
   const zoom = inspector.querySelector('[data-fi-zoom]');
   zoom?.addEventListener('change', update);
+  fold.addEventListener('toggle', () => { if (fold.open) update(); });
   updateWipeVisibility();
   update();
 }
