@@ -444,6 +444,7 @@ function setupCleanupExactWipe(player) {
     </div>
     <p>Links <strong>ORIGINAL</strong>, rechts <strong>${resultLabel}</strong>.
       Ziehe die senkrechte Linie im Bild oder benutze den Schieber darunter.</p>
+    <output class="wipe-current-view" data-wipe-current-view aria-live="off">50 % ORIGINAL · 50 % ${resultLabel}</output>
     <div class="cleanup-exact-wipe-image" data-wipe-picture
          aria-label="Wischvergleich von Original und bearbeitetem Einzelbild">
       <img data-wipe-before alt="Original, unberührter Frame">
@@ -478,6 +479,7 @@ function setupCleanupExactWipe(player) {
   const grip = divider.querySelector('.cleanup-exact-wipe-handle');
   const position = card.querySelector('[data-wipe-position]');
   const status = card.querySelector('[data-wipe-status]');
+  const currentView = card.querySelector('[data-wipe-current-view]');
 
   function update() {
     const amount = Math.max(0, Math.min(100, Number(position.value) || 0));
@@ -486,9 +488,11 @@ function setupCleanupExactWipe(player) {
     const edge = 50 + (amount - 50) / zoom;
     result.style.clipPath = `inset(0 0 0 ${edge}%)`;
     divider.style.left = amount + '%';
-    // Keep both grip labels visible at the image edges while the divider reaches 0–100%.
+    // Unlike the old edge-clamped pill, labels stay centered on the true divider.
+    // Near either boundary, the pill fades away; the separate state label stays legible.
     const width = picture.getBoundingClientRect().width;
-    if (width > 0) grip.style.left = comparisonWipeGripOffset(width, grip.getBoundingClientRect().width || 180, amount) + 'px';
+    grip.style.opacity = String(comparisonWipeGripOpacity(width, grip.offsetWidth || 180, amount));
+    currentView.textContent = comparisonWipeVisibleState(amount, resultLabel);
     status.textContent = `${amount.toFixed(0)} % Original links · ${(100-amount).toFixed(0)} % Ergebnis rechts`;
   }
   function setFromPointer(event) {
