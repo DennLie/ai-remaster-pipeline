@@ -94,6 +94,7 @@ async function refresh(force = false) {
     updateOutpaintGuidePreviews();
     updateOutpaintRawPreviews();
     updateRunLogs();
+    if (active === 'denoise') updateDenoiseMatrixStatus();
     if (active === 'outpaint') updateOutpaintRuntimeControls();
     lastRenderSignature = sig;
     lastOutpaintVisualSignature = currentOutpaintVisualSignature;
@@ -118,6 +119,7 @@ function renderSignature() {
     expected_outputs: state.expected_outputs,
     existing_outputs: state.existing_outputs,
     cleanup_comparison: state.cleanup_comparison,
+    denoise_matrix: state.denoise_matrix,
     stabilization_comparison: state.stabilization_comparison,
     detail_comparison: state.detail_comparison,
     reference_luminance: state.reference_luminance,
