@@ -84,6 +84,7 @@ function denoiseReviewHtml(candidates) {
         <summary><strong>Wischvergleich</strong> · exakter Original/Ergebnis-Schieber</summary>
         <p class="denoise-review-wipe-hint">Links <strong>ORIGINAL</strong>, rechts <strong>ERGEBNIS</strong>.
           Ziehe die senkrechte Linie im Bild oder benutze den Schieber darunter.</p>
+        <output class="wipe-current-view" data-dr-wipe-current-view aria-live="off">50 % ORIGINAL · 50 % ERGEBNIS</output>
         <div class="denoise-review-wipe-picture" data-dr-wipe-picture>
           <img data-dr-wipe-before alt="Unverändertes Originalframe">
           <img data-dr-wipe-after alt="Bearbeitetes Frame">
@@ -122,8 +123,10 @@ function denoiseReviewSetWipe(value) {
   const grip = denoiseReviewElement('wipe-handle');
   if (picture && grip) {
     const width = picture.getBoundingClientRect().width;
-    if (width > 0) grip.style.left = comparisonWipeGripOffset(width, grip.getBoundingClientRect().width || 180, denoiseReviewWipe) + 'px';
+    grip.style.opacity = String(comparisonWipeGripOpacity(width, grip.offsetWidth || 180, denoiseReviewWipe));
   }
+  const view = denoiseReviewElement('wipe-current-view');
+  if (view) view.textContent = comparisonWipeVisibleState(denoiseReviewWipe);
   const control = denoiseReviewElement('wipe-position');
   if (control) control.value = String(denoiseReviewWipe);
   const status = denoiseReviewElement('wipe-status');
