@@ -65,7 +65,7 @@ function drawDenoise(st, settings, expected, progress) {
   const candidates = denoiseCompareCandidates(st);
   denoiseCompareInitializePaths(candidates);
   document.getElementById('app').innerHTML = `
-    <div class="editor-page">
+    <div class="editor-page ${st.key === 'denoise' ? 'denoise-editor-page' : ''}">
       <section class="card">
         <h2>${esc(st.title)}</h2>
         <p>${esc(st.description)}</p>
@@ -80,7 +80,7 @@ function drawDenoise(st, settings, expected, progress) {
         <div class="command" id="cmd"></div>
       </section>
       ${st.key === 'denoise' ? denoiseMatrixHtml() : ''}
-      <section class="card">
+      <section class="card ${st.key === 'denoise' ? 'denoise-compare-card' : ''}">
         <h2>Synchronized A/B/C Comparison</h2>
         <p class="shot-empty">Choose the original and completed ${st.key === 'detail' ? 'detail enhancement' : 'denoising'} outputs. Processing files are hidden until the encoder finishes. Clips share the same source-relative start time; browser seeking is approximate.</p>
         <div class="denoise-compare-toolbar">
