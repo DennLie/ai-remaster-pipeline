@@ -7,6 +7,12 @@ on:
   pull_request:
     paths:
       - "tests/test_denoise_deflicker_integration.py"
+      - "tests/test_incomplete_media_preview.py"
+      - "tests/test_denoise_comparison_browser.test.cjs"
+      - "ai_remaster_gui/paths.py"
+      - "ai_remaster_gui/media.py"
+      - "ai_remaster_gui/http_handler.py"
+      - "ai_remaster_gui/static/js/render-denoise.js"
       - "docs/restoration-noise-deflicker-integration.md"
       - "scripts/denoise_video.py"
       - "scripts/cleanup_video.py"
@@ -38,7 +44,7 @@ jobs:
           python -m py_compile tests/test_denoise_deflicker_integration.py
           python -m py_compile scripts/denoise_video.py scripts/cleanup_video.py scripts/localized_deflicker_stream.py
       - name: Test real FFV1 + audio and source dependency chain
-        run: python -m unittest -v tests.test_denoise_deflicker_integration
+        run: python -m unittest -v tests.test_denoise_deflicker_integration tests.test_incomplete_media_preview
       - name: Existing Denoise and Localized regressions
         run: python -m unittest -v tests.test_denoise_video tests.test_localized_stream
       - name: A/B/C browser comparison contract
