@@ -77,6 +77,11 @@ table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid var(--li
 .denoise-compare-panel select{width:100%;min-width:0;max-width:100%;margin-bottom:8px;font-size:12px}
 .denoise-compare-video-wrap{width:100%;aspect-ratio:4/3;background:#050607;border:1px solid var(--line);border-radius:5px;overflow:hidden;display:grid;place-items:center}
 .denoise-compare-video-wrap video{width:100%;height:100%;object-fit:contain;display:block;transform-origin:center}
+.denoise-compare-video-wrap.is-zoomed{cursor:grab;touch-action:none;user-select:none}
+.denoise-compare-video-wrap.is-zoomed video{object-fit:cover}
+.denoise-compare-video-wrap.is-zoomed.is-panning{cursor:grabbing}
+.denoise-pan-reset{padding:7px 10px;font-size:12px;white-space:nowrap}
+.denoise-pan-reset[hidden]{display:none!important}
 .denoise-compare-actions input[type=range]{flex:1;min-width:160px}
 .denoise-compare-actions button{flex:0 0 auto}
 #denoiseCompareTime{font-size:12px;font-variant-numeric:tabular-nums}

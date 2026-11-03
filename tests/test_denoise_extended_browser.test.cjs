@@ -303,6 +303,88 @@ test('Remove Noise wipe drags continuously to both edges and releases capture',(
   }
 });
 
+test('A/B/C zoom pans the shared crop within the picture bounds',()=>{
+  const previousDocument=context.document;
+  const classes=new Set();
+  const video={style:{transform:''}};
+  const wrap={
+    clientWidth:400,clientHeight:300,
+    classList:{
+      add(...values){values.forEach(value=>classes.add(value))},
+      remove(...values){values.forEach(value=>classes.delete(value))},
+      toggle(value,on){on?classes.add(value):classes.delete(value)},
+    },
+    querySelectorAll(selector){return selector==='video'?[video]:[]},
+  };
+  const reset={hidden:true};
+  context.document={
+    querySelector(selector){return selector==='[data-dc-pan-reset]'?reset:null},
+    querySelectorAll(selector){return selector==='.denoise-compare-video-wrap'?[wrap]:[]},
+    getElementById(){return null},
+  };
+  try {
+    vm.runInContext("denoiseCompareZoom=2; denoiseComparePan={x:0.5,y:-0.5}",context);
+    context.denoiseCompareApplyTransform();
+    assert.equal(video.style.transform,'translate3d(100.00px, -75.00px, 0) scale(2)');
+    assert.ok(classes.has('is-zoomed'));
+    assert.equal(reset.hidden,false);
+    vm.runInContext("denoiseCompareZoom=1",context);
+    context.denoiseCompareApplyTransform();
+    assert.equal(video.style.transform,'');
+    assert.ok(!classes.has('is-zoomed'));
+    assert.equal(reset.hidden,true);
+    assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('denoiseComparePan',context))),{x:0,y:0});
+  } finally {
+    context.document=previousDocument;
+  }
+});
+
+test('pointer drag pans all three previews and releases capture',()=>{
+  const previousDocument=context.document;
+  const classes=new Set();
+  const video={style:{transform:''}};
+  const wrap={
+    clientWidth:400,clientHeight:300,
+    classList:{
+      add(...values){values.forEach(value=>classes.add(value))},
+      remove(...values){values.forEach(value=>classes.delete(value))},
+      toggle(value,on){on?classes.add(value):classes.delete(value)},
+    },
+    querySelectorAll(selector){return selector==='video'?[video]:[]},
+  };
+  const host={
+    setPointerCapture(id){this.captured=id},
+    hasPointerCapture(id){return this.captured===id},
+    releasePointerCapture(id){this.released=id},
+    addEventListener(){},
+  };
+  context.document={
+    querySelector(){return null},
+    querySelectorAll(selector){return selector==='.denoise-compare-video-wrap'?[wrap]:[]},
+    getElementById(id){return id==='denoiseComparePlayers'?host:null},
+  };
+  try {
+    vm.runInContext("denoiseCompareZoom=2; denoiseComparePan={x:0,y:0}; denoiseComparePanDrag=null",context);
+    let prevented=false;
+    context.denoiseComparePanStart({
+      pointerId:7,pointerType:'mouse',button:0,clientX:100,clientY:100,
+      target:{closest(){return wrap}},currentTarget:host,
+      preventDefault(){prevented=true},
+    });
+    assert.equal(prevented,true);
+    assert.equal(host.captured,7);
+    assert.ok(classes.has('is-panning'));
+    context.denoiseComparePanMove({pointerId:7,clientX:200,clientY:200,preventDefault(){}});
+    assert.equal(video.style.transform,'translate3d(100.00px, 100.00px, 0) scale(2)');
+    context.denoiseComparePanEnd({type:'pointerup',pointerId:7});
+    assert.equal(host.released,7);
+    assert.ok(!classes.has('is-panning'));
+    assert.equal(vm.runInContext('denoiseComparePanDrag',context),null);
+  } finally {
+    context.document=previousDocument;
+  }
+});
+
 test('exact review holds stale evidence instead of relabelling it',()=>{
   const previousState=context.state;
   const files=[

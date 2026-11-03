@@ -11,6 +11,9 @@ let denoiseCompareZoom = 1;
 let denoiseCompareLayout = 'abc';
 let denoiseCompareEffectiveLength = 0;
 let denoiseCompareLengthSection = '';
+let denoiseComparePan = { x: 0, y: 0 };
+let denoiseComparePanDrag = null;
+let denoiseCompareResizeWired = false;
 
 const DENOISE_METHODS = [
   { key: 'hqdn3d', label: 'HQDN3D' },
@@ -163,6 +166,8 @@ function denoiseCompareEnsureLength() {
   const key = denoiseCompareSectionKey();
   if (key !== denoiseCompareLengthSection) {
     denoiseCompareLengthSection = key;
+    denoiseComparePan = { x: 0, y: 0 };
+    denoiseCompareZoom = 1;
     if (full) denoiseCompareLength = full;
   }
   if (full && denoiseCompareLength > full) denoiseCompareLength = full;
@@ -260,6 +265,7 @@ function drawDenoise(st, settings, expected, progress) {
           <label>Display zoom <select id="denoiseCompareZoom" onchange="denoiseCompareSetZoom(this.value)">
             ${[1, 2, 4].map(x => `<option value="${x}" ${x === denoiseCompareZoom ? 'selected' : ''}>${x}x</option>`).join('')}
           </select></label>
+          <button type="button" class="denoise-pan-reset" data-dc-pan-reset onclick="denoiseCompareResetPan()" hidden>Reset pan</button>
         </div>
         <div id="denoiseComparePlayers"></div>
         <p id="denoiseCompareNotice" class="shot-empty" role="status">The playback preview is re-encoded; the original files are never overwritten.</p>
@@ -651,6 +657,7 @@ function renderDenoiseComparePlayers(candidates) {
   const layout = document.getElementById('denoiseCompareLayout');
   if (layout) layout.value = denoiseCompareLayout;
   denoiseCompareSetZoom(denoiseCompareZoom);
+  denoiseCompareWirePan();
   denoiseCompareSyncDiffAvailability();
   denoiseCompareWireVideos();
   denoiseCompareSetEffectiveLength(compareDuration);
@@ -718,6 +725,7 @@ function denoiseCompareSetLayout(value) {
   denoiseCompareSyncDiffAvailability();
   const toggle = document.getElementById('denoiseCompareDiff');
   if (toggle && toggle.checked) denoiseCompareDifference();
+  denoiseCompareApplyTransform();
 }
 
 function denoiseCompareApplyClip() {
@@ -743,12 +751,120 @@ function denoiseCompareNotice(message) {
   if (target) target.textContent = message;
 }
 
+function denoiseCompareClampPan(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(-1, Math.min(1, number));
+}
+
+function denoiseComparePanLimits(wrap) {
+  const width = Number(wrap?.clientWidth) || 0;
+  const height = Number(wrap?.clientHeight) || 0;
+  const zoom = Math.max(1, denoiseCompareZoom);
+  return {
+    maxX: Math.max(0, (width * zoom - width) / 2),
+    maxY: Math.max(0, (height * zoom - height) / 2),
+  };
+}
+
+function denoiseCompareApplyTransform() {
+  const zoom = Math.max(1, denoiseCompareZoom);
+  const panned = zoom > 1;
+  if (!panned) denoiseComparePan = { x: 0, y: 0 };
+  denoiseComparePan.x = denoiseCompareClampPan(denoiseComparePan.x);
+  denoiseComparePan.y = denoiseCompareClampPan(denoiseComparePan.y);
+  document.querySelectorAll('.denoise-compare-video-wrap').forEach(wrap => {
+    const { maxX, maxY } = denoiseComparePanLimits(wrap);
+    const px = maxX ? denoiseComparePan.x * maxX : 0;
+    const py = maxY ? denoiseComparePan.y * maxY : 0;
+    wrap.classList.toggle('is-zoomed', panned);
+    wrap.querySelectorAll('video').forEach(video => {
+      video.style.transform = panned
+        ? `translate3d(${px.toFixed(2)}px, ${py.toFixed(2)}px, 0) scale(${zoom})`
+        : '';
+    });
+  });
+  const reset = document.querySelector('[data-dc-pan-reset]');
+  if (reset) reset.hidden = !panned || (denoiseComparePan.x === 0 && denoiseComparePan.y === 0);
+}
+
+function denoiseCompareResetPan() {
+  denoiseComparePan = { x: 0, y: 0 };
+  denoiseCompareApplyTransform();
+}
+
 function denoiseCompareSetZoom(value) {
   const zoom = Number(value);
   denoiseCompareZoom = [1, 2, 4].includes(zoom) ? zoom : 1;
-  document.querySelectorAll('.denoise-compare-panel video').forEach(video => {
-    video.style.transform = `scale(${denoiseCompareZoom})`;
-  });
+  const select = document.getElementById('denoiseCompareZoom');
+  if (select) select.value = String(denoiseCompareZoom);
+  denoiseCompareApplyTransform();
+}
+
+function denoiseComparePanStart(event) {
+  if (denoiseCompareZoom <= 1 || denoiseComparePanDrag) return;
+  const wrap = event.target?.closest?.('.denoise-compare-video-wrap');
+  if (!wrap) return;
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const host = event.currentTarget;
+  event.preventDefault();
+  try {
+    host.setPointerCapture(event.pointerId);
+  } catch (_) {
+    return;
+  }
+  denoiseComparePanDrag = {
+    pointerId: event.pointerId,
+    startX: Number(event.clientX) || 0,
+    startY: Number(event.clientY) || 0,
+    originX: denoiseComparePan.x,
+    originY: denoiseComparePan.y,
+    wrap,
+  };
+  wrap.classList.add('is-panning');
+}
+
+function denoiseComparePanMove(event) {
+  const drag = denoiseComparePanDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const { maxX, maxY } = denoiseComparePanLimits(drag.wrap);
+  if (!maxX && !maxY) return;
+  event.preventDefault();
+  const dx = (Number(event.clientX) || 0) - drag.startX;
+  const dy = (Number(event.clientY) || 0) - drag.startY;
+  denoiseComparePan.x = maxX ? denoiseCompareClampPan(drag.originX + dx / maxX) : 0;
+  denoiseComparePan.y = maxY ? denoiseCompareClampPan(drag.originY + dy / maxY) : 0;
+  denoiseCompareApplyTransform();
+}
+
+function denoiseComparePanEnd(event) {
+  const drag = denoiseComparePanDrag;
+  if (!drag) return;
+  if (event.type !== 'lostpointercapture' && event.pointerId !== drag.pointerId) return;
+  const host = document.getElementById('denoiseComparePlayers');
+  if (host && typeof host.hasPointerCapture === 'function' && host.hasPointerCapture(drag.pointerId)) {
+    try { host.releasePointerCapture(drag.pointerId); } catch (_) { /* already gone */ }
+  }
+  drag.wrap?.classList.remove('is-panning');
+  denoiseComparePanDrag = null;
+}
+
+function denoiseCompareWirePan() {
+  const host = document.getElementById('denoiseComparePlayers');
+  if (!host) return;
+  if (host.dataset.panWired !== '1') {
+    host.dataset.panWired = '1';
+    host.addEventListener('pointerdown', denoiseComparePanStart);
+    host.addEventListener('pointermove', denoiseComparePanMove);
+    host.addEventListener('pointerup', denoiseComparePanEnd);
+    host.addEventListener('pointercancel', denoiseComparePanEnd);
+    host.addEventListener('lostpointercapture', denoiseComparePanEnd);
+    host.addEventListener('dblclick', denoiseCompareResetPan);
+  }
+  if (!denoiseCompareResizeWired && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    denoiseCompareResizeWired = true;
+    window.addEventListener('resize', () => denoiseCompareApplyTransform());
+  }
 }
 
 function denoiseCompareCompatible(videos) {
