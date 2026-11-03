@@ -35,6 +35,25 @@ test('main page retains A/B/C and adds exact review under it only for denoise',(
   assert.match(css,/\.denoise-layout-ac .denoise-compare-panel:nth-child\(2\)/);
 });
 
+test('batch UI runs all nine algorithms/presets and offers finished ZIP comparison',()=>{
+  context.state.denoise_matrix={ready:4,total:9,download:true,filename:'comparison.zip'};
+  const markup=context.denoiseMatrixHtml();
+  assert.match(markup,/Alle 9 Varianten rendern/);
+  assert.match(markup,/Frame-Grids als ZIP erstellen/);
+  assert.match(markup,/\/api\/denoise-grid-download/);
+  assert.match(markup,/4\/9 Varianten fertig/);
+  assert.match(markup,/Pixeldifferenzen als einzelne/);
+  assert.match(compare,/postJson\('\/api\/denoise-batch', \{\}\)/);
+  assert.match(compare,/postJson\('\/api\/denoise-grid', \{frames\}\)/);
+  assert.match(compare,/^function denoiseMatrixHtml\(/m);
+  assert.match(compare,/if \(frames && !\/\^\\d\+/);
+  const handler=fs.readFileSync(path.join(root,'ai_remaster_gui/http_handler.py'),'utf8');
+  assert.match(handler,/parsed\.path == "\/api\/denoise-batch"/);
+  assert.match(handler,/parsed\.path == "\/api\/denoise-grid"/);
+  assert.match(handler,/parsed\.path == "\/api\/denoise-grid-download"/);
+  context.state.denoise_matrix={};
+});
+
 test('variant selection excludes Original/partials; no output means a factual empty state',()=>{
   const withNoOutput=context.denoiseReviewHtml([{path:'evaluation/Neighbors_72.mkv',label:'Original'}]);
   assert.match(withNoOutput,/Noch keine fertige/);
