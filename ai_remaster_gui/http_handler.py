@@ -39,7 +39,7 @@ from .outpaint_guides import (
     save_guide_paint,
     upload_guide_frame_image,
 )
-from .paths import resolve, resolve_served
+from .paths import is_unfinished_media_artifact, resolve, resolve_served
 from .references import (
     accept_reference_edit,
     update_reference_guide_strength,
@@ -346,7 +346,8 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/media":
             query = parse_qs(parsed.query)
             path = resolve_served(unquote(query.get("path", [""])[0]), served_source_paths())
-            if path is None:
+            if path is None or is_unfinished_media_artifact(path):
+                # Do not attempt to read .partial.mkv while an encoder writes it.
                 self.send_error(404)
                 return
             if "clip_start" in query or "clip_end" in query:

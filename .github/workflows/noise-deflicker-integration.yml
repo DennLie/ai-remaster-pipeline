@@ -1,0 +1,51 @@
+name: Noise to Localized Deflicker integration (CPU)
+
+on:
+  push:
+    branches:
+      - integration/noise-deflicker-restoration-review
+  pull_request:
+    paths:
+      - "tests/test_denoise_deflicker_integration.py"
+      - "tests/test_incomplete_media_preview.py"
+      - "tests/test_denoise_comparison_browser.test.cjs"
+      - "ai_remaster_gui/paths.py"
+      - "ai_remaster_gui/media.py"
+      - "ai_remaster_gui/http_handler.py"
+      - "ai_remaster_gui/static/js/render-denoise.js"
+      - "docs/restoration-noise-deflicker-integration.md"
+      - "scripts/denoise_video.py"
+      - "scripts/cleanup_video.py"
+      - "scripts/localized_deflicker_stream.py"
+      - "ai_remaster_gui/server.py"
+      - "ai_remaster_gui/models.py"
+      - ".github/workflows/noise-deflicker-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-noise-deflicker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install FFmpeg and CPU dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install --disable-pip-version-check --quiet numpy opencv-python-headless pillow pyyaml scikit-image
+      - name: Compile integration and backend
+        run: |
+          python -m py_compile tests/test_denoise_deflicker_integration.py
+          python -m py_compile scripts/denoise_video.py scripts/cleanup_video.py scripts/localized_deflicker_stream.py
+      - name: Test real FFV1 + audio and source dependency chain
+        run: python -m unittest -v tests.test_denoise_deflicker_integration tests.test_incomplete_media_preview
+      - name: Existing Denoise and Localized regressions
+        run: python -m unittest -v tests.test_denoise_video tests.test_localized_stream
+      - name: A/B/C browser comparison contract
+        run: node --test tests/test_denoise_comparison_browser.test.cjs

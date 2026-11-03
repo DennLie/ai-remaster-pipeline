@@ -15,7 +15,7 @@ from . import state
 from .cache import human_size
 from .config import ASPECT_PREVIEW_DIR, FILE_PREVIEW_DIR, IMAGE_EXTS, MEDIA_CLIP_DIR, PREVIEW_DIR, ROOT, SCRIPTS, SOURCE_PLAYBACK_DIR, VIDEO_EXTS
 from .file_dialogs import browse_path, parse_duration
-from .paths import even_int, format_timecode, parse_aspect, rel, resolve, resolve_video_source, safe_stem
+from .paths import even_int, format_timecode, is_unfinished_media_artifact, parse_aspect, rel, resolve, resolve_video_source, safe_stem
 from .process_utils import format_duration
 from .project_io import source_analysis_key, source_signature
 
@@ -532,6 +532,8 @@ def video_dimensions(source: Path) -> tuple[int, int] | None:
         return None
 
 def file_preview(path: Path) -> str:
+    if is_unfinished_media_artifact(path):
+        return ""
     if path.suffix.lower() in IMAGE_EXTS:
         return rel(path)
     if path.suffix.lower() in VIDEO_EXTS:
@@ -819,6 +821,10 @@ def safe_preview_name(path: Path) -> str:
     return f"{stem[:64]}_{digest}"
 
 def media_clip_path(source: Path, start: float, end: float, key: str = "") -> Path:
+    # A Matroska .partial.mkv cannot be previewed while its EBML header/index
+    # is still being written. The finalized video is published atomically.
+    if is_unfinished_media_artifact(source):
+        raise FileNotFoundError(f"Unfinished video, retry when encoding finishes: {source.name}")
     ffmpeg = local_tool("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("Run install_windows.bat to install local FFmpeg for shot video previews.")

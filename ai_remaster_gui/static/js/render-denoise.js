@@ -9,18 +9,25 @@ let denoiseCompareStart = 0;
 let denoiseCompareLength = 4;
 let denoiseCompareZoom = 1;
 
+function denoisePreviewIsFinal(path) {
+  // Server-side stage discovery excludes partials; defend against stale
+  // browser snapshots or pre-fix cached state as well.
+  const filename = String(path || '').split(/[\\/]/).pop();
+  return !/\.(?:partial|tmp|part)(?:\.|$)/i.test(filename);
+}
+
 function denoiseCompareCandidates(st) {
   const global = (state && state.settings && state.settings.global) || {};
   const source = st.key === 'detail'
     ? ((state && state.detail_comparison && state.detail_comparison.source) || '')
     : (global.source_sequence_preview || global.source || '');
   const candidates = [];
-  if (source && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(source)) {
+  if (source && denoisePreviewIsFinal(source) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(source)) {
     candidates.push({ path: source, label: 'Original — ' + source });
   }
   for (const file of (st.files || [])) {
     const path = file.path || '';
-    if (/\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
+    if (denoisePreviewIsFinal(path) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
       candidates.push({ path, label: path });
     }
   }
@@ -47,7 +54,7 @@ function denoiseCompareInitializePaths(candidates) {
   denoiseComparePaths = denoiseComparePaths.map((path, index) => {
     const preferences = index === 0 ? [source, ...variants] : [...variants, source];
     const current = path && names.has(path) && !used.has(path);
-    const selected = current ? path : (preferences.find(x => x && !used.has(x)) || source);
+    const selected = current ? path : (preferences.find(x => x && !used.has(x)) || (index === 0 ? source : ''));
     if (selected) used.add(selected);
     return selected;
   });
@@ -73,7 +80,7 @@ function drawDenoise(st, settings, expected, progress) {
       </section>
       <section class="card">
         <h2>Synchronized A/B/C Comparison</h2>
-        <p class="shot-empty">Choose the input and any cached ${st.key === 'detail' ? 'detail enhancement' : 'denoising'} outputs. All three preview clips use the same source-relative start time. The browser's video seeking is approximate; use the offline frame-exact report for scientific comparisons.</p>
+        <p class="shot-empty">Choose the original and completed ${st.key === 'detail' ? 'detail enhancement' : 'denoising'} outputs. Processing files are hidden until the encoder finishes. Clips share the same source-relative start time; browser seeking is approximate.</p>
         <div class="denoise-compare-toolbar">
           <label>Start second <input id="denoiseCompareStart" type="number" min="0" max="360000" step="0.1" value="${denoiseCompareStart}"></label>
           <label>Clip duration <select id="denoiseCompareLength">

@@ -64,3 +64,33 @@ test('clip and playback contracts reject mismatched geometry or duration', () =>
   assert.equal(context.denoiseCompareCompatible([a,b,{...c, duration: 3.6}]), false);
   assert.equal(context.denoiseCompareCompatible([a,b,{...c, readyState: 0}]), false);
 });
+
+test('unfinished FFmpeg files never appear in A/B/C, even in stale GUI snapshots', () => {
+  const stage = {key:'denoise',files:[
+    {path:'intermediate/denoised/Neighbors_hqdn3d_gentle.partial.mkv'},
+    {path:'intermediate/denoised/Neighbors_hqdn3d_gentle.mkv'},
+    {path:'intermediate/denoised/another.TMP.MKV'},
+  ]};
+  assert.equal(context.denoisePreviewIsFinal('C:\\film\\Neighbors.partial.mkv'), false);
+  assert.equal(context.denoisePreviewIsFinal('intermediate/denoised/Neighbors_hqdn3d_gentle.mkv'), true);
+  let items = context.denoiseCompareCandidates(stage);
+  assert.deepEqual(Array.from(items, x => x.path), [
+    'input/original.webm',
+    'intermediate/denoised/Neighbors_hqdn3d_gentle.mkv',
+  ]);
+  vm.runInContext("denoiseComparePaths = ['input/original.webm', 'intermediate/denoised/Neighbors_hqdn3d_gentle.partial.mkv', '']", context);
+  context.denoiseCompareInitializePaths(items);
+  assert.deepEqual(Array.from(vm.runInContext('denoiseComparePaths', context)), [
+    'input/original.webm',
+    'intermediate/denoised/Neighbors_hqdn3d_gentle.mkv',
+    '',
+  ]);
+  // While the encoder writes its partial output, show the original once and
+  // let B/C wait instead of showing false "duplicate originals" or errors.
+  stage.files = [{path:'intermediate/denoised/Neighbors_hqdn3d_gentle.partial.mkv'}];
+  items = context.denoiseCompareCandidates(stage);
+  context.denoiseCompareInitializePaths(items);
+  assert.deepEqual(Array.from(vm.runInContext('denoiseComparePaths', context)), [
+    'input/original.webm', '', '',
+  ]);
+});

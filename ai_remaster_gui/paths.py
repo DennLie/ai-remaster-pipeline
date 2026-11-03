@@ -18,6 +18,16 @@ def resolve(text: str) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
+def is_unfinished_media_artifact(path: Path) -> bool:
+    """Exclude in-progress encoder files from GUI previews and media requests.
+
+    Our FFmpeg writers create e.g. `movie.partial.mkv` and atomically
+    publish `movie.mkv` only after the container is finalized. A suffix-only
+    check mistakes the unfinished Matroska file for a playable video.
+    """
+    return any(piece in {"partial", "tmp", "part"} for piece in path.name.lower().split("."))
+
+
 def is_within(path: Path, root: Path) -> bool:
     """True when path is root itself or nested under it (both resolved first)."""
     try:
