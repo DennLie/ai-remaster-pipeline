@@ -113,9 +113,15 @@ function denoiseReviewChoose(path) {
   if (!valid) return;
   denoiseReviewVariant = path;
   denoiseReviewEpoch++;
+  denoiseReviewChartEpoch++;
   denoiseReviewFrame = 0;
+  denoiseReviewCount = 0;
   denoiseReviewEntries = [];
-  denoiseReviewStart();
+  const select = denoiseReviewElement('variant');
+  if (select) select.value = path;
+  // Reuse the existing event handlers; re-running Start would attach them twice.
+  void denoiseReviewSelectFrame(0, false);
+  void denoiseReviewLoadChart(path);
 }
 
 function denoiseReviewChartRows(report) {
