@@ -1004,6 +1004,13 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   border-radius:7px;
 }
 .denoise-review-wipe > summary {cursor:pointer;color:var(--text)}
+.denoise-review-wipe-hint {
+  margin:9px 0 10px;
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.45;
+}
+.denoise-review-wipe-hint strong {color:var(--text)}
 .denoise-review-wipe-picture {
   width:min(100%,900px);
   aspect-ratio:4/3;
@@ -1032,6 +1039,18 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   z-index:3;
   pointer-events:none;
   box-shadow:0 0 6px #000;
+}
+.denoise-review-wipe-handle {
+  position:absolute;
+  left:1px;
+  top:50%;
+  transform:translate(-50%,-50%);
+  width:30px;
+  height:30px;
+  border-radius:50%;
+  background:#d8f3fc;
+  border:2px solid #31515d;
+  box-shadow:0 0 0 2px rgba(0,0,0,0.25);
 }
 .denoise-review-wipe label {
   display:flex;align-items:center;gap:15px;
