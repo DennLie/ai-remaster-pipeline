@@ -85,7 +85,7 @@ def export_identity(source: Path, rows: list[dict], frames: list[int], profile: 
 
 
 def output_path(source: Path, identity: str) -> Path:
-    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in source.stem)[:48]
+    safe_name = "".join(c if c.isascii() and (c.isalnum() or c in "-_") else "_" for c in source.stem)[:48]
     return EXPORT_ROOT / f"{safe_name}_remove_noise_grid_{identity}.zip"
 
 
