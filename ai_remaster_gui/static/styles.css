@@ -951,6 +951,20 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   margin:6px 0 2px;
   font-variant-numeric:tabular-nums;
 }
+.denoise-matrix-card {grid-column:1/-1;min-width:0}
+.denoise-matrix-card h2 {margin:0 0 9px}
+.denoise-matrix-card > p {max-width:85ch}
+.denoise-matrix-status {display:block;margin:9px 0;font-size:12px;font-weight:700;color:var(--text)}
+.denoise-matrix-controls {display:grid;gap:7px;margin:12px 0 10px;max-width:900px}
+.denoise-matrix-controls label {font-size:12px;font-weight:600}
+.denoise-matrix-controls > input {max-width:390px;width:100%;box-sizing:border-box}
+.denoise-grid-download {
+  display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--accent);border-radius:6px;padding:9px 13px;
+  font-size:12px;font-weight:700;color:var(--text);text-decoration:none;
+}
+.denoise-grid-download:hover {background:rgba(75,191,165,.13)}
+.denoise-grid-download[hidden] {display:none !important}
 .denoise-review-inspector {padding-top:12px}
 .denoise-review-inspector .fi-heading {margin-bottom:8px}
 .denoise-review-inspector .fi-heading small {font-size:11px}
