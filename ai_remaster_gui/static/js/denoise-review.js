@@ -355,11 +355,28 @@ function denoiseReviewStart() {
   root.querySelector('[data-dr-timeline]')?.addEventListener('change',event =>
     denoiseReviewSelectFrame(Number(event.target.value),true));
   const picture = denoiseReviewElement('wipe-picture');
-  picture?.addEventListener('pointerdown',event => {
-    if(event.button !== 0 && event.pointerType === 'mouse') return;
-    const bounds=picture.getBoundingClientRect();
-    if(bounds.width>0) denoiseReviewSetWipe(100*(event.clientX-bounds.left)/bounds.width);
-  });
+  if (picture) {
+    const setFromPointer = event => {
+      const bounds = picture.getBoundingClientRect();
+      if (bounds.width <= 0) return;
+      const percent = Math.round(100 * (event.clientX - bounds.left) / bounds.width);
+      denoiseReviewSetWipe(Math.max(0, Math.min(100, percent)));
+    };
+    picture.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      picture.setPointerCapture(event.pointerId);
+      setFromPointer(event);
+    });
+    picture.addEventListener('pointermove', event => {
+      if (picture.hasPointerCapture(event.pointerId)) setFromPointer(event);
+    });
+    const endDrag = event => {
+      if (picture.hasPointerCapture(event.pointerId)) picture.releasePointerCapture(event.pointerId);
+    };
+    picture.addEventListener('pointerup', endDrag);
+    picture.addEventListener('pointercancel', endDrag);
+  }
   denoiseReviewSetWipe(denoiseReviewWipe);
   void denoiseReviewSelectFrame(denoiseReviewFrame,false);
   void denoiseReviewLoadChart(denoiseReviewVariant);
