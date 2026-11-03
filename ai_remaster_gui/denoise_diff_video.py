@@ -1,9 +1,9 @@
-"""Rendered live pixel-difference previews for the Remove Noise A/B/C view.
+"""Rendered live change previews for the Remove Noise A/B/C view.
 
 The browser cannot lock two independently decoded H.264 previews to the same
-frame. This module renders a stable difference video from the same preview
-clips the panels play, so playback shows a real per-frame difference instead of
-a motion-offset canvas flicker.
+frame. This module renders a stable change video from the same preview clips
+the panels play, using the Frame Inspector's false-color/RGB mapping, so
+playback shows a real per-frame difference instead of a motion-offset flicker.
 """
 from __future__ import annotations
 
@@ -22,12 +22,15 @@ from .config import ROOT
 from .media import local_tool, media_clip_path
 from .paths import resolve
 
-_VERSION = 1
+_VERSION = 2
 _MAX_SECONDS = 12.0
 _MAX_WIDTH = 960
 _CACHE = ROOT / ".cache" / "denoise_diff_previews"
+_DIFF_MODES = ("direction", "rgb")
+_CONTRASTS = (8, 32, 64)
 _LOCK_GUARD = threading.Lock()
 _LOCKS: dict[str, threading.Lock] = {}
+_RENDER_LOCK = threading.Lock()
 
 
 def _lock_for(token: str) -> threading.Lock:
@@ -48,7 +51,8 @@ def _identity(path: Path) -> dict:
     }
 
 
-def _token(first: Path, second: Path, start: float, end: float) -> str:
+def _token(first: Path, second: Path, start: float, end: float,
+           mode: str, contrast: int) -> str:
     payload = {
         "version": _VERSION,
         "first": _identity(first),
@@ -56,6 +60,8 @@ def _token(first: Path, second: Path, start: float, end: float) -> str:
         "start": round(start, 3),
         "end": round(end, 3),
         "max_width": _MAX_WIDTH,
+        "mode": mode,
+        "contrast": contrast,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -68,25 +74,49 @@ def diff_video_path(token: str) -> Path | None:
     return path if path.is_file() and path.stat().st_size > 0 else None
 
 
-def _diff_frame(before: np.ndarray, after: np.ndarray) -> np.ndarray:
-    """Match the browser's preview mapping: 4x channel delta -> magenta."""
+def _boost(values: np.ndarray, amplification: int) -> np.ndarray:
+    scaled = np.clip(np.abs(values).astype(np.float64) * amplification / 255.0, 0.0, 1.0)
+    return np.floor(255.0 * np.sqrt(scaled) + 0.5).astype(np.uint8)
+
+
+def _diff_frame(before: np.ndarray, after: np.ndarray, mode: str = "direction",
+                amplification: int = 32) -> np.ndarray:
+    """Match the Frame Inspector's exact false-color/RGB pixel mapping."""
     if before.shape != after.shape:
         raise ValueError("Preview clips have incompatible frame geometry.")
-    delta = np.abs(before.astype(np.int16) - after.astype(np.int16))
-    strength = np.clip(
-        (delta[:, :, 0].astype(np.int32) +
-         delta[:, :, 1].astype(np.int32) +
-         delta[:, :, 2].astype(np.int32)) * 4 // 3,
-        0, 255,
-    ).astype(np.uint8)
-    out = np.empty_like(before)
-    out[:, :, 0] = (strength.astype(np.uint16) * 3 // 5).astype(np.uint8)  # blue
-    out[:, :, 1] = 0                                                       # green
-    out[:, :, 2] = strength                                                # red
-    return out
+    if before.ndim != 3 or before.shape[2] != 3:
+        raise ValueError("Preview clips must be BGR images.")
+    if mode not in _DIFF_MODES or int(amplification) not in _CONTRASTS:
+        raise ValueError("Invalid live change display settings.")
+    dr = after[:, :, 2].astype(np.int32) - before[:, :, 2].astype(np.int32)
+    dg = after[:, :, 1].astype(np.int32) - before[:, :, 1].astype(np.int32)
+    db = after[:, :, 0].astype(np.int32) - before[:, :, 0].astype(np.int32)
+    height, width = before.shape[:2]
+    # Neutral graphite for unchanged pixels, matching comparisonContrastPixels.
+    red = np.full((height, width), 15, dtype=np.uint8)
+    green = np.full((height, width), 23, dtype=np.uint8)
+    blue = np.full((height, width), 31, dtype=np.uint8)
+    if mode == "rgb":
+        changed = (dr != 0) | (dg != 0) | (db != 0)
+        red[changed] = _boost(dr, amplification)[changed]
+        green[changed] = _boost(dg, amplification)[changed]
+        blue[changed] = _boost(db, amplification)[changed]
+    else:
+        signed = 0.2126 * dr + 0.7152 * dg + 0.0722 * db
+        positive = signed > 1e-9
+        negative = signed < -1e-9
+        value = _boost(signed, amplification)
+        red[positive] = np.floor(0.05 * value[positive] + 0.5).astype(np.uint8)
+        green[positive] = value[positive]
+        blue[positive] = value[positive]
+        red[negative] = value[negative]
+        green[negative] = np.floor(0.52 * value[negative] + 0.5).astype(np.uint8)
+        blue[negative] = np.floor(0.06 * value[negative] + 0.5).astype(np.uint8)
+    return np.dstack([blue, green, red])
 
 
-def _render(first_clip: Path, second_clip: Path, target: Path, token: str) -> None:
+def _render(first_clip: Path, second_clip: Path, target: Path, token: str,
+            mode: str, contrast: int) -> None:
     partial = target.with_suffix(".partial.mp4")
     if partial.exists():
         partial.unlink()
@@ -95,7 +125,7 @@ def _render(first_clip: Path, second_clip: Path, target: Path, token: str) -> No
     process: subprocess.Popen | None = None
     try:
         if not first.isOpened() or not second.isOpened():
-            raise RuntimeError("Could not open both preview clips for the difference video.")
+            raise RuntimeError("Could not open both preview clips for the live change video.")
         width = int(round(first.get(cv2.CAP_PROP_FRAME_WIDTH)))
         height = int(round(first.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         second_width = int(round(second.get(cv2.CAP_PROP_FRAME_WIDTH)))
@@ -111,7 +141,7 @@ def _render(first_clip: Path, second_clip: Path, target: Path, token: str) -> No
         max_frames = int(round(_MAX_SECONDS * fps)) + 2
         ffmpeg = local_tool("ffmpeg")
         if not ffmpeg:
-            raise RuntimeError("FFmpeg is required to render a difference preview.")
+            raise RuntimeError("FFmpeg is required to render a live change preview.")
         target.parent.mkdir(parents=True, exist_ok=True)
         command = [
             ffmpeg, "-y",
@@ -141,7 +171,7 @@ def _render(first_clip: Path, second_clip: Path, target: Path, token: str) -> No
             if (out_width, out_height) != (width, height):
                 before = cv2.resize(before, (out_width, out_height), interpolation=cv2.INTER_AREA)
                 after = cv2.resize(after, (out_width, out_height), interpolation=cv2.INTER_AREA)
-            process.stdin.write(_diff_frame(before, after).tobytes())
+            process.stdin.write(_diff_frame(before, after, mode, contrast).tobytes())
             frames += 1
         if frames == 0:
             raise ValueError("The selected preview range contains no frames.")
@@ -155,7 +185,7 @@ def _render(first_clip: Path, second_clip: Path, target: Path, token: str) -> No
         process.stderr.close()
         code = process.wait()
         if code != 0:
-            raise RuntimeError("FFmpeg could not render the difference preview: " + stderr[-500:].strip())
+            raise RuntimeError("FFmpeg could not render the live change preview: " + stderr[-500:].strip())
         os.replace(partial, target)
     finally:
         first.release()
@@ -173,31 +203,44 @@ def _render(first_clip: Path, second_clip: Path, target: Path, token: str) -> No
                     pass
 
 
-def render_diff_preview(first: Path, second: Path, start: float, end: float) -> dict:
-    """Render (or reuse) a cached difference video for two known previews."""
+def render_diff_preview(first: Path, second: Path, start: float, end: float,
+                        mode: str = "direction", contrast: int = 32) -> dict:
+    """Render (or reuse) a cached live change video for two known previews."""
     first = resolve(str(first))
     second = resolve(str(second))
     if first.resolve() == second.resolve():
-        raise ValueError("Choose two different clips for a pixel difference.")
+        raise ValueError("Choose two different clips for a live change preview.")
     if not first.is_file() or not second.is_file():
         raise FileNotFoundError("One of the selected clips is no longer available.")
     try:
         start = float(start)
         end = float(end)
     except (TypeError, ValueError):
-        raise ValueError("The difference preview needs numeric start and end times.") from None
+        raise ValueError("The live change preview needs numeric start and end times.") from None
     if not (0 <= start < end):
-        raise ValueError("The difference preview needs an end time after its start.")
+        raise ValueError("The live change preview needs an end time after its start.")
     if end - start > _MAX_SECONDS + 1e-6:
-        raise ValueError(f"The difference preview is limited to {_MAX_SECONDS:.0f} seconds.")
+        raise ValueError(f"The live change preview is limited to {_MAX_SECONDS:.0f} seconds.")
+    if mode not in _DIFF_MODES:
+        raise ValueError("Choose a valid live change display mode.")
+    try:
+        contrast = int(contrast)
+    except (TypeError, ValueError):
+        raise ValueError("Choose a valid live change amplification.") from None
+    if contrast not in _CONTRASTS:
+        raise ValueError("Choose an amplification of 8, 32, or 64.")
     first_clip = media_clip_path(first, start, end, "denoise-compare-v1")
     second_clip = media_clip_path(second, start, end, "denoise-compare-v1")
-    token = _token(first, second, start, end)
+    token = _token(first, second, start, end, mode, contrast)
     target = _CACHE / f"{token}.mp4"
     if target.is_file() and target.stat().st_size > 0:
         return {"token": token, "url": f"/api/denoise-diff-video?token={token}", "cached": True}
     with _lock_for(token):
         if target.is_file() and target.stat().st_size > 0:
             return {"token": token, "url": f"/api/denoise-diff-video?token={token}", "cached": True}
-        _render(first_clip, second_clip, target, token)
+        # Two enabled panels must not start two FFmpeg jobs at the same time.
+        with _RENDER_LOCK:
+            if target.is_file() and target.stat().st_size > 0:
+                return {"token": token, "url": f"/api/denoise-diff-video?token={token}", "cached": True}
+            _render(first_clip, second_clip, target, token, mode, contrast)
     return {"token": token, "url": f"/api/denoise-diff-video?token={token}", "cached": False}

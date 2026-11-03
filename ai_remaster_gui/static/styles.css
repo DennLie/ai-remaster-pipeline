@@ -67,12 +67,13 @@ table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid var(--li
 .reference-anchor-card textarea{width:100%;min-height:56px;margin-bottom:6px}
 
 /* Denoising: offline-cached variants, browser-preview synchronized comparison. */
-.denoise-compare-toolbar,.denoise-compare-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:9px 0 13px}
+.denoise-compare-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:9px 0 13px}
+.denoise-compare-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:9px 0 13px}
 .denoise-compare-toolbar label{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
 .denoise-compare-toolbar input[type=number]{width:100px}
 .denoise-compare-toolbar select{min-width:70px}
 .denoise-compare-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.denoise-compare-panel{min-width:0;background:#0e1519;border:1px solid var(--line);border-radius:7px;padding:8px}
+.denoise-compare-panel{min-width:0;background:#0e1519;border:0;border-radius:0;padding:8px}
 .denoise-compare-panel label{display:block;color:var(--muted);font-size:12px;margin:0 0 5px}
 .denoise-compare-panel select{width:100%;min-width:0;max-width:100%;margin-bottom:8px;font-size:12px}
 .denoise-compare-video-wrap{width:100%;aspect-ratio:4/3;background:#050607;border:1px solid var(--line);border-radius:5px;overflow:hidden;display:grid;place-items:center}
@@ -85,15 +86,20 @@ table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid var(--li
 .denoise-compare-actions input[type=range]{flex:1;min-width:160px}
 .denoise-compare-actions button{flex:0 0 auto}
 #denoiseCompareTime{font-size:12px;font-variant-numeric:tabular-nums}
-.denoise-compare-diff{display:block;max-width:100%;width:512px;background:#030507;border:1px solid var(--line);border-radius:5px}
-.denoise-compare-diff.hidden{display:none}
-.denoise-compare-diff-video{display:block;max-width:100%;width:512px;background:#030507;border:1px solid var(--line);border-radius:5px}
-.denoise-compare-diff-video.hidden{display:none}
-.denoise-diff-status{display:block;min-height:1.2em;margin:6px 0 0;font-size:12px;color:var(--muted)}
-.denoise-compare-panel-actions{display:flex;gap:7px;margin-top:8px}
-.denoise-inspect-frame{padding:6px 9px;font-size:12px}
-.denoise-compare-panel-actions .denoise-inspect-frame{width:100%;white-space:normal}
-.denoise-compare-actions .denoise-inspect-frame{flex:0 0 auto}
+.denoise-compare-display{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px;padding:0 0 10px;border-bottom:1px solid var(--line)}
+.denoise-compare-display > span{font-size:12px;color:var(--text);font-weight:600}
+.denoise-compare-display label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.denoise-compare-display select{min-width:0;max-width:100%}
+.denoise-compare-display small{margin-left:auto;color:var(--muted);font-size:12px}
+.denoise-diff-status{display:block;min-height:1.2em;margin:6px 0 0;font-size:12px;line-height:1.35;color:var(--muted);overflow-wrap:anywhere}
+.denoise-compare-panel-actions{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px}
+.denoise-compare-panel .denoise-compare-diff-toggle{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--muted);white-space:nowrap}
+.denoise-inspect-frame{padding:6px 9px;font-size:12px;flex:0 0 auto;white-space:nowrap}
+.denoise-compare-diff-slot{margin-top:8px}
+.denoise-compare-diff-slot.hidden{display:none}
+.denoise-compare-diff-frame{position:relative;width:100%;height:clamp(130px,17vh,200px);border-top:1px solid var(--line);overflow:hidden}
+.denoise-compare-diff-frame video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+.denoise-compare-diff-frame video.hidden{display:none}
 @media(max-width:980px){.denoise-compare-grid{grid-template-columns:1fr}.denoise-compare-video-wrap{max-width:720px}}
 
 /* Clean Up split viewer: original left, processed right; drag the in-video handle. */

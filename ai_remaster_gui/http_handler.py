@@ -452,6 +452,8 @@ class Handler(BaseHTTPRequestHandler):
                     str(data.get("second", "")),
                     float(data.get("start", 0)),
                     float(data.get("end", 0)),
+                    str(data.get("mode", "direction")),
+                    data.get("contrast", 32),
                 )
                 self.send_json({"ok": True, **result})
             except (ValueError, FileNotFoundError, RuntimeError, OSError,

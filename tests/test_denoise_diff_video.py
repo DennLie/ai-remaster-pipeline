@@ -1,4 +1,4 @@
-"""Rendered Remove Noise difference previews: caching, validation and pixels."""
+"""Rendered Remove Noise live change previews: caching, validation and pixels."""
 from __future__ import annotations
 
 import subprocess
@@ -27,12 +27,37 @@ def _write_clip(path: Path, pattern: str) -> None:
 
 
 class DiffFrameTests(unittest.TestCase):
-    def test_magenta_mapping_matches_the_browser_canvas(self) -> None:
+    def test_direction_mapping_matches_the_frame_inspector(self) -> None:
         before = np.zeros((1, 1, 3), dtype=np.uint8)
-        after = np.array([[[10, 20, 30]]], dtype=np.uint8)
-        out = diff._diff_frame(before, after)
-        # (10+20+30)*4/3 = 80 -> R=80, G=0, B=48 in BGR order.
-        self.assertEqual(out.tolist(), [[[48, 0, 80]]])
+        after = np.array([[[3, 2, 1]]], dtype=np.uint8)  # BGR: RGB 1,2,3
+        out = diff._diff_frame(before, after, "direction", 32)
+        # Signed Rec.709 luma delta 1.86 -> 123; positive is teal in BGR.
+        self.assertEqual(out.tolist(), [[[123, 123, 6]]])
+
+    def test_direction_mapping_marks_darkened_pixels_orange(self) -> None:
+        before = np.array([[[30, 20, 10]]], dtype=np.uint8)  # RGB 10,20,30
+        after = np.array([[[27, 18, 9]]], dtype=np.uint8)    # RGB 9,18,27
+        out = diff._diff_frame(before, after, "direction", 32)
+        self.assertEqual(out.tolist(), [[[7, 64, 123]]])
+
+    def test_rgb_mapping_matches_the_frame_inspector(self) -> None:
+        before = np.zeros((1, 1, 3), dtype=np.uint8)
+        after = np.array([[[3, 2, 1]]], dtype=np.uint8)  # BGR: RGB 1,2,3
+        out = diff._diff_frame(before, after, "rgb", 32)
+        self.assertEqual(out.tolist(), [[[156, 128, 90]]])
+
+    def test_unchanged_pixels_stay_neutral_graphite(self) -> None:
+        before = np.array([[[12, 34, 56]]], dtype=np.uint8)
+        out = diff._diff_frame(before, before.copy(), "direction", 32)
+        self.assertEqual(out.tolist(), [[[31, 23, 15]]])
+
+    def test_invalid_display_settings_are_rejected(self) -> None:
+        before = np.zeros((1, 1, 3), dtype=np.uint8)
+        after = np.ones((1, 1, 3), dtype=np.uint8)
+        with self.assertRaises(ValueError):
+            diff._diff_frame(before, after, "rainbow", 32)
+        with self.assertRaises(ValueError):
+            diff._diff_frame(before, after, "direction", 16)
 
     def test_cached_token_rejects_paths_and_unknown_tokens(self) -> None:
         self.assertIsNone(diff.diff_video_path("../../etc/passwd"))
@@ -58,9 +83,13 @@ class DiffPreviewTests(unittest.TestCase):
             diff.render_diff_preview(self.first, self.second, 2, 1)
         with self.assertRaises(ValueError):
             diff.render_diff_preview(self.first, self.second, 0, 13)
+        with self.assertRaises(ValueError):
+            diff.render_diff_preview(self.first, self.second, 0, 1, "rainbow", 32)
+        with self.assertRaises(ValueError):
+            diff.render_diff_preview(self.first, self.second, 0, 1, "direction", 16)
 
     @unittest.skipUnless(diff.local_tool("ffmpeg"), "FFmpeg required")
-    def test_renders_a_cached_playable_difference_video(self) -> None:
+    def test_renders_a_cached_playable_live_change_video(self) -> None:
         _write_clip(self.first, "testsrc2=size=320x240:rate=24")
         _write_clip(self.second, "smptebars=size=320x240:rate=24")
         cache = self.folder / "cache"
@@ -80,13 +109,19 @@ class DiffPreviewTests(unittest.TestCase):
                 ok, frame = capture.read()
                 self.assertTrue(ok)
                 self.assertEqual(frame.shape[:2], (240, 320))
-                # The two generated patterns differ, so the magenta map is not empty.
+                # The two generated patterns differ, so the change map is not empty.
                 self.assertGreater(int(frame.max()), 0)
             finally:
                 capture.release()
             again = diff.render_diff_preview(self.first, self.second, 0, 0.4)
             self.assertTrue(again["cached"])
             self.assertEqual(again["token"], result["token"])
+            rgb = diff.render_diff_preview(
+                self.first, self.second, 0, 0.4, "rgb", 64,
+            )
+            self.assertFalse(rgb["cached"])
+            self.assertNotEqual(rgb["token"], result["token"])
+            self.assertIsNotNone(diff.diff_video_path(rgb["token"]))
 
 
 if __name__ == "__main__":

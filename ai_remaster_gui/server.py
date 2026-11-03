@@ -606,8 +606,9 @@ class PipelineApp:
                 "running": self.running_stage in {"Remove Noise Batch", "Remove Noise Grid"}}
 
     def denoise_diff_preview(self, first_text: str, second_text: str,
-                             start: float, end: float) -> dict:
-        """Render a stable A/B/C difference video from the selected known clips."""
+                             start: float, end: float, mode: str = "direction",
+                             contrast: int = 32) -> dict:
+        """Render a stable A/B/C live change video from the selected known clips."""
         stage = next((item for item in self.active_stages() if item.key == "denoise"), None)
         if stage is None:
             raise ValueError("Enable Remove Noise on Overview first.")
@@ -630,9 +631,9 @@ class PipelineApp:
             raise ValueError("Choose the current source or a finished Remove Noise variant.")
         if is_unfinished_media_artifact(first) or is_unfinished_media_artifact(second):
             raise ValueError("Wait for the selected clip to finish encoding.")
-        result = render_denoise_diff_preview(first, second, start, end)
+        result = render_denoise_diff_preview(first, second, start, end, mode, contrast)
         if not result.get("cached"):
-            self.log.append(f"Rendered Remove Noise difference preview: {result.get('token', '')[:12]}")
+            self.log.append(f"Rendered Remove Noise live change preview: {result.get('token', '')[:12]}")
         return result
 
     def run_denoise_batch(self) -> tuple[bool, str]:

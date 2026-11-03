@@ -303,8 +303,9 @@ test('Remove Noise wipe drags continuously to both edges and releases capture',(
   }
 });
 
-test('rendered difference key follows the visible pair and clip range',()=>{
-  assert.equal(context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),'a.mkv|b.mkv|0.000|2.400');
+test('rendered difference key follows pair, range, and display settings',()=>{
+  vm.runInContext("denoiseCompareDiffMode='direction';denoiseCompareDiffContrast=32",context);
+  assert.equal(context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),'a.mkv|b.mkv|0.000|2.400|direction|32');
   assert.notEqual(
     context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
     context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,4),
@@ -313,6 +314,31 @@ test('rendered difference key follows the visible pair and clip range',()=>{
     context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
     context.denoiseCompareDiffKeyFor('a.mkv','c.mkv',0,2.4),
   );
+  assert.notEqual(
+    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
+    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4,'rgb',32),
+  );
+  assert.notEqual(
+    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4),
+    context.denoiseCompareDiffKeyFor('a.mkv','b.mkv',0,2.4,'direction',64),
+  );
+});
+
+test('live change display validates mode and amplification',()=>{
+  const previousMode=vm.runInContext('denoiseCompareDiffMode',context);
+  const previousContrast=vm.runInContext('denoiseCompareDiffContrast',context);
+  try {
+    context.denoiseCompareSetDiffMode('rainbow');
+    assert.equal(vm.runInContext('denoiseCompareDiffMode',context),'direction');
+    context.denoiseCompareSetDiffMode('rgb');
+    assert.equal(vm.runInContext('denoiseCompareDiffMode',context),'rgb');
+    context.denoiseCompareSetDiffContrast(16);
+    assert.equal(vm.runInContext('denoiseCompareDiffContrast',context),32);
+    context.denoiseCompareSetDiffContrast(64);
+    assert.equal(vm.runInContext('denoiseCompareDiffContrast',context),64);
+  } finally {
+    vm.runInContext(`denoiseCompareDiffMode=${JSON.stringify(previousMode)};denoiseCompareDiffContrast=${previousContrast}`,context);
+  }
 });
 
 test('exact-frame bridge maps preview time to a source frame',()=>{
@@ -364,7 +390,7 @@ test('inspect-frame bridge pauses playback and opens the C frame exactly',()=>{
   context.document={
     getElementById(id){
       if(id==='denoiseCompareVideo0')return {currentTime:1.5};
-      if(id==='denoiseCompareDiffVideo')return {pause(){paused.push('diff')}};
+      if(id==='denoiseCompareDiffVideo1'||id==='denoiseCompareDiffVideo2')return {pause(){paused.push('diff')}};
       return null;
     },
     querySelector(){return null},
@@ -377,7 +403,7 @@ test('inspect-frame bridge pauses playback and opens the C frame exactly',()=>{
     vm.runInContext("active='denoise';denoiseComparePaths=['a.mkv','b.mkv','c.mkv'];denoiseCompareStart=10;denoiseCompareLength=4;denoiseCompareEffectiveLength=2;denoiseReviewFps=24",context);
     context.denoiseCompareInspectFrame(2);
     assert.deepEqual(calls,[{path:'c.mkv',frame:276},{sync:'c.mkv'}]);
-    assert.deepEqual(paused,['preview','diff']);
+    assert.deepEqual(paused,['preview','diff','diff']);
   } finally {
     context.document=previousDocument;
     context.denoiseCompareVideos=previousVideos;
@@ -421,14 +447,22 @@ test('exact-review inspect selects the variant at the requested frame',()=>{
   }
 });
 
-test('A/B/C panels offer exact frame inspection without a second live diff',()=>{
+test('A/B/C panels keep independent live change previews in B and C',()=>{
+  assert.match(compare,/denoiseCompareDiffToggle\$\{i\}/);
+  assert.match(compare,/denoiseCompareDiffVideo\$\{i\}/);
+  assert.match(compare,/denoiseCompareDiffStatus\$\{i\}/);
+  assert.match(compare,/data-dc-diff-slot="\$\{i\}"/);
+  assert.match(compare,/denoiseCompareDiffLabel\(i\)/);
+  assert.match(compare,/denoiseCompareDiffMode/);
+  assert.match(compare,/denoiseCompareDiffContrast/);
+  assert.match(compare,/Live change display/);
   assert.match(compare,/denoiseCompareInspectFrame\(\$\{i\}\)/);
   assert.match(compare,/data-dc-inspect="\$\{i\}"/);
   assert.match(compare,/Inspect this frame exactly/);
-  assert.match(compare,/id="denoiseCompareInspectDiff"/);
-  assert.match(compare,/live change preview/);
   assert.match(compare,/const exactReview = active === 'denoise'/);
-  assert.doesNotMatch(compare,/denoiseCompareDiffState/);
+  assert.match(compare,/const denoiseCompareDiffState = \{/);
+  assert.doesNotMatch(compare,/id="denoiseCompareDiff"/);
+  assert.doesNotMatch(compare,/denoiseComparePairIndex/);
 });
 
 test('A/B/C zoom pans the shared crop within the picture bounds',()=>{
@@ -554,12 +588,15 @@ test('exact review holds stale evidence instead of relabelling it',()=>{
       'The still images do not have identical dimensions.');
     assert.equal(context.denoiseReviewErrorText(new Error('x'.repeat(400))).length,301);
 
+    assert.equal(context.denoiseCompareDiffLabel(1),'A–B');
+    assert.equal(context.denoiseCompareDiffLabel(2),'A–C');
     vm.runInContext("denoiseCompareLayout='ac'",context);
-    assert.equal(context.denoiseComparePairIndex(),2);
-    assert.equal(context.denoiseComparePairLabel(),'A–C');
+    assert.equal(context.denoiseCompareDiffVisible(1),false);
+    assert.equal(context.denoiseCompareDiffVisible(2),true);
+    vm.runInContext("denoiseCompareLayout='ab'",context);
+    assert.equal(context.denoiseCompareDiffVisible(1),true);
+    assert.equal(context.denoiseCompareDiffVisible(2),false);
     vm.runInContext("denoiseCompareLayout='abc'",context);
-    assert.equal(context.denoiseComparePairIndex(),1);
-    assert.equal(context.denoiseComparePairLabel(),'A–B');
   } finally {
     context.state=previousState;
     vm.runInContext("denoiseCompareLayout='abc'",context);
