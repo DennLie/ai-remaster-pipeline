@@ -68,19 +68,28 @@ test('cleanup playback has no mode lock and the exact wipe uses inspector stills
   assert.match(css, /\.comparison-player\.cleanup-two-up\.frame-inspector-active \.compare-before,[\s\S]*?visibility:visible !important;/);
 });
 
-test('Clean Up wipe grip labels original and result, stays legible at both edges', () => {
+test('Clean Up wipe grip tracks exact split, fades near edges and labels final state', () => {
   assert.match(review, /class="cleanup-exact-wipe-handle"/);
   assert.match(review, /wipe-grip-original">ORIGINAL<\/span>/);
   assert.match(review, /wipe-grip-result">ERGEBNIS<\/span>/);
-  assert.match(review, /comparisonWipeGripOffset\(width, grip\.getBoundingClientRect\(\)\.width \|\| 180, amount\)/);
+  assert.match(review, /data-wipe-current-view/);
+  assert.match(review, /comparisonWipeGripOpacity\(width, grip\.offsetWidth \|\| 180, amount\)/);
+  assert.match(review, /comparisonWipeVisibleState\(amount, resultLabel\)/);
+  assert.doesNotMatch(review, /comparisonWipeGripOffset/);
   assert.match(css, /\.cleanup-exact-wipe-handle,\s*\.denoise-review-wipe-handle \{/);
+  assert.match(css, /\.wipe-current-view\s*\{/);
   assert.match(css, /\.wipe-grip-side\s*\{[\s\S]*?color:#fff/);
   const contrast = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/review-contrast.js'), 'utf8');
   const ctx = vm.createContext({});
   vm.runInContext(contrast, ctx);
-  assert.equal(ctx.comparisonWipeGripOffset(640, 180, 0), 93);
-  assert.equal(ctx.comparisonWipeGripOffset(640, 180, 50), 0);
-  assert.equal(ctx.comparisonWipeGripOffset(640, 180, 100), -93);
+  assert.equal(ctx.comparisonWipeGripOpacity(640, 180, 0), 0);
+  assert.equal(ctx.comparisonWipeGripOpacity(640, 180, 50), 1);
+  assert.equal(ctx.comparisonWipeGripOpacity(640, 180, 100), 0);
+  assert.equal(ctx.comparisonWipeGripOpacity(640, 180, 15), 0);
+  assert.equal(ctx.comparisonWipeGripOpacity(640, 180, 20), 1);
+  assert.equal(ctx.comparisonWipeVisibleState(0, 'Localized · experimentell'), 'NUR Localized · experimentell · 100 %');
+  assert.equal(ctx.comparisonWipeVisibleState(100), 'NUR ORIGINAL · 100 %');
+  assert.equal(ctx.comparisonWipeVisibleState(50), '50 % ORIGINAL · 50 % ERGEBNIS');
 });
 
 test('Clean Up settings are a permanent left sidebar and metrics are above the video', () => {
