@@ -9,6 +9,8 @@ let denoiseCompareStart = 0;
 let denoiseCompareLength = 4;
 let denoiseCompareZoom = 1;
 let denoiseCompareLayout = 'abc';
+let denoiseCompareEffectiveLength = 0;
+let denoiseCompareLengthSection = '';
 
 const DENOISE_METHODS = [
   { key: 'hqdn3d', label: 'HQDN3D' },
@@ -22,6 +24,9 @@ const DENOISE_PRESETS = [
 ];
 let denoiseMatrixSelected = null;
 let denoiseMatrixRenderedReady = null;
+let denoiseUseVariantPending = false;
+let denoiseBatchPending = false;
+let denoiseGridPending = false;
 
 function denoiseVariantLabelFor(method, preset) {
   if (method === 'off') return 'Off';
@@ -113,12 +118,12 @@ function denoiseCompareCandidates(st) {
     : (global.source_sequence_preview || global.source || '');
   const candidates = [];
   if (source && denoisePreviewIsFinal(source) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(source)) {
-    candidates.push({ path: source, label: 'Original — ' + source });
+    candidates.push({ path: source, label: 'Original — ' + source, kind: 'source' });
   }
   for (const file of (st.files || [])) {
     const path = file.path || '';
     if (denoisePreviewIsFinal(path) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
-      candidates.push({ path, label: denoiseVariantLabel(path) });
+      candidates.push({ path, label: denoiseVariantLabel(path), kind: 'variant' });
     }
   }
   return candidates;
@@ -132,6 +137,72 @@ function denoiseCompareClip(start, duration) {
     return null;
   }
   return { start: a, duration: b };
+}
+
+function denoiseCompareAvailableLength() {
+  const section = state?.source_section || {};
+  const sourceDuration = parseDuration(state?.source_info?.duration || '0');
+  const start = Number(section.enabled ? section.start : 0) || 0;
+  const end = Number(section.enabled ? section.end : sourceDuration) || sourceDuration;
+  return Math.max(0, end - start);
+}
+
+function denoiseCompareSectionKey() {
+  const section = state?.source_section || {};
+  return `${section.enabled ? section.start : 0}-${section.enabled ? section.end : ''}`;
+}
+
+function denoiseCompareFullDuration() {
+  const available = denoiseCompareAvailableLength();
+  if (!(available >= 1)) return 0;
+  return Math.min(12, available);
+}
+
+function denoiseCompareEnsureLength() {
+  const full = denoiseCompareFullDuration();
+  const key = denoiseCompareSectionKey();
+  if (key !== denoiseCompareLengthSection) {
+    denoiseCompareLengthSection = key;
+    if (full) denoiseCompareLength = full;
+  }
+  if (full && denoiseCompareLength > full) denoiseCompareLength = full;
+  if (!Number.isFinite(denoiseCompareLength) || denoiseCompareLength < 1) {
+    denoiseCompareLength = full || 4;
+  }
+  if (denoiseCompareLength > 12) denoiseCompareLength = 12;
+  denoiseCompareEffectiveLength = full
+    ? Math.min(denoiseCompareLength, full)
+    : denoiseCompareLength;
+}
+
+function denoiseCompareDurationOptions() {
+  const full = denoiseCompareFullDuration();
+  const values = [2, 4, 8, 12].filter(value => !full || value < full - 0.001);
+  if (full) values.push(full);
+  const unique = [...new Set(values)].sort((a, b) => a - b);
+  return unique.map(value => {
+    const isFull = full > 0 && Math.abs(value - full) < 0.001;
+    const suffix = isFull ? (full < 12 ? ' · full clip' : ' · max preview') : '';
+    return `<option value="${value}" ${Math.abs(value - denoiseCompareLength) < 0.001 ? 'selected' : ''}>${value}s${suffix}</option>`;
+  }).join('');
+}
+
+function denoiseCompareSetEffectiveLength(value) {
+  const actual = Number(value);
+  const maximum = Number.isFinite(actual) && actual > 0 ? actual : denoiseCompareLength;
+  denoiseCompareEffectiveLength = Math.max(0, Math.min(denoiseCompareLength, maximum));
+  const seek = document.getElementById('denoiseCompareSeek');
+  if (seek) {
+    seek.max = String(denoiseCompareEffectiveLength);
+    if (Number(seek.value) > denoiseCompareEffectiveLength) {
+      seek.value = String(denoiseCompareEffectiveLength);
+    }
+  }
+  const label = document.getElementById('denoiseCompareTime');
+  if (label) {
+    const current = Math.min(Number(seek?.value || 0), denoiseCompareEffectiveLength);
+    label.textContent = `${current.toFixed(2)} / ${denoiseCompareEffectiveLength.toFixed(2)} s`;
+  }
 }
 
 function denoiseCompareInitializePaths(candidates) {
@@ -156,6 +227,7 @@ function denoiseCompareInitializePaths(candidates) {
 function drawDenoise(st, settings, expected, progress) {
   const candidates = denoiseCompareCandidates(st);
   denoiseCompareInitializePaths(candidates);
+  denoiseCompareEnsureLength();
   document.getElementById('app').innerHTML = `
     <div class="editor-page ${st.key === 'denoise' ? 'denoise-editor-page' : ''}">
       <aside class="card denoise-settings-sidebar" aria-label="${st.key === 'denoise' ? 'Remove Noise settings' : 'Detail enhancement settings'}">
@@ -177,7 +249,7 @@ function drawDenoise(st, settings, expected, progress) {
         <div class="denoise-compare-toolbar">
           <label>Start time (s) <input id="denoiseCompareStart" type="number" min="0" max="360000" step="0.1" value="${denoiseCompareStart}"></label>
           <label>Clip duration <select id="denoiseCompareLength">
-            ${[2, 4, 8, 12].map(x => `<option value="${x}" ${x === denoiseCompareLength ? 'selected' : ''}>${x}s</option>`).join('')}
+            ${denoiseCompareDurationOptions()}
           </select></label>
           <button type="button" onclick="denoiseCompareApplyClip()">Apply to all three</button>
           <label>View <select id="denoiseCompareLayout" onchange="denoiseCompareSetLayout(this.value)">
@@ -325,7 +397,11 @@ function denoiseMatrixUpdateUi() {
   };
   set('[data-dm-selected-label]', label);
   set('[data-dm-stage-output]', denoiseVariantLabelFor(stage.method, stage.preset));
-  set('[data-dr-current-variant]', selected.method === 'off' ? 'Off' : label);
+  // This number is measured on one decoded frame. Say so, or it reads as a
+  // property of the whole variant.
+  const frameMetric = path === denoiseReviewVariant && denoiseReviewMetrics
+    ? `Frame ${denoiseReviewFrame + 1}: mean |ΔY| ${denoiseReviewMetrics.mean.toFixed(2)} / 255 · ${denoiseReviewMetrics.changedPercent.toFixed(2)}% pixels changed`
+    : '';
 
   if (selected.method === 'off') {
     set('[data-dm-selected-state]', 'Remove Noise is off.');
@@ -337,15 +413,11 @@ function denoiseMatrixUpdateUi() {
     set('[data-dm-selected-output]', 'No output yet.');
   } else if (same) {
     set('[data-dm-selected-state]', 'Current stage output.');
-    set('[data-dm-selected-meta]', path === denoiseReviewVariant && denoiseReviewMetrics
-      ? `Mean |ΔY| ${denoiseReviewMetrics.mean.toFixed(2)} / 255 · ${denoiseReviewMetrics.changedPercent.toFixed(2)}% pixels changed`
-      : 'Exact-frame metrics load in the review below.');
+    set('[data-dm-selected-meta]', frameMetric || 'Exact-frame metrics load in the review below.');
     set('[data-dm-selected-output]', path || 'No output path.');
   } else {
     set('[data-dm-selected-state]', 'Ready to use.');
-    set('[data-dm-selected-meta]', path === denoiseReviewVariant && denoiseReviewMetrics
-      ? `Mean |ΔY| ${denoiseReviewMetrics.mean.toFixed(2)} / 255 · ${denoiseReviewMetrics.changedPercent.toFixed(2)}% pixels changed`
-      : 'Exact-frame metrics load in the review below.');
+    set('[data-dm-selected-meta]', frameMetric || 'Exact-frame metrics load in the review below.');
     set('[data-dm-selected-output]', path || 'No output path.');
   }
 
@@ -375,6 +447,9 @@ function denoiseMatrixUpdateUi() {
     cell.tabIndex = isSelected || (selected.method === 'off' &&
       cell.dataset.method === DENOISE_METHODS[0].key && cell.dataset.preset === DENOISE_PRESETS[0].key) ? 0 : -1;
   });
+  // One selection drives the exact review. It either shows that variant or an
+  // explicit no-result state; it never keeps older pixels under a new label.
+  if (typeof denoiseReviewSyncSelection === 'function') denoiseReviewSyncSelection(selected);
 }
 
 function denoiseMatrixSelect(method, preset) {
@@ -382,14 +457,13 @@ function denoiseMatrixSelect(method, preset) {
   if (!DENOISE_METHODS.some(x => x.key === method) || !DENOISE_PRESETS.some(x => x.key === preset)) return;
   denoiseMatrixSelected = { method, preset };
   const path = denoiseVariantPath(method, preset);
-  if (path && denoisePreviewIsFinal(path)) {
-    if (denoiseComparePaths[1] !== path) {
-      denoiseComparePaths[1] = path;
-      const st = (state.stages || []).find(x => x.key === 'denoise');
-      renderDenoiseComparePlayers(denoiseCompareCandidates(st));
-    }
-    if (path !== denoiseReviewVariant) denoiseReviewChoose(path);
+  if (path && denoisePreviewIsFinal(path) && denoiseComparePaths[1] !== path) {
+    denoiseComparePaths[1] = path;
+    const st = (state.stages || []).find(x => x.key === 'denoise');
+    renderDenoiseComparePlayers(denoiseCompareCandidates(st));
   }
+  // denoiseMatrixUpdateUi syncs the exact review: a ready variant loads its
+  // pixels, Off or an unrendered variant replaces the review with a hold state.
   denoiseMatrixUpdateUi();
 }
 
@@ -401,7 +475,7 @@ function denoiseMatrixSyncFromPath(path) {
 }
 
 async function denoiseMatrixUseSelected() {
-  if (state.running) return;
+  if (state.running || denoiseUseVariantPending) return;
   const selected = denoiseSelectedVariant();
   const method = document.querySelector('[data-field="method"]');
   const preset = document.querySelector('[data-field="preset"]');
@@ -409,9 +483,20 @@ async function denoiseMatrixUseSelected() {
   if (method) method.value = selected.method;
   if (preset) preset.value = selected.preset || 'gentle';
   if (force) force.checked = false;
-  await saveStage('denoise', true);
-  if (selected.method !== 'off' && !denoiseVariantReady(selected.method, selected.preset)) {
-    await runStage('denoise');
+  denoiseUseVariantPending = true;
+  const action = document.getElementById('denoiseUseVariant');
+  if (action) action.disabled = true;
+  try {
+    await saveStage('denoise', true);
+    if (selected.method !== 'off' && !denoiseVariantReady(selected.method, selected.preset)) {
+      await runStage('denoise');
+    }
+  } catch (error) {
+    const notice = document.querySelector('[data-dm-notice]');
+    if (notice) notice.textContent = 'The stage output could not be changed: ' + (error?.message || 'unknown error');
+  } finally {
+    denoiseUseVariantPending = false;
+    if (typeof denoiseMatrixUpdateUi === 'function') denoiseMatrixUpdateUi();
   }
 }
 
@@ -453,9 +538,12 @@ function updateDenoiseMatrixStatus() {
     if (matrix.download) download.textContent = 'Download ZIP · ' + (matrix.filename || 'frame grids');
   }
   const run = document.getElementById('denoiseMatrixRun');
-  if (run) run.disabled = !!state.running;
+  if (run) {
+    run.disabled = !!state.running || denoiseBatchPending;
+    if (!denoiseBatchPending) run.textContent = 'Render all 9 variants';
+  }
   const exportButton = document.getElementById('denoiseMatrixExport');
-  if (exportButton) exportButton.disabled = !!state.running || !count;
+  if (exportButton) exportButton.disabled = !!state.running || denoiseGridPending || !count;
   // The batch completed while polling preserved the video DOM. Rebuild once to
   // discover all new variants, then preserve interactive videos again.
   if (!state.running && denoiseMatrixRenderedReady !== null && count !== denoiseMatrixRenderedReady) {
@@ -465,26 +553,68 @@ function updateDenoiseMatrixStatus() {
 }
 
 async function denoiseMatrixRunAll() {
-  const result = await postJson('/api/denoise-batch', {});
-  if (!result.ok) return alert(result.error || 'The batch could not be started.');
-  await refresh(true);
+  if (state.running || denoiseBatchPending) return;
+  denoiseBatchPending = true;
+  const button = document.getElementById('denoiseMatrixRun');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Starting batch...';
+  }
+  try {
+    const result = await postJson('/api/denoise-batch', {});
+    if (!result || !result.ok) {
+      alert((result && result.error) || 'The batch could not be started.');
+      return;
+    }
+    await refresh(true);
+  } catch (error) {
+    alert('The batch request failed: ' + (error?.message || 'the local server did not answer'));
+  } finally {
+    denoiseBatchPending = false;
+    updateDenoiseMatrixStatus();
+  }
 }
 
 async function denoiseMatrixExport() {
+  if (state.running || denoiseGridPending) return;
   const frames = document.getElementById('denoiseMatrixFrames')?.value.trim() || '';
-  if (frames && !/^\d+(\s*,\s*\d+){0,4}$/.test(frames)) {
-    return alert('Enter 1 to 5 different frame numbers, separated by commas.');
+  if (frames) {
+    const values = frames.split(',').map(value => Number(value.trim()));
+    if (values.length > 5 || values.some(value => !Number.isInteger(value) || value < 1)) {
+      return alert('Enter up to five whole frame numbers starting at 1, separated by commas.');
+    }
+    if (new Set(values).size !== values.length) {
+      return alert('Each frame can only appear once. Remove the duplicate before creating the grid.');
+    }
   }
-  const result = await postJson('/api/denoise-grid', {frames});
-  if (!result.ok) return alert(result.error || 'The grid could not be created.');
-  // A cached grid is immediately downloadable, a new grid appears once complete.
-  if (result.state) state = result.state;
-  updateDenoiseMatrixStatus();
+  denoiseGridPending = true;
+  const button = document.getElementById('denoiseMatrixExport');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Creating grids...';
+  }
+  try {
+    const result = await postJson('/api/denoise-grid', {frames});
+    if (!result || !result.ok) {
+      alert((result && result.error) || 'The grid could not be created.');
+      return;
+    }
+    // A cached grid is immediately downloadable, a new grid appears once complete.
+    if (result.state && typeof result.state === 'object') state = result.state;
+  } catch (error) {
+    alert('The grid request failed: ' + (error?.message || 'the local server did not answer'));
+  } finally {
+    denoiseGridPending = false;
+    const current = document.getElementById('denoiseMatrixExport');
+    if (current) current.textContent = 'Create frame grids as ZIP';
+    updateDenoiseMatrixStatus();
+  }
 }
 
 function renderDenoiseComparePlayers(candidates) {
   const host = document.getElementById('denoiseComparePlayers');
   if (!host) return;
+  const compareDuration = denoiseCompareEffectiveLength || denoiseCompareLength;
   const optionHtml = candidates.map(v =>
     `<option value="${esc(v.path)}">${esc(v.label)}</option>`).join('');
   host.innerHTML = `
@@ -497,7 +627,7 @@ function renderDenoiseComparePlayers(candidates) {
           </select>
           <div class="denoise-compare-video-wrap">
             ${path ? `<video id="denoiseCompareVideo${i}" preload="metadata" muted playsinline
-              src="${mediaClip(path, denoiseCompareStart, denoiseCompareStart + denoiseCompareLength, 'denoise-compare-v1')}" aria-label="Denoising comparison variant ${'ABC'[i]}"></video>` : '<p class="shot-empty">Select a video to compare.</p>'}
+              src="${mediaClip(path, denoiseCompareStart, denoiseCompareStart + compareDuration, 'denoise-compare-v1')}" aria-label="Denoising comparison variant ${'ABC'[i]}"></video>` : '<p class="shot-empty">Select a video to compare.</p>'}
           </div>
         </div>
       `).join('')}
@@ -506,11 +636,11 @@ function renderDenoiseComparePlayers(candidates) {
       <button type="button" id="denoiseComparePlay" onclick="denoiseComparePlayPause()">Play all</button>
       <button type="button" onclick="denoiseCompareStep(-1)">Previous frame</button>
       <button type="button" onclick="denoiseCompareStep(1)">Next frame</button>
-      <input id="denoiseCompareSeek" type="range" min="0" max="${denoiseCompareLength}" step="0.001" value="0" oninput="denoiseCompareSeek(this.value)" aria-label="Shared comparison position">
-      <span id="denoiseCompareTime">0.00 / ${denoiseCompareLength.toFixed(2)} s</span>
+      <input id="denoiseCompareSeek" type="range" min="0" max="${compareDuration}" step="0.001" value="0" oninput="denoiseCompareSeek(this.value)" aria-label="Shared comparison position">
+      <span id="denoiseCompareTime">0.00 / ${compareDuration.toFixed(2)} s</span>
     </div>
     <div class="denoise-compare-actions">
-      <label><input id="denoiseCompareDiff" type="checkbox" onchange="denoiseCompareDifference()"> Show A–B pixel differences (preview only)</label>
+      <label><input id="denoiseCompareDiff" type="checkbox" onchange="denoiseCompareDifference()"> Show <span data-dc-pair>${denoiseComparePairLabel()}</span> pixel differences (preview only)</label>
     </div>
     <canvas id="denoiseCompareDiffCanvas" class="denoise-compare-diff hidden" aria-label="Pixel difference between A and B"></canvas>
   `;
@@ -521,7 +651,9 @@ function renderDenoiseComparePlayers(candidates) {
   const layout = document.getElementById('denoiseCompareLayout');
   if (layout) layout.value = denoiseCompareLayout;
   denoiseCompareSetZoom(denoiseCompareZoom);
+  denoiseCompareSyncDiffAvailability();
   denoiseCompareWireVideos();
+  denoiseCompareSetEffectiveLength(compareDuration);
 }
 
 function denoiseCompareVideos() {
@@ -536,9 +668,44 @@ function denoiseCompareChoose(index, path) {
   denoiseComparePaths[index] = path;
   renderDenoiseComparePlayers(candidates);
   if (active === 'denoise' && index > 0 && path !== denoiseReviewVariant && denoisePreviewIsFinal(path)) {
-    denoiseReviewChoose(path);
     denoiseMatrixSyncFromPath(path);
   }
+}
+
+function denoiseComparePairIndex() {
+  return denoiseCompareLayout === 'ac' ? 2 : 1;
+}
+
+function denoiseComparePairLabel() {
+  return denoiseCompareLayout === 'ac' ? 'A–C' : 'A–B';
+}
+
+function denoiseCompareSyncDiffAvailability() {
+  // The previewed difference must describe the pair the user can actually see.
+  const toggle = document.getElementById('denoiseCompareDiff');
+  const canvas = document.getElementById('denoiseCompareDiffCanvas');
+  const pair = denoiseComparePairIndex();
+  const second = denoiseComparePaths[pair] || '';
+  const duplicate = !second || second === denoiseComparePaths[0];
+  if (toggle) {
+    toggle.disabled = duplicate;
+    if (duplicate) toggle.checked = false;
+  }
+  const label = document.querySelector('[data-dc-pair]');
+  if (label) label.textContent = denoiseComparePairLabel();
+  if (canvas) {
+    if (duplicate) canvas.classList.add('hidden');
+    canvas.setAttribute('aria-label', `Pixel difference between A and ${'ABC'[pair]}`);
+  }
+  if (duplicate && second) {
+    denoiseCompareNotice(`A and ${'ABC'[pair]} are the same file. Choose a different variant to compare pixels.`);
+  }
+}
+
+function denoiseComparePairReady(first, second) {
+  return Boolean(first && second && first.readyState >= 1 && second.readyState >= 1 &&
+    first.videoWidth > 0 && first.videoHeight > 0 &&
+    first.videoWidth === second.videoWidth && first.videoHeight === second.videoHeight);
 }
 
 function denoiseCompareSetLayout(value) {
@@ -548,6 +715,9 @@ function denoiseCompareSetLayout(value) {
     grid.classList.remove('denoise-layout-abc','denoise-layout-ab','denoise-layout-ac');
     grid.classList.add('denoise-layout-' + denoiseCompareLayout);
   }
+  denoiseCompareSyncDiffAvailability();
+  const toggle = document.getElementById('denoiseCompareDiff');
+  if (toggle && toggle.checked) denoiseCompareDifference();
 }
 
 function denoiseCompareApplyClip() {
@@ -558,8 +728,12 @@ function denoiseCompareApplyClip() {
     denoiseCompareNotice('Use a start time between 0 and 360000 seconds and a clip length from 1 to 12 seconds.');
     return;
   }
-  denoiseCompareStart = clipped.start;
-  denoiseCompareLength = clipped.duration;
+  const full = denoiseCompareFullDuration();
+  const length = full ? Math.min(clipped.duration, full) : clipped.duration;
+  const maxStart = full ? Math.max(0, full - length) : 360000;
+  denoiseCompareStart = Math.min(clipped.start, maxStart);
+  denoiseCompareLength = length;
+  denoiseCompareEffectiveLength = length;
   const st = (state.stages || []).find(v => v.key === active);
   renderDenoiseComparePlayers(st ? denoiseCompareCandidates(st) : []);
 }
@@ -592,7 +766,8 @@ function denoiseCompareWireVideos() {
   if (!videos.length) return;
   const master = videos[0];
   const sync = () => {
-    const t = master.currentTime || 0;
+    const total = denoiseCompareEffectiveLength || denoiseCompareLength;
+    const t = Math.min(master.currentTime || 0, total);
     for (const other of videos.slice(1)) {
       if (other.readyState && Math.abs(other.currentTime - t) > 0.09) {
         try { other.currentTime = t; } catch (_) { /* not yet seekable */ }
@@ -601,7 +776,7 @@ function denoiseCompareWireVideos() {
     const seek = document.getElementById('denoiseCompareSeek');
     if (seek) seek.value = String(t);
     const label = document.getElementById('denoiseCompareTime');
-    if (label) label.textContent = `${t.toFixed(2)} / ${denoiseCompareLength.toFixed(2)} s`;
+    if (label) label.textContent = `${t.toFixed(2)} / ${total.toFixed(2)} s`;
     denoiseCompareDifference();
   };
   master.addEventListener('timeupdate', sync);
@@ -613,9 +788,11 @@ function denoiseCompareWireVideos() {
     sync();
   });
   master.addEventListener('ended', () => videos.slice(1).forEach(v => v.pause()));
-  videos.forEach(video => {
+  videos.forEach((video, index) => {
     video.addEventListener('loadedmetadata', () => {
       if (videos.every(v => v.readyState >= 1)) {
+        const durations = videos.map(v => Number(v.duration)).filter(d => Number.isFinite(d) && d > 0);
+        if (durations.length) denoiseCompareSetEffectiveLength(Math.min(...durations));
         denoiseCompareNotice(
           denoiseCompareCompatible(videos)
             ? 'Same dimensions and duration. Browser synchronization is approximate; the master files are unchanged.'
@@ -623,16 +800,19 @@ function denoiseCompareWireVideos() {
         );
       }
     });
-    video.addEventListener('error', () => denoiseCompareNotice(
-      'Could not decode a comparison preview. Check FFmpeg, source availability and the ARP log.'
-    ));
+    video.addEventListener('error', () => {
+      const slot = 'ABC'[index] || '?';
+      const name = denoiseVariantLabel(denoiseComparePaths[index]);
+      denoiseCompareNotice(`Clip ${slot} (${name}) could not be decoded. Pick another variant, or check FFmpeg and the ARP log; the other previews stay usable.`);
+    });
   });
 }
 
 function denoiseCompareSeek(value) {
   const videos = denoiseCompareVideos();
+  const total = denoiseCompareEffectiveLength || denoiseCompareLength;
   const t = Number(value);
-  if (!Number.isFinite(t) || t < 0 || t > denoiseCompareLength) return;
+  if (!Number.isFinite(t) || t < 0 || t > total) return;
   videos.forEach(v => {
     v.pause();
     if (v.readyState) {
@@ -640,7 +820,7 @@ function denoiseCompareSeek(value) {
     }
   });
   const label = document.getElementById('denoiseCompareTime');
-  if (label) label.textContent = `${t.toFixed(2)} / ${denoiseCompareLength.toFixed(2)} s`;
+  if (label) label.textContent = `${t.toFixed(2)} / ${total.toFixed(2)} s`;
 }
 
 function denoiseComparePlayPause() {
@@ -671,7 +851,8 @@ function denoiseCompareStep(direction) {
   const sourceFps = Number(String((state.source_info || {}).fps || '').split(' ')[0]) || 30;
   const fps = Math.max(1, Math.min(240, sourceFps));
   const delta = direction < 0 ? -1/fps : 1/fps;
-  denoiseCompareSeek(Math.max(0, Math.min(denoiseCompareLength, videos[0].currentTime + delta)));
+  const total = denoiseCompareEffectiveLength || denoiseCompareLength;
+  denoiseCompareSeek(Math.max(0, Math.min(total, videos[0].currentTime + delta)));
   denoiseCompareNotice('Frame step is an approximate browser seek; exact source-frame evaluation uses FFmpeg.');
 }
 
@@ -679,11 +860,21 @@ function denoiseCompareDifference() {
   const enabled = document.getElementById('denoiseCompareDiff');
   const canvas = document.getElementById('denoiseCompareDiffCanvas');
   if (!enabled || !canvas) return;
+  const pair = denoiseComparePairIndex();
+  const first = document.getElementById('denoiseCompareVideo0');
+  const second = document.getElementById(`denoiseCompareVideo${pair}`);
+  const sameFile = !second || denoiseComparePaths[0] === denoiseComparePaths[pair];
+  if (sameFile) {
+    enabled.checked = false;
+    enabled.disabled = true;
+  }
   canvas.classList.toggle('hidden', !enabled.checked);
   if (!enabled.checked) return;
-  const videos = denoiseCompareVideos();
-  if (!denoiseCompareCompatible(videos)) return;
-  const width = Math.min(512, videos[0].videoWidth), height = Math.round(width * videos[0].videoHeight / videos[0].videoWidth);
+  if (!denoiseComparePairReady(first, second)) {
+    denoiseCompareNotice(`A and ${'ABC'[pair]} must both load with matching dimensions before a pixel difference.`);
+    return;
+  }
+  const width = Math.min(512, first.videoWidth), height = Math.round(width * first.videoHeight / first.videoWidth);
   if (!width || !height) return;
   // The two clips are same-origin H.264 previews; pixel differences include preview compression.
   const tmp = document.createElement('canvas');
@@ -691,9 +882,9 @@ function denoiseCompareDifference() {
   const ctx = tmp.getContext('2d', { willReadFrequently: true });
   if (!ctx) return;
   try {
-    ctx.drawImage(videos[0], 0, 0, width, height);
+    ctx.drawImage(first, 0, 0, width, height);
     const a = ctx.getImageData(0, 0, width, height);
-    ctx.drawImage(videos[1], 0, 0, width, height);
+    ctx.drawImage(second, 0, 0, width, height);
     const b = ctx.getImageData(0, 0, width, height);
     for (let i = 0; i < a.data.length; i += 4) {
       const d = Math.min(255, 4 * (
@@ -703,7 +894,9 @@ function denoiseCompareDifference() {
       a.data[i] = d; a.data[i+1] = 0; a.data[i+2] = Math.round(d * 0.6); a.data[i+3] = 255;
     }
     canvas.width = width; canvas.height = height;
-    canvas.getContext('2d').putImageData(a, 0, 0);
+    const output = canvas.getContext('2d');
+    if (!output) throw new Error('No 2D canvas context.');
+    output.putImageData(a, 0, 0);
   } catch (_) {
     denoiseCompareNotice('Difference preview is unavailable for these video sources.');
   }

@@ -49,7 +49,8 @@ test('batch UI runs all nine algorithms/presets and offers finished ZIP comparis
   assert.match(compare,/postJson\('\/api\/denoise-batch', \{\}\)/);
   assert.match(compare,/postJson\('\/api\/denoise-grid', \{frames\}\)/);
   assert.match(compare,/^function denoiseMatrixHtml\(/m);
-  assert.match(compare,/if \(frames && !\/\^\\d\+/);
+  assert.match(compare,/values\.length > 5/);
+  assert.match(compare,/new Set\(values\)\.size/);
   const handler=fs.readFileSync(path.join(root,'ai_remaster_gui/http_handler.py'),'utf8');
   assert.match(handler,/parsed\.path == "\/api\/denoise-batch"/);
   assert.match(handler,/parsed\.path == "\/api\/denoise-grid"/);

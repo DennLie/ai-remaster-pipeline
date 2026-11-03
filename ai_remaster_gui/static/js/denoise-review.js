@@ -15,9 +15,66 @@ let denoiseReviewDiffMode = 'direction';
 let denoiseReviewDiffContrast = 32;
 let denoiseReviewImagePair = null;
 let denoiseReviewMetrics = null;
+// The review label describes the pixels that are actually on screen. 'hold'
+// hides the stills whenever the selection has no result, so stale evidence can
+// never sit under a newer label.
+let denoiseReviewPhase = 'idle';
+let denoiseReviewHold = null;
+let denoiseReviewHasFrame = false;
+let denoiseReviewInFlight = false;
+let denoiseReviewPending = null;
+let denoiseWipePointer = null;
+
+// Shared difference helpers predate the English review and throw German
+// validation text. Never leak that into the English tab.
+const DENOISE_REVIEW_ERROR_TEXT = [
+  [/Ungültige Differenzdaten oder Kontrasteinstellungen\.?/i,
+    'The pixel-difference data was invalid for these settings.'],
+  [/Bildgrößen stimmen nicht überein\.?/i,
+    'The still images do not have identical dimensions.'],
+  [/Nicht deckungsgleiche Einzelbilder\.?/i,
+    'The still images are not aligned.'],
+  [/Canvas nicht verfügbar\.?/i,
+    'This browser cannot provide a 2D canvas for the difference view.'],
+];
+
+function denoiseReviewErrorText(error) {
+  const text = String((error && error.message) || error || 'Unknown error.').trim();
+  for (const [pattern, replacement] of DENOISE_REVIEW_ERROR_TEXT) {
+    if (pattern.test(text)) return replacement;
+  }
+  return text.length > 300 ? text.slice(0, 300) + '…' : text;
+}
 
 function denoiseReviewVariants(candidates) {
-  return (candidates || []).slice(1).filter(v => denoisePreviewIsFinal(v.path));
+  // A missing film source drops the "Original" entry; filtering by kind keeps
+  // every rendered variant reviewable instead of silently losing the first.
+  // Legacy snapshots and tests have no kind, so their first entry is the source.
+  const items = candidates || [];
+  const hasKinds = items.some(v => v.kind);
+  return items.filter((v, index) => {
+    if (hasKinds ? v.kind === 'source' : index === 0) return false;
+    return denoisePreviewIsFinal(v.path);
+  });
+}
+
+function denoiseReviewPathValid(path) {
+  const st = state?.stages?.find(x => x.key === 'denoise');
+  return Boolean(path) && denoiseReviewVariants(st ? denoiseCompareCandidates(st) : [])
+    .some(x => x.path === path);
+}
+
+function denoiseReviewHoldMessage(kind, label, detail) {
+  if (kind === 'off') {
+    return 'Remove Noise is off. The source passes through unchanged, so there is no denoised result to review. The original frames stay available in the A/B/C comparison above.';
+  }
+  if (kind === 'missing') {
+    return `${label || 'This variant'} has not been rendered. Render it from the Variant panel; exact frames, the difference map and the wipe appear here when it finishes.`;
+  }
+  if (kind === 'unavailable') {
+    return `${label || 'This variant'} is out of step with the current file list, so its exact frames cannot be opened. Reload the page; if it persists, render the variant again.`;
+  }
+  return `${label ? 'The exact frames for ' + label + ' could not be loaded.' : 'The exact frames could not be loaded.'}${detail ? ' ' + denoiseReviewErrorText(detail) : ''} Select the variant again to retry.`;
 }
 
 function denoiseReviewHtml(candidates) {
@@ -28,19 +85,44 @@ function denoiseReviewHtml(candidates) {
       <p class="shot-empty">No finished Remove Noise variant yet. After rendering, exact original/result frames, pixel difference, frame bars and the wipe comparison appear here.</p>
     </section>`;
   }
-  const preferred = typeof denoiseSelectedPath === 'function' ? denoiseSelectedPath() : '';
-  if (!options.some(x => x.path === denoiseReviewVariant)) {
-    denoiseReviewVariant = options.find(x => x.path === (preferred || denoiseComparePaths[1]))?.path || options[0].path;
+  const selected = typeof denoiseSelectedVariant === 'function' ? denoiseSelectedVariant() : null;
+  let label = '';
+  let holdKind = '';
+  let holdText = '';
+  let target = '';
+  if (selected && selected.method === 'off') {
+    label = 'Off';
+    holdKind = 'off';
+  } else if (selected && (!denoiseVariantReady(selected.method, selected.preset) || !denoiseVariantPath(selected.method, selected.preset))) {
+    label = denoiseVariantLabelFor(selected.method, selected.preset);
+    holdKind = 'missing';
+  } else {
+    const preferred = selected ? denoiseVariantPath(selected.method, selected.preset) : '';
+    target = options.some(x => x.path === preferred) ? preferred : options[0].path;
+    label = denoiseVariantLabel(target);
+    if (selected && preferred !== target) holdKind = 'unavailable';
   }
-  const label = typeof denoiseVariantLabel === 'function'
-    ? denoiseVariantLabel(denoiseReviewVariant)
-    : denoiseReviewVariant;
+  if (holdKind) {
+    holdText = denoiseReviewHoldMessage(holdKind, label);
+    denoiseReviewVariant = '';
+    denoiseReviewPhase = 'hold';
+    denoiseReviewHold = { kind: holdKind, label };
+  } else {
+    denoiseReviewVariant = target;
+    denoiseReviewPhase = 'loading';
+    denoiseReviewHold = null;
+  }
+  denoiseReviewHasFrame = false;
   return `<section class="card denoise-review-card denoise-review" data-denoise-review data-review-lang="en" aria-label="Exact frame review">
     <div class="denoise-review-heading">
       <div><h3>Exact frame review</h3>
         <span>Beyond the A/B/C preview: decoded source frames, not H.264 previews.</span></div>
       <span class="denoise-review-current">Selected: <strong data-dr-current-variant>${esc(label)}</strong></span>
     </div>
+    <div class="denoise-review-hold" data-dr-hold ${holdKind ? '' : 'hidden'}>
+      <p data-dr-hold-text>${esc(holdText)}</p>
+    </div>
+    <div class="denoise-review-body" data-dr-body ${holdKind ? 'hidden' : ''}>
     <div class="denoise-review-toolbar">
       <span class="denoise-review-toolbar-note">Frame-exact stills from the actual processing input and the selected variant.</span>
       <label>Zoom <select data-dr-zoom onchange="denoiseReviewSetZoom(this.value)">
@@ -49,7 +131,7 @@ function denoiseReviewHtml(candidates) {
     </div>
     <div class="denoise-review-rail">
       <div class="cleanup-frame-rail-heading"><strong>Frame changes</strong>
-        <span>Teal = brightened · Orange = darkened · Bars select an exact frame</span></div>
+        <span>Teal = brightened · Orange = darkened · Bars select an exact frame · arrow keys step</span></div>
       <div class="denoise-review-chart" data-dr-chart role="group" aria-label="Luminance change per frame"></div>
       <output data-dr-chart-status role="status">Calculating frame differences...</output>
       <small>Measured pixel changes are not proof of noise or grain removal. Long films are sampled.</small>
@@ -104,11 +186,103 @@ function denoiseReviewHtml(candidates) {
         <output data-dr-wipe-status>50% original left / 50% result right</output>
       </details>
     </section>
+    </div>
   </section>`;
 }
 
 function denoiseReviewRoot() { return document.querySelector('[data-denoise-review]'); }
 function denoiseReviewElement(name) { return denoiseReviewRoot()?.querySelector('[data-dr-' + name + ']'); }
+
+function denoiseReviewSetLabel(label) {
+  const current = denoiseReviewElement('current-variant');
+  if (current) current.textContent = label;
+}
+
+function denoiseReviewClearEvidence() {
+  // Never leave a decoded still or a measurement behind while a different
+  // variant loads; an empty picture is honest, a stale one is not.
+  for (const name of ['before', 'after', 'wipe-before', 'wipe-after']) {
+    const image = denoiseReviewElement(name);
+    if (image) image.removeAttribute('src');
+  }
+  const difference = denoiseReviewElement('difference');
+  if (difference) {
+    difference.width = 0;
+    difference.height = 0;
+  }
+  const readout = denoiseReviewElement('readout');
+  if (readout) readout.textContent = '';
+  const timeline = denoiseReviewElement('timeline');
+  if (timeline) {
+    timeline.disabled = true;
+    timeline.max = '0';
+    timeline.value = '0';
+  }
+  for (const key of ['prev', 'prev10', 'next', 'next10']) {
+    const button = denoiseReviewElement(key);
+    if (button) button.disabled = true;
+  }
+  denoiseReviewEntries = [];
+  denoiseReviewHighlight();
+}
+
+function denoiseReviewShowBody() {
+  const hold = denoiseReviewElement('hold');
+  const body = denoiseReviewElement('body');
+  if (hold) hold.hidden = true;
+  if (body) body.hidden = false;
+  denoiseReviewHold = null;
+}
+
+function denoiseReviewShowHold(kind, label, detail) {
+  const hold = denoiseReviewElement('hold');
+  const body = denoiseReviewElement('body');
+  if (!hold || !body) return;
+  denoiseReviewPhase = 'hold';
+  denoiseReviewHold = { kind, label };
+  denoiseReviewVariant = '';
+  denoiseReviewHasFrame = false;
+  denoiseReviewInFlight = false;
+  denoiseReviewPending = null;
+  denoiseReviewEpoch++;
+  denoiseReviewChartEpoch++;
+  denoiseReviewImagePair = null;
+  denoiseReviewMetrics = null;
+  denoiseReviewEntries = [];
+  hold.hidden = false;
+  body.hidden = true;
+  const text = hold.querySelector('[data-dr-hold-text]');
+  if (text) text.textContent = denoiseReviewHoldMessage(kind, label, detail);
+  denoiseReviewSetLabel(label);
+  denoiseReviewRoot()?.removeAttribute('aria-busy');
+  const chart = denoiseReviewElement('chart');
+  if (chart) chart.replaceChildren();
+  const chartStatus = denoiseReviewElement('chart-status');
+  if (chartStatus) chartStatus.textContent = 'No result selected; the frame chart is paused.';
+}
+
+function denoiseReviewSyncSelection(selected) {
+  const root = denoiseReviewRoot();
+  if (!root || !root.querySelector('[data-dr-hold]')) return;
+  if (!selected || selected.method === 'off') {
+    if (denoiseReviewHold?.kind !== 'off') denoiseReviewShowHold('off', 'Off');
+    return;
+  }
+  const label = denoiseVariantLabelFor(selected.method, selected.preset);
+  if (!denoiseVariantReady(selected.method, selected.preset)) {
+    if (denoiseReviewHold?.kind !== 'missing' || denoiseReviewHold.label !== label)
+      denoiseReviewShowHold('missing', label);
+    return;
+  }
+  const path = denoiseVariantPath(selected.method, selected.preset);
+  if (!path || !denoisePreviewIsFinal(path) || !denoiseReviewPathValid(path)) {
+    if (denoiseReviewHold?.kind !== 'unavailable' || denoiseReviewHold.label !== label)
+      denoiseReviewShowHold('unavailable', label);
+    return;
+  }
+  denoiseReviewShowBody();
+  denoiseReviewChoose(path);
+}
 
 function denoiseReviewSetZoom(value) {
   denoiseReviewZoom = [1,2,4].includes(Number(value)) ? Number(value) : 1;
@@ -139,10 +313,13 @@ function denoiseReviewSetWipe(value) {
 }
 
 function denoiseReviewChoose(path, preserveFrame = true) {
-  const st = state?.stages?.find(x => x.key === 'denoise');
-  const valid = st ? denoiseReviewVariants(denoiseCompareCandidates(st)).some(x => x.path === path) : false;
-  if (!valid) return;
+  if (!denoiseReviewPathValid(path)) return;
+  if (path === denoiseReviewVariant &&
+      (denoiseReviewPhase === 'ready' || denoiseReviewPhase === 'loading')) return;
   denoiseReviewVariant = path;
+  denoiseReviewPhase = 'loading';
+  denoiseReviewHasFrame = false;
+  denoiseReviewHold = null;
   denoiseReviewEpoch++;
   denoiseReviewChartEpoch++;
   denoiseReviewCount = 0;
@@ -150,8 +327,12 @@ function denoiseReviewChoose(path, preserveFrame = true) {
   denoiseReviewEntries = [];
   denoiseReviewMetrics = null;
   if (!preserveFrame) denoiseReviewFrame = 0;
-  const current = denoiseReviewElement('current-variant');
-  if (current) current.textContent = denoiseVariantLabel(path);
+  denoiseReviewShowBody();
+  denoiseReviewSetLabel(denoiseVariantLabel(path));
+  denoiseReviewClearEvidence();
+  denoiseReviewRoot()?.setAttribute('aria-busy', 'true');
+  const status = denoiseReviewElement('status');
+  if (status) status.textContent = `Loading exact frames for ${denoiseVariantLabel(path)}...`;
   // Reuse the existing event handlers; re-running Start would attach them twice.
   void denoiseReviewSelectFrame(denoiseReviewFrame, false);
   void denoiseReviewLoadChart(path);
@@ -201,12 +382,14 @@ async function denoiseReviewLoadChart(path) {
   const chart = denoiseReviewElement('chart');
   if (!chart) return;
   chart.replaceChildren();
-  denoiseReviewElement('chart-status').textContent = 'Calculating luminance changes...';
+  const chartStatus = denoiseReviewElement('chart-status');
+  if (chartStatus) chartStatus.textContent = 'Calculating luminance changes...';
   try {
     const response = await fetch('/api/denoise-frame-differences?variant=' + encodeURIComponent(path), {cache:'no-store'});
-    if (!response.ok) throw new Error('Server error ' + response.status);
-    const report = await response.json();
-    if (!report.ok) throw new Error(report.error || 'Chart unavailable.');
+    if (!response.ok) throw new Error('The chart endpoint answered with HTTP ' + response.status + '.');
+    const report = await response.json().catch(() => { throw new Error('The chart endpoint returned malformed JSON.'); });
+    if (!report || typeof report !== 'object') throw new Error('The chart endpoint returned no report.');
+    if (!report.ok) throw new Error(String(report.error || 'The chart is unavailable.'));
     if (ticket !== denoiseReviewChartEpoch || denoiseReviewVariant !== path || !chart.isConnected) return;
     const rows = denoiseReviewChartRows(report);
     denoiseReviewEntries = rows;
@@ -228,16 +411,20 @@ async function denoiseReviewLoadChart(path) {
     if (report.sampled) chart.title = 'Up to 240 real frame samples, not a complete film scan';
     denoiseReviewHighlight();
   } catch (error) {
-    if (ticket === denoiseReviewChartEpoch && chart.isConnected)
-      denoiseReviewElement('chart-status').textContent = 'Chart unavailable: ' + error.message;
+    if (ticket === denoiseReviewChartEpoch && chart.isConnected && chartStatus)
+      chartStatus.textContent = 'Chart unavailable: ' + denoiseReviewErrorText(error);
   }
 }
 
 function denoiseReviewLoadImage(src) {
   return new Promise((resolve,reject) => {
+    if (typeof src !== 'string' || !src) {
+      reject(new Error('The server did not return a still image path.'));
+      return;
+    }
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Still image file unavailable.'));
+    image.onerror = () => reject(new Error('The still image could not be loaded from the cache.'));
     image.src = '/media?path=' + encodeURIComponent(src);
   });
 }
@@ -257,7 +444,7 @@ function denoiseReviewRefreshDiff() {
   try { denoiseReviewRenderDiff(denoiseReviewImagePair.before,denoiseReviewImagePair.after); }
   catch (error) {
     const readout = denoiseReviewElement('readout');
-    if (readout) readout.textContent = 'Difference view: ' + error.message;
+    if (readout) readout.textContent = 'Pixel difference unavailable: ' + denoiseReviewErrorText(error);
   }
 }
 
@@ -282,8 +469,10 @@ function denoiseReviewRenderDiff(before,after) {
   const visible = comparisonContrastPixels(a.data,b.data,width,height,
     denoiseReviewDiffMode,denoiseReviewDiffContrast);
   const output = denoiseReviewElement('difference');
+  const outputContext = output?.getContext('2d');
+  if (!output || !outputContext) throw new Error('The difference canvas is no longer on screen.');
   output.width = width; output.height = height;
-  output.getContext('2d').putImageData(new ImageData(visible,width,height),0,0);
+  outputContext.putImageData(new ImageData(visible,width,height),0,0);
   denoiseReviewMetrics = {mean: diff.mean, changedPercent: diff.changedPercent};
   const readout = denoiseReviewElement('readout');
   if (readout) readout.textContent =
@@ -297,7 +486,7 @@ function denoiseReviewAlignVideo(frame) {
   if (!(denoiseReviewFps>0)) return;
   const t = frame / denoiseReviewFps;
   const delta = t - denoiseCompareStart;
-  if (delta >= 0 && delta < denoiseCompareLength - 0.001) {
+  if (delta >= 0 && delta < (denoiseCompareEffectiveLength || denoiseCompareLength) - 0.001) {
     denoiseCompareSeek(delta);
   } else {
     // A long-film frame selected outside the 4-second A/B/C preview:
@@ -319,25 +508,53 @@ function denoiseReviewAlignVideo(frame) {
 
 async function denoiseReviewSelectFrame(frame, syncVideos = false) {
   const path = denoiseReviewVariant;
-  const requested = Math.max(0,Math.min(denoiseReviewCount ? denoiseReviewCount-1 : Number.MAX_SAFE_INTEGER,
+  if (!path) return;
+  const requested = Math.max(0, Math.min(denoiseReviewCount ? denoiseReviewCount - 1 : Number.MAX_SAFE_INTEGER,
     Math.round(Number(frame) || 0)));
+  // A frame decode is expensive. Keep one request in flight and remember only
+  // the newest frame the user asked for, so fast stepping cannot stack FFmpeg
+  // decodes that are then discarded.
+  if (denoiseReviewInFlight) {
+    denoiseReviewPending = { path, frame: requested, syncVideos, ticket: denoiseReviewEpoch };
+    return;
+  }
+  denoiseReviewInFlight = true;
   const ticket = ++denoiseReviewEpoch;
   const status = denoiseReviewElement('status');
-  if (!status) return;
+  if (!status) {
+    denoiseReviewInFlight = false;
+    return;
+  }
   status.textContent = `Decoding frame ${requested+1}...`;
   try {
     const response = await fetch('/api/denoise-inspector?variant=' + encodeURIComponent(path) +
       '&frame=' + requested,{cache:'no-store'});
-    if (!response.ok) throw new Error('Server error '+response.status);
-    const data = await response.json();
-    if (!data.ok || !data.exact) throw new Error(data.error || 'Exact frame unavailable.');
+    if (!response.ok) throw new Error('The inspection endpoint answered with HTTP ' + response.status + '.');
+    const data = await response.json().catch(() => { throw new Error('The inspection endpoint returned malformed JSON.'); });
+    if (!data || typeof data !== 'object') throw new Error('The inspection endpoint returned no frame.');
+    if (!data.ok) throw new Error(String(data.error || 'The exact frame is unavailable.'));
+    if (!data.exact) throw new Error('The server did not return an exact decoded frame.');
+    const total = Number(data.frames), fps = Number(data.fps), actual = Number(data.frame);
+    if (!Number.isInteger(total) || total < 1 || total > 150000 ||
+        !Number.isFinite(fps) || fps <= 0 ||
+        !Number.isInteger(actual) || actual < 0 || actual >= total ||
+        !(Number(data.width) > 0) || !(Number(data.height) > 0)) {
+      throw new Error('The server returned invalid frame metadata.');
+    }
+    if (typeof data.before !== 'string' || typeof data.after !== 'string' || !data.before || !data.after) {
+      throw new Error('The server did not return both still images.');
+    }
     const [original, processed] = await Promise.all([
       denoiseReviewLoadImage(data.before),denoiseReviewLoadImage(data.after)
     ]);
     if (ticket !== denoiseReviewEpoch || path !== denoiseReviewVariant || !denoiseReviewRoot()?.isConnected) return;
-    denoiseReviewCount = Number(data.frames);
-    denoiseReviewFps = Number(data.fps);
-    denoiseReviewFrame = Number(data.frame);
+    denoiseReviewCount = total;
+    denoiseReviewFps = fps;
+    denoiseReviewFrame = actual;
+    denoiseReviewHasFrame = true;
+    denoiseReviewPhase = 'ready';
+    denoiseReviewSetLabel(denoiseVariantLabel(path));
+    denoiseReviewRoot()?.removeAttribute('aria-busy');
     denoiseReviewElement('before').src = original.src;
     denoiseReviewElement('after').src = processed.src;
     denoiseReviewElement('wipe-before').src = original.src;
@@ -346,38 +563,77 @@ async function denoiseReviewSelectFrame(frame, syncVideos = false) {
     const wipe = denoiseReviewElement('wipe-picture');
     if (wipe) wipe.style.aspectRatio = `${data.width} / ${data.height}`;
     const slider = denoiseReviewElement('timeline');
-    slider.disabled = false; slider.max = String(data.frames-1);
-    slider.value = String(data.frame);
+    slider.disabled = false; slider.max = String(total - 1);
+    slider.value = String(actual);
     for(const key of ['prev','prev10','next','next10'])
       denoiseReviewElement(key).disabled = false;
-    status.textContent = `Exact: frame ${data.frame+1}/${data.frames} · ${(data.frame/data.fps).toFixed(3)} s · ${data.width}×${data.height}`;
+    status.textContent = `Exact: frame ${actual+1}/${total} · ${(actual/fps).toFixed(3)} s · ${data.width}×${data.height}`;
     denoiseReviewSetZoom(denoiseReviewZoom);
     try { denoiseReviewRenderDiff(original,processed); }
-    catch(error) { denoiseReviewElement('readout').textContent = 'Pixel difference unavailable: '+error.message; }
+    catch(error) {
+      denoiseReviewElement('readout').textContent = 'Pixel difference unavailable: ' + denoiseReviewErrorText(error);
+    }
     denoiseReviewHighlight();
     if (syncVideos) denoiseReviewAlignVideo(denoiseReviewFrame);
   } catch(error) {
-    if (ticket === denoiseReviewEpoch && status.isConnected)
-      status.textContent = 'Still review: ' + error.message;
+    if (ticket === denoiseReviewEpoch && path === denoiseReviewVariant && denoiseReviewRoot()?.isConnected) {
+      const message = denoiseReviewErrorText(error);
+      if (!denoiseReviewHasFrame) {
+        // The variant was never shown: replace the body with an explicit
+        // no-result state rather than leaving a mislabelled blank panel.
+        denoiseReviewShowHold('error', denoiseVariantLabel(path), message);
+      } else if (status.isConnected) {
+        status.textContent = `Frame ${requested+1} could not be decoded: ${message} Still showing frame ${denoiseReviewFrame+1}.`;
+      }
+    }
+  } finally {
+    denoiseReviewInFlight = false;
+    const queued = denoiseReviewPending;
+    denoiseReviewPending = null;
+    if (queued && queued.path === denoiseReviewVariant &&
+        queued.ticket === denoiseReviewEpoch) {
+      void denoiseReviewSelectFrame(queued.frame, queued.syncVideos);
+    }
   }
 }
 
 function denoiseReviewStart() {
   const root = denoiseReviewRoot();
-  if (!root || !root.querySelector('[data-dr-wipe-picture]')) return;
+  if (!root) return;
   denoiseReviewEpoch++;
   denoiseReviewChartEpoch++;
   denoiseReviewCount = 0;
+  denoiseReviewHasFrame = false;
   denoiseReviewImagePair = null;
   denoiseReviewEntries = [];
   denoiseReviewMetrics = null;
+  denoiseReviewInFlight = false;
+  denoiseReviewPending = null;
+  denoiseWipePointer = null;
   root.style.setProperty('--denoise-review-zoom',String(denoiseReviewZoom));
+  if (!root.querySelector('[data-dr-wipe-picture]')) return;
+  // Bind the body even when a no-result hold hides it: choosing a rendered
+  // variant later reveals the same elements without a full redraw.
   for(const [key,delta] of [['prev10',-10],['prev',-1],['next',1],['next10',10]]) {
     root.querySelector('[data-dr-'+key+']')?.addEventListener('click',() =>
       denoiseReviewSelectFrame(denoiseReviewFrame+delta,true));
   }
   root.querySelector('[data-dr-timeline]')?.addEventListener('change',event =>
     denoiseReviewSelectFrame(Number(event.target.value),true));
+  const chart = denoiseReviewElement('chart');
+  chart?.addEventListener('keydown', event => {
+    const keys = {ArrowLeft:-1, ArrowRight:1, Home:0, End:0, PageUp:-10, PageDown:10};
+    if (!(event.key in keys)) return;
+    const bars = [...chart.querySelectorAll('[data-dr-bar]')];
+    if (!bars.length) return;
+    const current = Math.max(0, bars.findIndex(bar => bar.tabIndex === 0));
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? bars.length - 1
+      : Math.max(0, Math.min(bars.length - 1, current + keys[event.key]));
+    event.preventDefault();
+    bars[next].focus();
+    bars[next].click();
+  });
   const picture = denoiseReviewElement('wipe-picture');
   if (picture) {
     const setFromPointer = event => {
@@ -387,23 +643,42 @@ function denoiseReviewStart() {
       denoiseReviewSetWipe(Math.max(0, Math.min(100, percent)));
     };
     picture.addEventListener('pointerdown', event => {
+      if (denoiseWipePointer !== null) return;
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       event.preventDefault();
+      denoiseWipePointer = event.pointerId;
       picture.setPointerCapture(event.pointerId);
       setFromPointer(event);
     });
     picture.addEventListener('pointermove', event => {
+      if (event.pointerId !== denoiseWipePointer) return;
       if (picture.hasPointerCapture(event.pointerId)) setFromPointer(event);
     });
     const endDrag = event => {
-      if (picture.hasPointerCapture(event.pointerId)) picture.releasePointerCapture(event.pointerId);
+      if (event.type !== 'blur' && event.pointerId !== denoiseWipePointer) return;
+      if (event.pointerId != null && typeof picture.hasPointerCapture === 'function' &&
+          picture.hasPointerCapture(event.pointerId)) {
+        try { picture.releasePointerCapture(event.pointerId); } catch (_) { /* already gone */ }
+      }
+      denoiseWipePointer = null;
     };
     picture.addEventListener('pointerup', endDrag);
     picture.addEventListener('pointercancel', endDrag);
+    // A browser-cancelled gesture, a lost capture or a window switch must not
+    // leave the wipe stuck mid-drag for the next pointer.
+    picture.addEventListener('lostpointercapture', endDrag);
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('blur', endDrag);
+    }
   }
   const wipeFold = root.querySelector('.denoise-review-wipe');
   wipeFold?.addEventListener('toggle', () => { if (wipeFold.open) denoiseReviewSetWipe(denoiseReviewWipe); });
   denoiseReviewSetWipe(denoiseReviewWipe);
+  if (denoiseReviewPhase === 'hold' || !denoiseReviewVariant) {
+    const chartStatus = denoiseReviewElement('chart-status');
+    if (chartStatus) chartStatus.textContent = 'No result selected; the frame chart is paused.';
+    return;
+  }
   void denoiseReviewSelectFrame(denoiseReviewFrame,false);
   void denoiseReviewLoadChart(denoiseReviewVariant);
 }
