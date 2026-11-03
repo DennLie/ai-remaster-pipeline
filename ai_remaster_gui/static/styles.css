@@ -1012,7 +1012,8 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   margin:10px auto;
   background:#030607;
   border:1px solid var(--line);
-  touch-action:pan-y;
+  touch-action:none;
+  user-select:none;
   cursor:ew-resize;
 }
 .denoise-review-wipe-picture img {
@@ -1020,6 +1021,7 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   object-fit:contain;
   transform:scale(var(--denoise-review-zoom,1));
   transform-origin:center;
+  pointer-events:none;
 }
 .denoise-review-wipe-divider {
   position:absolute;
@@ -1027,6 +1029,8 @@ input#cleanupCompareSlider[hidden]{display:none !important}
   height:100%;
   background:#f8f9fa;
   top:0;left:50%;
+  z-index:3;
+  pointer-events:none;
   box-shadow:0 0 6px #000;
 }
 .denoise-review-wipe label {
