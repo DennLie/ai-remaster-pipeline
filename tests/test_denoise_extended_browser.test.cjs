@@ -50,8 +50,12 @@ test('variant selection excludes Original/partials; no output means a factual em
   assert.match(markup,/Frame-Änderungen/);
   assert.match(markup,/Wischvergleich/);
   assert.match(markup,/Links <strong>ORIGINAL<\/strong>, rechts <strong>ERGEBNIS<\/strong>/);
-  assert.match(markup,/class="denoise-review-wipe-handle"/);
-  assert.match(css,/\.denoise-review-wipe-handle \{[\s\S]*?border-radius:50%/);
+  assert.match(markup,/class="denoise-review-wipe-handle" data-dr-wipe-handle/);
+  assert.match(markup,/wipe-grip-original">ORIGINAL<\/span>/);
+  assert.match(markup,/wipe-grip-result">ERGEBNIS<\/span>/);
+  assert.match(css,/\.cleanup-exact-wipe-handle,\s*\.denoise-review-wipe-handle \{[\s\S]*?border-radius:19px/);
+  assert.equal(context.comparisonWipeGripOffset(640,180,0),93);
+  assert.equal(context.comparisonWipeGripOffset(640,180,100),-93);
   assert.match(markup,/PIXELDIFFERENZ · verstärkt/);
   assert.match(markup,/data-dr-diff-mode/);
   assert.match(markup,/RGB: Veränderung je Farbkanal/);
