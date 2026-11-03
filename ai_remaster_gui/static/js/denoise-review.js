@@ -88,7 +88,7 @@ function denoiseReviewHtml(candidates) {
           <img data-dr-wipe-before alt="Unverändertes Originalframe">
           <img data-dr-wipe-after alt="Bearbeitetes Frame">
           <div class="denoise-review-wipe-divider" data-dr-wipe-divider aria-hidden="true">
-            <span class="denoise-review-wipe-handle"></span>
+            <span class="denoise-review-wipe-handle" data-dr-wipe-handle><span class="wipe-grip-side wipe-grip-original">ORIGINAL</span><span class="wipe-grip-side wipe-grip-result">ERGEBNIS</span></span>
           </div>
         </div>
         <label>Original links · Ergebnis rechts
@@ -118,6 +118,12 @@ function denoiseReviewSetWipe(value) {
   const edge = 50 + (denoiseReviewWipe - 50) / denoiseReviewZoom;
   if (after) after.style.clipPath = `inset(0 0 0 ${edge}%)`;
   if (line) line.style.left = denoiseReviewWipe + '%';
+  const picture = denoiseReviewElement('wipe-picture');
+  const grip = denoiseReviewElement('wipe-handle');
+  if (picture && grip) {
+    const width = picture.getBoundingClientRect().width;
+    if (width > 0) grip.style.left = comparisonWipeGripOffset(width, grip.getBoundingClientRect().width || 180, denoiseReviewWipe) + 'px';
+  }
   const control = denoiseReviewElement('wipe-position');
   if (control) control.value = String(denoiseReviewWipe);
   const status = denoiseReviewElement('wipe-status');
@@ -381,6 +387,8 @@ function denoiseReviewStart() {
     picture.addEventListener('pointerup', endDrag);
     picture.addEventListener('pointercancel', endDrag);
   }
+  const wipeFold = root.querySelector('.denoise-review-wipe');
+  wipeFold?.addEventListener('toggle', () => { if (wipeFold.open) denoiseReviewSetWipe(denoiseReviewWipe); });
   denoiseReviewSetWipe(denoiseReviewWipe);
   void denoiseReviewSelectFrame(denoiseReviewFrame,false);
   void denoiseReviewLoadChart(denoiseReviewVariant);
