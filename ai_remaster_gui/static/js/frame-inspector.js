@@ -1,10 +1,42 @@
 /* ARP frame-inspector v1: exact stills, browser preview loop and speed.
  * Injected into existing stage comparison panels. No arbitrary media path requests.
  */
+let cleanupDifferenceMode = 'direction';
+let cleanupDifferenceContrast = 32;
+let cleanupDifferenceLast = null;
+
+function cleanupSetDifferenceMode(mode) {
+  cleanupDifferenceMode = ['direction','rgb'].includes(mode) ? mode : 'direction';
+  cleanupRefreshDifference();
+}
+function cleanupSetDifferenceContrast(value) {
+  cleanupDifferenceContrast = [8,32,64].includes(Number(value)) ? Number(value) : 32;
+  cleanupRefreshDifference();
+}
+function cleanupRefreshDifference() {
+  if (!cleanupDifferenceLast || !cleanupDifferenceLast.workspace?.isConnected) return;
+  const {before,after,workspace} = cleanupDifferenceLast;
+  try { renderCleanupDifference(before,after,workspace); }
+  catch (error) {
+    workspace.querySelector('[data-fi-difference-readout]').textContent =
+      'Pixeldifferenz nicht verfügbar: ' + error.message;
+  }
+}
+
 function frameInspectorHtml(stage) {
   const cleanupWorkspace = stage === 'cleanup' ? `
     <section class="fi-exact-workspace" data-fi-workspace hidden aria-label="Drei exakte Einzelbildansichten">
       <div class="fi-exact-heading"><strong>Einzelbildvergleich</strong><span>Alle drei Ansichten zeigen denselben dekodierten Frame. Die Videowiedergabe bleibt verfügbar.</span></div>
+      <div class="fi-diff-controls">
+        <label>Pixeldifferenz <select data-fi-diff-mode onchange="cleanupSetDifferenceMode(this.value)">
+          <option value="direction" ${cleanupDifferenceMode === 'direction' ? 'selected' : ''}>Falschfarben: heller / dunkler</option>
+          <option value="rgb" ${cleanupDifferenceMode === 'rgb' ? 'selected' : ''}>RGB: Veränderung je Farbkanal</option>
+        </select></label>
+        <label>Kontrast <select data-fi-diff-contrast onchange="cleanupSetDifferenceContrast(this.value)">
+          ${[8,32,64].map(n => `<option value="${n}" ${n === cleanupDifferenceContrast ? 'selected' : ''}>${n}× + Gamma</option>`).join('')}
+        </select></label>
+        <small>Nur die Darstellung wird verstärkt, nicht der Videoinhalt oder die Messwerte.</small>
+      </div>
       <div class="fi-exact-grid">
         <figure class="fi-exact-panel">
           <figcaption>ORIGINAL – Einzelbild</figcaption>
@@ -15,9 +47,9 @@ function frameInspectorHtml(stage) {
           <div class="fi-exact-media" data-fi-still-after></div>
         </figure>
         <figure class="fi-exact-panel">
-          <figcaption>PIXELDIFFERENZ ×8</figcaption>
-          <div class="fi-exact-media"><canvas data-fi-difference aria-label="Verstärkte Helligkeitsunterschiede zwischen Original und Ergebnis"></canvas></div>
-          <small>Türkis = aufgehellt · Orange = abgedunkelt · Schwarz = keine Differenz. Keine Defektmaske.</small>
+          <figcaption>PIXELDIFFERENZ · verstärkt</figcaption>
+          <div class="fi-exact-media"><canvas data-fi-difference tabindex="0" role="button" title="Klicken zum Vergrößern" aria-label="Verstärkte Pixelunterschiede, zum Vergrößern anklicken"></canvas></div>
+          <small data-fi-diff-caption>Türkis = aufgehellt · Orange = abgedunkelt · Dunkelgrau = unverändert. Keine Defektmaske.</small>
         </figure>
       </div>
       <output class="fi-difference-readout" data-fi-difference-readout aria-live="polite"></output>
@@ -115,6 +147,13 @@ function setupFrameInspector(sliderId, player, before, after, slider) {
         beforeImage.className = 'fi-photo fi-photo-before';
         afterImage.className = 'fi-photo fi-photo-after';
         beforeImage.alt = 'Originalframe'; afterImage.alt = 'Bearbeiteter Frame';
+        if (stage === 'cleanup') {
+          for (const image of [beforeImage,afterImage]) {
+            image.tabIndex = 0;
+            image.setAttribute('role','button');
+            image.title = 'Klicken zum Vergrößern';
+          }
+        }
         // Cleanup uses separate still panels; never replace the running video images.
         if (stage === 'cleanup' && workspace) {
           workspace.querySelector('[data-fi-still-before]').appendChild(beforeImage);
@@ -243,12 +282,19 @@ function renderCleanupDifference(before, after, workspace) {
   ctx.drawImage(after, 0, 0);
   const b = ctx.getImageData(0, 0, width, height);
   const diff = cleanupDifferencePixels(a.data, b.data, width, height);
+  const visible = comparisonContrastPixels(a.data,b.data,width,height,
+    cleanupDifferenceMode,cleanupDifferenceContrast);
   const canvas = workspace.querySelector('[data-fi-difference]');
   canvas.width = width; canvas.height = height;
   const output = canvas.getContext('2d');
-  output.putImageData(new ImageData(diff.rgba, width, height), 0, 0);
+  output.putImageData(new ImageData(visible, width, height), 0, 0);
+  // The numeric comparison remains unamplified and is never recomputed from
+  // the high-contrast visualization.
   workspace.querySelector('[data-fi-difference-readout]').textContent =
-    `Mittlere absolute Luminanzdifferenz: ${diff.mean.toFixed(2)} / 255 · Pixel mit |ΔY| ≥ 1: ${diff.changedPercent.toFixed(2)} % · Darstellung ×8, keine Defektmaske.`;
+    `Mittlere absolute Luminanzdifferenz: ${diff.mean.toFixed(2)} / 255 · Pixel mit |ΔY| ≥ 1: ${diff.changedPercent.toFixed(2)} % · Anzeige ${cleanupDifferenceContrast}× + Gamma, keine Defektmaske.`;
+  workspace.querySelector('[data-fi-diff-caption]').textContent =
+    comparisonContrastCaption(cleanupDifferenceMode);
+  cleanupDifferenceLast = {before,after,workspace};
 }
 
 // The optional existing Deflicker diagnostics react to an exactly inspected frame.
@@ -283,7 +329,7 @@ function cleanupSourceInspectorHtml() {
     </div>
     <input type="range" min="0" max="0" value="0" step="1" disabled
            data-source-timeline aria-label="Originalframe wählen">
-    <div class="cleanup-source-still"><img data-source-image alt="Exaktes Original-Einzelbild"></div>
+    <div class="cleanup-source-still"><img data-source-image tabindex="0" role="button" alt="Exaktes Original-Einzelbild" title="Klicken zum Vergrößern"></div>
     <output data-source-status role="status">Original-Einzelbild wird vorbereitet.</output>
     <p class="shot-empty">Noch kein bearbeitetes Ergebnis für diese Methode. Einzelbildvergleich und Pixeldifferenz erscheinen nach dem ersten Durchlauf.</p>
   </section>`;
