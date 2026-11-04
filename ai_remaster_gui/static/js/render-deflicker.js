@@ -24,6 +24,6 @@ function deflickerPickerHtml() {
       ${stage.fields.filter(field=>field[0]!=='method').map(field=>fieldHtml(stage,field)).join('')}
       <p class="inline-warning">Localized methods are experimental and require the corresponding confirmation above. Short experiment: one shot, at most 240 frames and 75 million total pixels. Streaming: bounded five-frame buffer, no fixed film-length limit. Both use fixed 60% strength and an 8% cap; inspect cuts, fades, movement and deliberate exposure changes.</p>
     </div>
-    <p class="shot-empty">Original means the actual stage input — the selected Remove Noise output when enabled, otherwise the source section. Pixel changes are not proof of restoration quality.</p>
+    <p class="shot-empty">Stage input is the selected output of the preceding enabled stage in your processing order, or the original source when this stage runs first. Pixel changes are not proof of restoration quality.</p>
   </section>`;
 }

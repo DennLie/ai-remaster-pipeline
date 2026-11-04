@@ -1,7 +1,12 @@
 # Detail Enhancement / Deblur
 
-The new optional `enhancement` stage follows Light Deflicker in both the tab
-order and processing order. It is **disabled by default**, with method Off.
+The optional `enhancement` stage follows Light Deflicker by default. It is
+**disabled by default**, with method Off. Remove Noise, Light Deflicker and this
+stage can be reordered on Overview or by dragging their tabs. The tab's Move
+menu provides the same operation by keyboard or touch. This changes the actual
+processing order, not just navigation, and is blocked during processing or a
+whole-remaster queue. The order is saved with project settings; older projects
+retain the original order. Disabled stages are skipped.
 Legacy Clean Up, Stabilization and the later `detail` stage remain in place;
 their settings are not migrated or automatically disabled. If both enhancement
 stages are enabled, the film is processed twice, at their respective positions.
@@ -20,8 +25,13 @@ equivalent apparent strengths and not three neural checkpoints. Mix is an
 integer 0–100% for every method. Changing the classical preset leaves matching
 neural results reusable; changing mix changes all affected result identities.
 
-Original is the actual input after enabled Remove Noise and Light Deflicker,
-not necessarily the raw transfer. The shared retained comparison supports
+**Stage input** is the selected output of the preceding enabled stage, or the
+original processing source when this stage runs first. The reference label,
+processing chain, selected method/settings and path identify that input. It is
+not the last variant clicked or rendered. Changing order retains media on disk
+but only current signed results are usable. Changed inputs reset frame/Fit
+while preserving comparison membership; unchanged inputs retain their viewport.
+The shared retained comparison supports
 frame-locked compressed playback, exact RGB8 stills, differences, Wipe, pan,
 zoom and native 1:1. Pixel changes and sharpness measures are not restoration
 quality scores. FlashVSR+ remains a separate scaling research task.

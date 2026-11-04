@@ -111,6 +111,13 @@ class _Handler(http_handler.Handler):
 
 
 class HelperBehaviourTests(unittest.TestCase):
+    def test_settings_validation_returns_json_error(self) -> None:
+        state.APP.update_settings = mock.Mock(side_effect=ValueError('Stop processing before changing the pipeline order.'))
+        handler = _Handler('/api/settings', {'stage': 'global', 'values': {'preprocessing_order': 'deflicker,denoise,enhancement'}})
+        handler.do_POST()
+        self.assertFalse(handler.responses['json']['ok'])
+        self.assertIn('Stop processing', handler.responses['json']['error'])
+
     def setUp(self) -> None:
         self._real_app = state.APP
         state.APP = FakeApp()

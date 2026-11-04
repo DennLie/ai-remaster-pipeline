@@ -23,6 +23,6 @@ function enhancementPickerHtml() {
       ${stage.fields.filter(field=>field[0]!=='method').map(field=>fieldHtml(stage,field)).join('')}
       <p class="inline-warning">Richardson–Lucy assumes a Gaussian blur, not a measured film PSF. NAFNet and Restormer use GoPro-trained image models: inspect grain, faces, text, ringing and temporal flicker. Neural methods require prepared checkpoints and CUDA; the commercial model guard blocks unaudited weights.</p>
     </div>
-    <p class="shot-empty">Original is the actual stage input after enabled noise and flicker correction. Native 1×: no upscaling. More sharpness or larger pixel changes do not prove recovered historical detail. Later legacy processing is unchanged.</p>
+    <p class="shot-empty">Stage input is the selected output of the preceding enabled stage in your processing order, or the original source if this stage runs first. Native 1×: no upscaling. More sharpness or larger pixel changes do not prove recovered historical detail. Later legacy processing is unchanged.</p>
   </section>`;
 }

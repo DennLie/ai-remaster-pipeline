@@ -26,6 +26,8 @@ _REPORT_VERSION = 1
 def comparison_source(app, stage: str = "denoise") -> str:
     if stage not in ("denoise", "deflicker", 'enhancement'):
         raise ValueError("Choose a supported restoration comparison stage.")
+    if hasattr(app, 'processing_input'):
+        return app.processing_input(stage)
     if stage == 'enhancement':
         return app.deflickered_source_for_downstream()
     return app.denoised_source_for_downstream() if stage == "deflicker" else pipeline_source_text(app.settings)
@@ -40,9 +42,12 @@ def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | No
     if not source_text:
         raise FileNotFoundError("Choose the original film source.")
     source = _video_path(source_text)
-    if stage == 'deflicker' and str(app.settings.get('global', {}).get('denoise', 'false')) == 'true':
+    if hasattr(app, 'preprocessing_upstream'):
+        for upstream in app.preprocessing_upstream(stage):
+            selected_output(app, upstream)
+    elif stage == 'deflicker' and str(app.settings.get('global', {}).get('denoise', 'false')) == 'true':
         selected_output(app, 'denoise')
-    if stage == 'enhancement':
+    if stage == 'enhancement' and not hasattr(app, 'preprocessing_upstream'):
         for upstream in ('denoise', 'deflicker'):
             if app.settings.get('global', {}).get(upstream) == 'true':
                 selected_output(app, upstream)

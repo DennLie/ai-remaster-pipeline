@@ -149,6 +149,7 @@ def base_settings() -> dict[str, dict[str, str]]:
         "denoise": "false",
         "deflicker": "false",
         "enhancement": "false",
+        "preprocessing_order": "denoise,deflicker,enhancement",
         "cleanup": "false",
         "commercial_model_guard": "false",
         "stabilize": "false",

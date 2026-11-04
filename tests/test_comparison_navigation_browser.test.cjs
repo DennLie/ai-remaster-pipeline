@@ -8,7 +8,7 @@ function setup() {
   const pending=[],draws=[];
   const context=vm.createContext({URLSearchParams,window:{addEventListener(){}},
     document:{querySelector:selector=>selector==='.denoise-workspace'?{}:null,getElementById:id=>id==='root'?{textContent:''}:null},
-    fetch:url=>new Promise(resolve=>pending.push({url,finish:marker=>resolve({json:async()=>({marker,stages:[]})})})),
+    fetch:url=>new Promise(resolve=>pending.push({url,finish:marker=>resolve({json:async()=>({marker,stages:[],settings:{global:{}}})})})),
     isRestorationComparison:()=>true,denoiseWorkspaceDeactivate(){},
     captureScrollState(){},isEditingField:()=>false,hasMediaOnPage:()=>false,
     drawTabs(){},draw:()=>draws.push(vm.runInContext('state.marker',context)),

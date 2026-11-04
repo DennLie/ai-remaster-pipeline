@@ -9,6 +9,7 @@ let tabEpoch = 0;
 let tabLoading = false;
 let refreshEpoch = 0;
 let refreshApplied = 0;
+let pipelineNavSignature = '';
 
 const media = path => '/media?path=' + encodeURIComponent(path);
 const mediaClip = (path, start, end, key) => (
@@ -38,6 +39,10 @@ async function refresh(force = false) {
   if(tab!==active || epoch!==tabEpoch || request<refreshApplied) return;
   refreshApplied=request;
   state = nextState;
+  const orderControls=document.querySelector('.pipeline-order-controls');
+  if(orderControls) orderControls.disabled=Boolean(state.running || state.queue_running || pipelineOrderPending);
+  const navSignature=JSON.stringify([state.stages.map(item=>item.key),state.settings.global.preprocessing_order,Boolean(state.running || state.queue_running)]);
+  if(navSignature!==pipelineNavSignature) { pipelineNavSignature=navSignature;drawTabs(); }
   pruneSelected();
   if (!availableTabs().includes(active)) active = 'global';
   notifyNewLogErrors();
@@ -414,10 +419,16 @@ function drawTabs() {
     const label = names[tab] || stage(tab).title;
     const isActive = active === tab;
 
-    return `
+    const movable=['denoise','deflicker','enhancement'].includes(tab);
+    const order=pipelineOrder(),index=order.indexOf(tab),busy=state.running || state.queue_running || pipelineOrderPending;
+    return `<span class="pipeline-tab" ${movable ? `data-order-tab="${tab}" draggable="${!busy}" ondragstart="pipelineDragStart(event,'${tab}')" ondragover="event.preventDefault()" ondrop="pipelineDrop(event,'${tab}')"` : 'title="Fixed pipeline position"'}>
       <button type="button" class="tab ${isActive ? 'active' : ''}" onclick="selectTab('${tab}')"${isActive ? ' aria-current="page"' : ''}>
         ${label}
       </button>
+      ${movable ? `<details class="pipeline-tab-menu" ontoggle="positionPipelineMenu(this)"><summary aria-label="Reorder ${esc(label)}" title="Change processing order">Move</summary><div>
+        <button type="button" onclick="movePipelineStage('${tab}',-1)" ${busy || index===0 ? 'disabled' : ''}>Move earlier</button>
+        <button type="button" onclick="movePipelineStage('${tab}',1)" ${busy || index===2 ? 'disabled' : ''}>Move later</button>
+      </div></details>` : ''}</span>
     `;
   }
 }
@@ -442,6 +453,56 @@ async function selectTab(tab) {
     lastOutpaintVisualSignature = outpaintVisualSignature();
   } finally {
     if(epoch===tabEpoch) tabLoading=false;
+  }
+}
+
+let pipelineOrderPending=false;
+function positionPipelineMenu(menu) {
+  if(!menu.open) return;
+  const rect=menu.querySelector('summary').getBoundingClientRect();
+  const popup=menu.querySelector('div');
+  popup.style.top=rect.bottom+'px';
+  popup.style.left=Math.max(8,Math.min(rect.left,innerWidth-180))+'px';
+}
+window.addEventListener('resize',()=>document.querySelectorAll('.pipeline-tab-menu[open]').forEach(positionPipelineMenu));
+function pipelineOrder() {
+  const defaults=['denoise','deflicker','enhancement'],stored=state.settings.global.preprocessing_order;
+  const order=typeof stored==='string' ? stored.split(',') : defaults;
+  return order.length===3 && new Set(order).size===3 && order.every(key=>defaults.includes(key)) ? order : defaults;
+}
+function processingInputHtml(key) {
+  const input=state.processing_input || {},parameters=Object.entries(input.parameters || {}).map(([name,value])=>`${name}: ${value}`).join(' · ');
+  return `<p class="pipeline-chain">Source → ${(input.chain || []).map(item=>item.key===key ? `<strong aria-current="step">${esc(item.title)}</strong>` : esc(item.title)).join(' → ')}</p>
+    <p><strong>Stage input:</strong> ${esc(input.label || 'Selected processing input')}${parameters ? ' · '+esc(parameters) : ''}<br>
+    ${input.from_stage ? 'Selected for pipeline · ' : ''}<span class="pipeline-source-path">${esc(input.source || 'No source selected')}</span></p>
+    ${input.problem ? `<p class="inline-warning" role="status">${esc(input.problem)} Previous results do not match this input; render the required upstream result first.</p>` : ''}`;
+}
+function pipelineDragStart(event,key) { event.dataTransfer.setData('text/plain',key); }
+function pipelineDrop(event,target) {
+  event.preventDefault();
+  const key=event.dataTransfer.getData('text/plain'),order=pipelineOrder();
+  if(!order.includes(key)||key===target) return;
+  const position=order.indexOf(target);
+  order.splice(order.indexOf(key),1);order.splice(position,0,key);
+  void savePipelineOrder(order,key);
+}
+function movePipelineStage(key,direction) {
+  const order=pipelineOrder(),index=order.indexOf(key),target=index+direction;
+  if(index<0||target<0||target>=order.length) return;
+  [order[index],order[target]]=[order[target],order[index]];
+  return savePipelineOrder(order,key);
+}
+async function savePipelineOrder(order,key) {
+  if(state.running || state.queue_running || pipelineOrderPending) return;
+  pipelineOrderPending=true;drawTabs();
+  try {
+    const response=await postJson('/api/settings',{stage:'global',values:{preprocessing_order:order.join(',')}});
+    if(!response?.ok) throw new Error(response?.error || 'Could not change pipeline order.');
+    await refresh(true);
+  } catch(error) { alert(error.message); }
+  finally {
+    pipelineOrderPending=false;drawTabs();
+    document.querySelector(`[data-order-tab="${key}"] summary`)?.focus();
   }
 }
 

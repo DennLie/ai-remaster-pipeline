@@ -54,6 +54,9 @@ function drawGlobal() {
     </section>
   `;
 
+  const workflow=document.querySelector('.workflow-list');
+  const ids={denoise:'globalDenoise',deflicker:'globalDeflicker',enhancement:'globalEnhancement'};
+  for(const key of pipelineOrder().slice().reverse()) workflow.prepend(document.getElementById(ids[key]).closest('.workflow-option'));
   document.getElementById('globalSource').addEventListener('change', saveGlobal);
   document.getElementById('globalCommercialModelGuard').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDenoise').addEventListener('change', saveGlobalPipelineOptions);
@@ -71,6 +74,12 @@ function drawGlobal() {
 
 function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint, colorize, upscale, soundtrack, sourceTone) {
   return `
+    <fieldset class="pipeline-order-controls"><legend>Preprocessing order</legend>
+      <p>Also draggable in the tab bar. This changes processing, not just navigation. Later stages keep their fixed dependencies.</p>
+      ${pipelineOrder().map((key,index)=>`<div><span>${esc(({denoise:'Remove Noise',deflicker:'Light Deflicker',enhancement:'Detail Enhancement / Deblur'})[key])}${state.settings.global[key]==='true' ? '' : ' · disabled (skipped)'}</span>
+      <button type="button" onclick="movePipelineStage('${key}',-1)" ${index===0 || state.running || state.queue_running ? 'disabled' : ''} aria-label="Move ${key} earlier">Earlier</button>
+      <button type="button" onclick="movePipelineStage('${key}',1)" ${index===2 || state.running || state.queue_running ? 'disabled' : ''} aria-label="Move ${key} later">Later</button></div>`).join('')}
+    </fieldset>
     <div class="workflow-list">
       ${workflowOptionHtml({
         id: 'globalDenoise',
@@ -91,7 +100,7 @@ function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint,
         checked: state.settings.global.enhancement === 'true',
         icon: 'cleanup',
         title: 'Detail Enhancement / Deblur',
-        body: 'Optional native 1× enhancement after Light Deflicker. Compare classical sharpening, Richardson–Lucy, NAFNet and Restormer before explicitly adopting an output.',
+        body: 'Optional native 1× enhancement in your chosen preprocessing order. Compare classical sharpening, Richardson–Lucy, NAFNet and Restormer before explicitly adopting an output.',
       })}
       ${workflowOptionHtml({
         id: 'globalCleanup',

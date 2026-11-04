@@ -1311,3 +1311,16 @@ button:focus-visible {
   .tab {flex:0 0 auto;padding:8px 10px;font-size:13px}
   main {padding:12px}
 }
+.pipeline-tab { display: inline-flex; align-items: center; position: relative; flex: 0 0 auto; }
+.pipeline-tab .tab { white-space: nowrap; }
+.tabs { overflow-x: auto; }
+.pipeline-tab[draggable="true"] { cursor: grab; }
+.pipeline-tab-menu { position: relative; font-size: .8rem; }
+.pipeline-tab-menu summary { cursor: pointer; padding: .4rem; }
+.pipeline-tab-menu > div { position: fixed; z-index: 30; padding: .5rem; background: var(--panel); border: 1px solid var(--line); width: 164px; }
+.pipeline-tab-menu button { display: block; width: 100%; }
+.pipeline-order-controls { margin-block: 1rem; padding: 1rem; }
+.pipeline-order-controls > div { display: flex; gap: .5rem; align-items: center; margin-block: .5rem; flex-wrap: wrap; }
+.pipeline-order-controls > div > span { flex: 1 1 15rem; }
+.pipeline-source-path { overflow-wrap: anywhere; }
+.pipeline-chain { line-height: 1.8; }

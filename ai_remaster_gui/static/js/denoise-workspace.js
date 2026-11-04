@@ -250,6 +250,11 @@ function denoiseWorkspaceRefresh() {
   if (preset) preset.value = pipelineVariant().preset || 'gentle';
   if (pipelineChanged) showCommand(stageKey);
   const expected = document.querySelector('[data-dm-expected]');
+  const input=document.querySelector('[data-processing-input]');
+  if(input && typeof processingInputHtml==='function') {
+    const html=processingInputHtml(stageKey);
+    if(input.innerHTML!==html) input.innerHTML=html;
+  }
   if (expected) {
     const html = shotOutputList(state.expected_outputs?.[stageKey] || [],null);
     if (expected.innerHTML !== html) expected.innerHTML = html;
@@ -262,21 +267,21 @@ function denoiseWorkspaceRefresh() {
 
 function denoiseWorkspacePanelHtml(slot, path) {
   const variant = denoiseWorkspaceVariants[slot-1];
-  const label = slot ? labelFor(variant.method,variant.preset) : 'Original';
+  const label = slot ? labelFor(variant.method,variant.preset) : 'Stage input';
   return `<div class="denoise-result-heading">
       ${slot ? `<button type="button" data-dc-focus aria-pressed="false" onclick="denoiseWorkspaceFocus(${slot})" title="Inspect ${esc(label)} and its frame changes">${esc(label)}</button>
-      <small data-dc-pipeline hidden>Pipeline</small>` : '<strong>Original</strong><small>Shared reference</small>'}
+      <small data-dc-pipeline hidden>Pipeline</small>` : '<strong>Stage input</strong><small>Reference for this stage</small>'}
     </div>
     ${slot ? `<div class="denoise-view-modes" role="group" aria-label="${esc(label)} display">
-      ${[['original','Original'],['result','Result'],['difference','Difference'],['wipe','Wipe']].map(([mode,text])=>`<button type="button" data-dp-mode="${mode}" aria-pressed="false" onclick="denoiseWorkspaceSetView(${slot},'${mode}')" ${path ? '' : 'disabled'} ${mode==='wipe' ? 'title="Original left / Result right · exact still"' : ''}>${text}</button>`).join('')}
+      ${[['original','Stage input'],['result','Result'],['difference','Difference vs input'],['wipe','Wipe']].map(([mode,text])=>`<button type="button" data-dp-mode="${mode}" aria-pressed="false" onclick="denoiseWorkspaceSetView(${slot},'${mode}')" ${path ? '' : 'disabled'} ${mode==='wipe' ? 'title="Stage input left / Result right · exact still"' : ''}>${text}</button>`).join('')}
     </div>` : '<div class="denoise-original-mode-spacer" aria-hidden="true"></div>'}
     <div class="denoise-compare-video-wrap">
       ${path ? `<canvas data-dp-canvas="${slot}" width="0" height="0" aria-label="${esc(label)} frame-locked preview"></canvas><span class="denoise-view-badge" data-dp-badge></span>` :
         `<p class="shot-empty">${slot ? 'No matching output for the current input.' : 'Prepare the source material to preview it here.'}</p>`}
-      ${slot && path ? `<div class="denoise-inline-wipe" data-ds-wipe="${slot}" role="slider" tabindex="0" aria-label="${esc(label)} exact wipe: original left, result right" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-orientation="horizontal" hidden><span>Original / Result</span></div>` : ''}
+      ${slot && path ? `<div class="denoise-inline-wipe" data-ds-wipe="${slot}" role="slider" tabindex="0" aria-label="${esc(label)} exact wipe: stage input left, result right" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-orientation="horizontal" hidden><span>Stage input / Result</span></div>` : ''}
     </div>
     <output data-dp-status="${slot}" class="denoise-diff-status" role="status"></output>
-    ${slot && path ? `<label class="denoise-inline-wipe-control" data-ds-wipe-control="${slot}" title="Original left · Result right" hidden><span data-ds-wipe-state>50% ORIGINAL · 50% RESULT</span>
+    ${slot && path ? `<label class="denoise-inline-wipe-control" data-ds-wipe-control="${slot}" title="Stage input left · Result right" hidden><span data-ds-wipe-state>50% STAGE INPUT · 50% RESULT</span>
       <input data-ds-wipe-range="${slot}" type="range" min="0" max="100" step="1" value="50" aria-label="${esc(label)} exact wipe position"></label>
       <output data-ds-readout="${slot}" class="denoise-exact-readout" hidden></output>` : slot ? '<button type="button" onclick="denoiseWorkspaceRequestGeneration()">Review render request</button>' : ''}`;
 }
@@ -304,13 +309,13 @@ function denoiseWorkspaceUpdateModes() {
     if(mode==='wipe' && !exact) mode='result';
     panel.querySelectorAll('[data-dp-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.dpMode===mode)));
     const badge=panel.querySelector('[data-dp-badge]');
-    if (badge) badge.textContent=(mode==='difference' ? `Difference · ${denoiseCompareDiffContrast}× · ${denoiseCompareDiffMode==='rgb' ? 'RGB' : 'false color'}` : mode==='original' ? 'Original' : mode==='wipe' ? 'Original / Result' : 'Result')+(exact ? ' · exact' : '');
+    if (badge) badge.textContent=(mode==='difference' ? `Difference vs input · ${denoiseCompareDiffContrast}× · ${denoiseCompareDiffMode==='rgb' ? 'RGB' : 'false color'}` : mode==='original' ? 'Stage input' : mode==='wipe' ? 'Stage input / Result' : 'Result')+(exact ? ' · exact' : '');
     const control=panel.querySelector('[data-ds-wipe-control]');
     if(control) control.hidden=!exact || mode!=='wipe';
     const slider=panel.querySelector('[data-ds-wipe-range]');
     if(slider) slider.value=String(denoiseWorkspaceStill?.wipe(slot) ?? 50);
     const wipeState=panel.querySelector('[data-ds-wipe-state]');
-    if(wipeState) wipeState.textContent=comparisonWipeVisibleState(denoiseWorkspaceStill?.wipe(slot) ?? 50,'RESULT','en');
+    if(wipeState) wipeState.textContent=comparisonWipeVisibleState(denoiseWorkspaceStill?.wipe(slot) ?? 50,'RESULT','en').replaceAll('ORIGINAL','STAGE INPUT');
     const readout=panel.querySelector('[data-ds-readout]');
     const still=denoiseWorkspaceStill?.state;
     const pair=still?.frame===denoiseWorkspacePlayback?.state.frame && !still.loading && !still.error ? still.pairs.get(slot) : null;
@@ -504,7 +509,7 @@ function denoiseWorkspaceRender(candidates) {
   });
   let empty = results.querySelector('[data-dc-empty]');
   if (slots.length === 1 && !empty) {
-    results.insertAdjacentHTML('beforeend','<p class="shot-empty" data-dc-empty>Select variants in the matrix to build your comparison. The original stays unchanged.</p>');
+    results.insertAdjacentHTML('beforeend','<p class="shot-empty" data-dc-empty>Select variants in the matrix to build your comparison. The stage input stays unchanged.</p>');
   } else if (slots.length > 1) empty?.remove();
   results.classList.toggle('has-one-result',slots.length === 2);
   host.querySelector('.denoise-workspace').classList.toggle('has-one-result',slots.length === 2);

@@ -150,13 +150,12 @@ function denoisePreviewIsFinal(path) {
 }
 
 function denoiseCompareCandidates(st) {
-  const global = (state && state.settings && state.settings.global) || {};
   const source = st.key === 'detail'
     ? ((state && state.detail_comparison && state.detail_comparison.source) || '')
-    : (denoiseMatrixState().source || (['deflicker','enhancement'].includes(st.key) ? '' : global.source_sequence_preview || global.source || ''));
+    : (denoiseMatrixState().source || '');
   const candidates = [];
   if (source && denoisePreviewIsFinal(source) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(source)) {
-    candidates.push({ path: source, label: 'Original — ' + source, kind: 'source' });
+    candidates.push({ path: source, label: 'Stage input — ' + source, kind: 'source' });
   }
   for (const file of (st.files || [])) {
     const path = file.path || '';
@@ -309,6 +308,7 @@ function drawDenoise(st, settings, expected, progress) {
             <button type="button" onclick="denoiseCompareStep(10)" title="Forward 10 frames" aria-label="Forward 10 frames">${denoiseCompareTransportIcon('next10')}</button>
           </div>
         </div>
+        ${shared ? '<div data-processing-input>'+processingInputHtml(st.key)+'</div>' : ''}
         <details class="denoise-preview-settings"><summary>Preview settings</summary>
         ${!shared ? `
         <div class="denoise-compare-toolbar">
@@ -323,7 +323,7 @@ function drawDenoise(st, settings, expected, progress) {
             <option value="ac">A / C · large</option>
           </select></label>` : ''}
         </div>
-        ` : '<p class="shot-empty">Full processing input. Internal caching never limits the timeline. Original and result pixels are compared before display compression.</p>'}
+        ` : '<p class="shot-empty">Full stage input. Internal caching never limits the timeline. Stage input and result pixels are compared before display compression.</p>'}
         ${shared ? denoiseCompareDisplayHtml() : ''}
         ${shared ? '<label class="denoise-time-jump">Position (s) <input data-dp-jump type="number" min="0" step="0.001" value="0" onchange="denoiseCompareSeek(this.value)"></label>' : ''}
         </details>

@@ -442,8 +442,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         data = self.read_json()
         if parsed.path == "/api/settings":
-            state.APP.update_settings(str(data.get("stage", "")), data.get("values", {}))
-            self.send_json({"ok": True})
+            self._send_result('Settings', lambda: state.APP.update_settings(str(data.get('stage', '')), data.get('values', {})) or {})
         elif parsed.path == "/api/run":
             ok, message = state.APP.run_all(keep_shots=bool(data.get("keep_shots"))) if data.get("all") else state.APP.run_stage(str(data.get("stage", "")))
             self.send_json({"ok": ok, "message": message})
