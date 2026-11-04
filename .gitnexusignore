@@ -1,0 +1,18 @@
+# .gitignore already excludes virtual environments, models, tools and runtime media.
+# Keep local agent tooling, evaluation artifacts and backup copies out of the graph.
+/.gitnexus/
+/.opencode/
+/.impeccable/
+/evaluation/
+/input/
+/intermediate/
+/output/
+/manifests/
+*.bak*
+
+# Index ARP's maintained ComfyUI integration, not vendored third-party projects.
+!vendor/
+vendor/*
+!vendor/comfyui_custom_nodes/
+vendor/comfyui_custom_nodes/*
+!vendor/comfyui_custom_nodes/ComfyUI-ARP/

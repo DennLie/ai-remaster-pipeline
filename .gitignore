@@ -8,6 +8,7 @@ venv/
 .ruff_cache/
 .pytest_cache/
 .cache/
+/.gitnexus/
 .ai_remaster_config.json
 .ai_remaster_gui.json
 .ai_remaster_gui.project
