@@ -148,6 +148,7 @@ def base_settings() -> dict[str, dict[str, str]]:
         "source_sequence_preview": "",
         "denoise": "false",
         "deflicker": "false",
+        "enhancement": "false",
         "cleanup": "false",
         "commercial_model_guard": "false",
         "stabilize": "false",

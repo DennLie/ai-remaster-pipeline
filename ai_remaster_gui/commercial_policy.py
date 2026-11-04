@@ -30,7 +30,13 @@ def stage_issue(
 
     values = settings.get(stage, {})
     reasons: list[str] = []
-    if stage == "cleanup":
+    if stage == 'enhancement':
+        method = model_override or values.get('method', 'off')
+        if method in {'nafnet', 'restormer'}:
+            reasons.append(f'{method} checkpoint and dependencies await commercial-use audit')
+        elif method not in {'off', 'unsharp', 'cas', 'multiscale', 'richardson_lucy'}:
+            reasons.append(f'unknown enhancement method {method!r} has not been reviewed')
+    elif stage == "cleanup":
         if _on(values, "ai_descratch"):
             reasons.append("ProPainter / AI DeScratch is non-commercial (NTU S-Lab License 1.0)")
         if _on(values, "dearchive", "true"):

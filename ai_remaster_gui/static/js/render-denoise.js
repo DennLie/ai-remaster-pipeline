@@ -44,22 +44,26 @@ const DEFLICKER_METHODS = [
   {key:'localized_research',label:'Localized · short experiment'},
   {key:'localized_stream',label:'Localized · film streaming'},
 ];
-function comparisonStageKey() { return typeof active==='string' && active==='deflicker' ? 'deflicker' : 'denoise'; }
-function isRestorationComparison() { return typeof active==='string' && ['denoise','deflicker'].includes(active); }
-function denoiseMethods(key=comparisonStageKey()) { return key==='deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS; }
-function denoisePresets(key=comparisonStageKey()) { return key==='deflicker' ? [{key:'settings',label:'Current settings'}] : DENOISE_PRESETS; }
+const ENHANCEMENT_METHODS = [
+  {key:'unsharp',label:'Unsharp'}, {key:'cas',label:'CAS'}, {key:'multiscale',label:'Multiscale'},
+  {key:'richardson_lucy',label:'Richardson–Lucy'}, {key:'nafnet',label:'NAFNet · GoPro'}, {key:'restormer',label:'Restormer · GoPro'},
+];
+function comparisonStageKey() { return typeof active==='string' && ['deflicker','enhancement'].includes(active) ? active : 'denoise'; }
+function isRestorationComparison() { return typeof active==='string' && ['denoise','deflicker','enhancement'].includes(active); }
+function denoiseMethods(key=comparisonStageKey()) { return key==='enhancement' ? ENHANCEMENT_METHODS : key==='deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS; }
+function denoisePresets(key=comparisonStageKey()) { return key!=='denoise' ? [{key:'settings',label:'Current settings'}] : DENOISE_PRESETS; }
 function denoiseMatrixState(key=comparisonStageKey()) { return state?.[key+'_matrix'] || {}; }
 
 function denoiseVariantLabelFor(method, preset, key=comparisonStageKey()) {
   if (method === 'off') return 'Off';
   const m = denoiseMethods(key).find(x => x.key === method);
-  if(key==='deflicker') return m?.label || 'Variant';
+  if(key!=='denoise') return m?.label || 'Variant';
   const p = denoisePresets(key).find(x => x.key === preset);
   return m && p ? `${m.label} · ${p.label}` : 'Variant';
 }
 
 function denoiseVariantFromPath(path) {
-  if(comparisonStageKey()==='deflicker') {
+  if(comparisonStageKey()!=='denoise') {
     const row=denoiseMatrixState().variants?.find(item=>item.output===path);
     return row ? {method:row.method,preset:'settings'} : null;
   }
@@ -98,7 +102,7 @@ function denoiseVariantReady(method, preset, key=comparisonStageKey(), matrix=de
 function denoiseStageVariant(key=comparisonStageKey()) {
   const values = state?.settings?.[key] || {};
   const method = values.method || (key==='deflicker' ? 'arp' : 'off');
-  const preset = key==='deflicker' ? 'settings' : values.preset || 'gentle';
+  const preset = key!=='denoise' ? 'settings' : values.preset || 'gentle';
   if (method === 'off' || !denoiseMethods(key).some(x => x.key === method) ||
       !denoisePresets(key).some(x => x.key === preset)) return { method: 'off', preset: '' };
   return { method, preset };
@@ -149,14 +153,14 @@ function denoiseCompareCandidates(st) {
   const global = (state && state.settings && state.settings.global) || {};
   const source = st.key === 'detail'
     ? ((state && state.detail_comparison && state.detail_comparison.source) || '')
-    : (denoiseMatrixState().source || (st.key==='deflicker' ? '' : global.source_sequence_preview || global.source || ''));
+    : (denoiseMatrixState().source || (['deflicker','enhancement'].includes(st.key) ? '' : global.source_sequence_preview || global.source || ''));
   const candidates = [];
   if (source && denoisePreviewIsFinal(source) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(source)) {
     candidates.push({ path: source, label: 'Original — ' + source, kind: 'source' });
   }
   for (const file of (st.files || [])) {
     const path = file.path || '';
-    if (['denoise','deflicker'].includes(st.key) && Array.isArray(denoiseMatrixState().variants) &&
+    if (['denoise','deflicker','enhancement'].includes(st.key) && Array.isArray(denoiseMatrixState().variants) &&
         !denoiseMatrixState().variants.some(v => denoiseVariantPath(v.method, v.preset) === path)) continue;
     if (denoisePreviewIsFinal(path) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
       candidates.push({ path, label: denoiseVariantLabel(path), kind: 'variant' });
@@ -271,7 +275,7 @@ function denoiseCompareInitializePaths(candidates) {
 }
 
 function drawDenoise(st, settings, expected, progress) {
-  const shared=['denoise','deflicker'].includes(st.key);
+  const shared=['denoise','deflicker','enhancement'].includes(st.key);
   if(shared) denoiseWorkspaceActivate(st.key);
   const candidates = denoiseCompareCandidates(st);
   denoiseCompareInitializePaths(candidates);
@@ -280,7 +284,7 @@ function drawDenoise(st, settings, expected, progress) {
     <div class="editor-page ${shared ? 'denoise-editor-page' : ''}">
       <aside class="card denoise-settings-sidebar" aria-label="${esc(st.title)} settings">
         <h2>${esc(st.title)}</h2>
-        <p>${esc(shared ? `Compare ${st.key==='deflicker' ? 'brightness-correction' : 'noise-reduction'} variants against the processing input, then choose one for the pipeline.` : st.description)}</p>
+        <p>${esc(shared ? `Compare ${st.key==='enhancement' ? 'enhancement and deblurring' : st.key==='deflicker' ? 'brightness-correction' : 'noise-reduction'} variants against the processing input, then choose one for the pipeline.` : st.description)}</p>
         ${progressHtml(progress.percent, progress.label)}
         ${shared ? denoiseMatrixHtml() : st.fields.map(field => fieldHtml(st, field)).join('')}
         <div data-dm-expected>${shotOutputList(expected, null)}</div>
@@ -351,6 +355,7 @@ function drawDenoise(st, settings, expected, progress) {
 }
 
 function denoiseMatrixHtml() {
+  if(comparisonStageKey()==='enhancement') return enhancementPickerHtml();
   if(comparisonStageKey()==='deflicker') return deflickerPickerHtml();
   const matrix = state.denoise_matrix || {};
   denoiseMatrixRenderedReady = Number(matrix.ready || 0);
@@ -437,7 +442,7 @@ function denoiseMatrixCellHtml(method, preset, selected) {
     data-denoise-cell data-method="${method.key}" data-preset="${preset.key}"
     onclick="denoiseMatrixSelect('${method.key}','${preset.key}')">
     <svg class="denoise-selection-check" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 8 3 3 7-7"/></svg>
-    ${comparisonStageKey()==='deflicker' ? `<strong>${esc(method.label)}</strong>` : ''}
+    ${comparisonStageKey()!=='denoise' ? `<strong>${esc(method.label)}</strong>` : ''}
     <span class="denoise-variant-cell-state">${ready ? 'Ready' : 'Not rendered'}</span>
     <span class="denoise-variant-pipeline" ${pipeline ? '' : 'hidden'}>Pipeline</span>
   </button>`;
@@ -452,8 +457,8 @@ function denoiseMatrixKeyboard(event) {
   let next = -1;
   if (event.key === 'ArrowRight') next = index + 1;
   else if (event.key === 'ArrowLeft') next = index - 1;
-  else if (event.key === 'ArrowDown') next = index + (comparisonStageKey()==='deflicker' ? 1 : 3);
-  else if (event.key === 'ArrowUp') next = index - (comparisonStageKey()==='deflicker' ? 1 : 3);
+  else if (event.key === 'ArrowDown') next = index + (comparisonStageKey()!=='denoise' ? 1 : 3);
+  else if (event.key === 'ArrowUp') next = index - (comparisonStageKey()!=='denoise' ? 1 : 3);
   else if (event.key === 'Home') next = 0;
   else if (event.key === 'End') next = cells.length - 1;
   if (next >= 0 && next < cells.length) {
@@ -580,7 +585,11 @@ async function denoiseMatrixCopySelected() {
   const selected = denoiseSelectedVariant();
   if (selected.method === 'off') return;
   const path = denoiseVariantPath(selected.method, selected.preset);
-  const text = `method=${selected.method} preset=${selected.preset}${path ? ` output=${path}` : ''}`;
+  const settings=state?.settings?.enhancement || {};
+  const parameters=comparisonStageKey()==='enhancement'
+    ? `${['nafnet','restormer'].includes(selected.method) ? '' : ` preset=${settings.preset || 'gentle'}`} mix=${settings.mix ?? 100}`
+    : ` preset=${selected.preset}`;
+  const text = `method=${selected.method}${parameters}${path ? ` output=${path}` : ''}`;
   const notice = document.querySelector('[data-dm-notice]');
   try {
     await navigator.clipboard.writeText(text);
@@ -598,7 +607,7 @@ function updateDenoiseMatrixStatus() {
   if (status) {
     const progress = (state?.phase_progress?.stages || []).find(s => s.key === comparisonStageKey());
     const running = state.running && matrix.running;
-    status.textContent = `${count}/${denoiseWorkspaceSnapshot().variants.length} rendered${running && progress ? ' · ' + progress.label : ''}`;
+    status.textContent = `${count}/${denoiseWorkspaceSnapshot().variants.length} rendered${comparisonStageKey()!=='enhancement' && running && progress ? ' · ' + progress.label : ''}`;
   }
   const progress = (state?.phase_progress?.stages || []).find(s => s.key === comparisonStageKey());
   const sidebar = document.querySelector('.denoise-settings-sidebar');

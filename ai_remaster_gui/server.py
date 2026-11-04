@@ -56,6 +56,7 @@ from .denoise_review import output_ready as comparison_output_ready
 from .denoise_diff_video import render_diff_preview as render_denoise_diff_preview
 from .frame_inspector import _metadata as denoise_frame_metadata
 from . import deflicker as deflicker_stage
+from . import enhancement as enhancement_stage
 from .paths import even_int, format_timecode, is_unfinished_media_artifact, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
 from .power import keep_awake, release_keep_awake
 from .naming import manifest_for_outpainted
@@ -510,6 +511,9 @@ class PipelineApp:
     def deflicker_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "deflicker")
 
+    def enhancement_enabled(self) -> bool:
+        return is_true(self.settings.get('global', {}), 'enhancement')
+
     def stabilize_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "stabilize")
 
@@ -532,6 +536,8 @@ class PipelineApp:
             stages.append(by_key['denoise'])
         if self.deflicker_enabled():
             stages.append(by_key['deflicker'])
+        if self.enhancement_enabled():
+            stages.append(by_key['enhancement'])
         if self.cleanup_enabled():
             stages.append(by_key["cleanup"])
         if self.stabilize_enabled():
@@ -801,13 +807,71 @@ class PipelineApp:
                    "--variants", json.dumps(rows), "--settings", json.dumps(values)]
         return self._start_denoise_matrix("Light Deflicker Batch", command, "deflicker")
 
+    def enhancement_output(self) -> str:
+        return enhancement_stage.output_for(self.deflickered_source_for_downstream(), self.settings.get('enhancement', {}),
+            self.settings.get('cloud', {}).get('intermediate_format', 'high'))
+
+    def enhanced_source_for_downstream(self) -> str:
+        return self.enhancement_output() if self.enhancement_enabled() else self.deflickered_source_for_downstream()
+
+    def enhancement_matrix_state(self) -> dict:
+        source, ready, revision = self.deflickered_source_for_downstream(), [], ''
+        if source:
+            try:
+                stat = resolve_video_source(source).stat()
+                revision = f'{stat.st_mtime_ns}-{stat.st_size}'
+            except OSError:
+                pass
+            for method in enhancement_stage.METHODS:
+                try:
+                    output = enhancement_stage.output_for(source, {**self.settings.get('enhancement', {}), 'method': method},
+                        self.settings.get('cloud', {}).get('intermediate_format', 'high'))
+                    _, path = denoise_review_pair(self, output, 'enhancement')
+                    stat = path.stat()
+                    ready.append({'method': method, 'preset': 'settings', 'output': output,
+                        'revision': f'{stat.st_mtime_ns}-{stat.st_size}'})
+                except (OSError, ValueError, TypeError):
+                    continue
+        return {'source': source, 'source_revision': revision, 'variants': ready, 'ready': len(ready),
+            'total': len(enhancement_stage.METHODS), 'running': self.running_stage_key == 'enhancement'}
+
+    def run_enhancement_batch(self, variants=None):
+        if not self.enhancement_enabled():
+            return False, 'Enable Detail Enhancement / Deblur on Overview first.'
+        if self.quitting:
+            return False, 'ARP is shutting down.'
+        rows = variants if variants is not None else [{'method': method, 'preset': 'settings'} for method in enhancement_stage.METHODS]
+        try:
+            enhancement_stage.validate_variants(rows)
+            for row in rows:
+                issue = stage_issue(self.settings, 'enhancement', model_override=row['method'])
+                if issue:
+                    raise ValueError(issue)
+            self.ensure_pipeline_source()
+            if self.denoise_enabled() and not comparison_output_ready(self, 'denoise'):
+                raise ValueError('Run Remove Noise first.')
+            if self.deflicker_enabled() and not self.deflicker_output_ready():
+                raise ValueError('Run Light Deflicker first.')
+            source = resolve_video_source(self.deflickered_source_for_downstream())
+            if not source.is_file():
+                raise ValueError('Choose a valid processing input first.')
+            values = self.settings.get('enhancement', {})
+            for row in rows:
+                enhancement_stage.backend.options({**values, 'method': row['method']})
+        except (OSError, ValueError, TypeError) as exc:
+            return False, str(exc)
+        command = [sys.executable, '-u', '-m', 'ai_remaster_gui.enhancement', '--source', str(source),
+            '--settings', json.dumps(values), '--variants', json.dumps(rows), '--profile',
+            canonical_intermediate_profile(self.settings.get('cloud', {}).get('intermediate_format'))]
+        return self._start_denoise_matrix('Detail Enhancement / Deblur Batch', command, 'enhancement')
+
     def cleanup_output(self) -> str:
-        source = self.deflickered_source_for_downstream()
+        source = self.enhanced_source_for_downstream()
         return cleanup_output_for(source, self.settings.get("cleanup", {})) if source else ""
 
     def cleaned_source_for_downstream(self) -> str:
         """Expected immediate output of Clean Up, or the selected source when it is disabled."""
-        return self.cleanup_output() if self.cleanup_enabled() else self.deflickered_source_for_downstream()
+        return self.cleanup_output() if self.cleanup_enabled() else self.enhanced_source_for_downstream()
 
     def stabilization_output(self) -> str:
         source = self.cleaned_source_for_downstream()
@@ -1010,6 +1074,16 @@ class PipelineApp:
                     current, total = int(match[2]), int(match[3])
                     percent = min(99, int(100 * (current if match[1] else current - 1) / max(total, 1)))
                     label = f"Light Deflicker {current}/{total}: {match[4]}"
+        elif self.running_stage_key == 'enhancement':
+            label = 'Preparing Detail Enhancement / Deblur'
+            for line in log_text.splitlines():
+                match = re.search(r'Enhancement batch (complete )?(\d+)/(\d+): (.*)', line)
+                if match:
+                    current, total = int(match[2]), int(match[3])
+                    percent = min(99, int(100 * (current if match[1] else current - 1) / max(total, 1)))
+                    label = f'Detail Enhancement / Deblur {current}/{total}: {match[4]}'
+                elif line.startswith('Detail Enhancement / Deblur: '):
+                    label = line
         elif self.running_stage_key == "stabilize":
             label = "Analysing shot motion"
             total = first_int_after(log_text, "detected ")
@@ -1334,6 +1408,7 @@ class PipelineApp:
                 "detail_comparison": self.detail_comparison_state(),
                 "denoise_matrix": self.denoise_matrix_state() if view == "denoise" else {},
                 "deflicker_matrix": self.deflicker_matrix_state() if view == "deflicker" else {},
+                "enhancement_matrix": self.enhancement_matrix_state() if view == 'enhancement' else {},
                 "reference_luminance": {"enabled": False, "plan": [], "matched_shots": 0},
                 "upscale_preview": self.upscale_preview_state(),
                 "upscale_auto_target": self.upscale_auto_target_state() if view == "upscale" else "",
@@ -1390,6 +1465,8 @@ class PipelineApp:
         return payload
 
     def update_settings(self, stage: str, values: dict[str, str]) -> None:
+        if stage == 'enhancement':
+            enhancement_stage.backend.options({**self.settings.get(stage, {}), **values})
         if stage == "deflicker":
             proposed = {**self.settings.get("deflicker", {}), **values}
             deflicker_stage.backend.options(proposed)
@@ -1445,9 +1522,9 @@ class PipelineApp:
             self.log.append(f"Loading source material: {values.get('source')}")
             self.clear_derived_stage_inputs()
             self.hydrate_stage_inputs("global")
-        elif stage == "global" and ({"denoise", "deflicker", "cleanup", "stabilize", "detail", "colorize", "expand_outpaint", "upscale"} & set(values)):
+        elif stage == "global" and ({"denoise", "deflicker", "enhancement", "cleanup", "stabilize", "detail", "colorize", "expand_outpaint", "upscale"} & set(values)):
             self.hydrate_stage_inputs("global")
-        elif stage in {"denoise", "deflicker"}:
+        elif stage in {"denoise", "deflicker", 'enhancement'}:
             self.hydrate_stage_inputs(stage)
         elif stage == "colour" and "method" in values:
             if values.get("method") in {"deepexemplar", "colormnet", "cmnet2", "ltx", "openai"}:
@@ -1796,6 +1873,7 @@ class PipelineApp:
         for stage_key, keys in {
             "denoise": ("output",),
             "deflicker": ("output",),
+            'enhancement': ('output',),
             "cleanup": ("output",),
             "stabilize": ("input_video", "output"),
             "detail": ("output",),
@@ -1828,6 +1906,10 @@ class PipelineApp:
         deflicker_expected_text = self.deflicker_output()
         self.settings.setdefault("deflicker", {})["output"] = deflicker_expected_text
         deflickered_text = (deflicker_expected_text if self.deflicker_output_ready() else "") if self.deflicker_enabled() else denoised_text
+        enhancement_expected = self.enhancement_output()
+        self.settings.setdefault('enhancement', {})['output'] = enhancement_expected
+        if self.enhancement_enabled():
+            deflickered_text = enhancement_expected if comparison_output_ready(self, 'enhancement') else ''
         cleaned_text = (
             rel(clean_expected) if self.cleanup_enabled() and clean_ready
             else "" if self.cleanup_enabled()
@@ -1945,6 +2027,9 @@ class PipelineApp:
 
     def expected_outputs(self, stage_key: str) -> list[str]:
         values = self.settings.get(stage_key, {})
+        if stage_key == 'enhancement':
+            output = self.enhancement_output() if self.enhancement_enabled() else ''
+            return [output] if output else []
         if stage_key == 'denoise':
             if not self.denoise_enabled():
                 return []
@@ -2005,7 +2090,7 @@ class PipelineApp:
         return []
 
     def existing_outputs(self, stage_key: str) -> list[str]:
-        if stage_key in {'denoise', 'deflicker'} and not comparison_output_ready(self, stage_key):
+        if stage_key in {'denoise', 'deflicker', 'enhancement'} and not comparison_output_ready(self, stage_key):
             return []
         return [path for path in self.expected_outputs(stage_key) if path and resolve(path).exists()]
 
@@ -2066,6 +2151,7 @@ class PipelineApp:
         return {
             'denoise': self._denoise_command,
             'deflicker': self._deflicker_command,
+            'enhancement': self._enhancement_command,
             "cleanup": self._cleanup_command,
             "stabilize": self._stabilize_command,
             "detail": self._detail_command,
@@ -2146,7 +2232,7 @@ class PipelineApp:
         return cmd
 
     def _cleanup_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
-        source = self.deflickered_source_for_downstream()
+        source = self.enhanced_source_for_downstream()
         output = cleanup_output_for(source, values) if source else ""
         cmd = [sys.executable, "-u", str(SCRIPTS / "cleanup_video.py"), "--source", source, "--output", output]
         cmd.extend(["--intermediate-profile", canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))])
@@ -2202,6 +2288,13 @@ class PipelineApp:
                 "--preset", values.get("preset", "gentle"),
                 "--mix", values.get("mix", "100"),
                 "--intermediate-profile", profile]
+
+    def _enhancement_command(self, config, values):
+        source = self.deflickered_source_for_downstream()
+        return [sys.executable, '-u', str(SCRIPTS / 'enhancement_video.py'), '--source', source,
+            '--output', self.enhancement_output(), '--method', values.get('method', 'off'),
+            '--preset', values.get('preset', 'gentle'), '--mix', values.get('mix', '100'),
+            '--intermediate-profile', canonical_intermediate_profile(self.settings.get('cloud', {}).get('intermediate_format'))]
 
     def _outpaint_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
         cmd = [sys.executable, "-u", str(SCRIPTS / "outpaint_video.py")]
@@ -2488,6 +2581,8 @@ class PipelineApp:
             return False, 'Remove Noise is disabled on the Overview tab.'
         if stage_key == 'deflicker' and not self.deflicker_enabled():
             return False, 'Light Deflicker is disabled on the Overview tab.'
+        if stage_key == 'enhancement' and not self.enhancement_enabled():
+            return False, 'Detail Enhancement / Deblur is disabled on Overview.'
         if stage_key == "cleanup" and not self.cleanup_enabled():
             return False, "Clean Up is disabled on the Overview tab."
         if stage_key == "stabilize" and not self.stabilize_enabled():
@@ -2513,15 +2608,18 @@ class PipelineApp:
         if stage_key not in {'denoise', 'deflicker'} and self.deflicker_enabled():
             if not self.deflicker_output_ready():
                 return False, "Run Light Deflicker first so this stage has its upstream video."
-        if stage_key not in {'denoise', 'deflicker', 'cleanup'} and self.cleanup_enabled():
+        if stage_key not in {'denoise', 'deflicker', 'enhancement'} and self.enhancement_enabled():
+            if not comparison_output_ready(self, 'enhancement'):
+                return False, 'Run Detail Enhancement / Deblur first so this stage has its upstream video.'
+        if stage_key not in {'denoise', 'deflicker', 'enhancement', 'cleanup'} and self.cleanup_enabled():
             clean_output = self.cleanup_output()
             if not clean_output or not resolve(clean_output).exists():
                 return False, "Run Clean Up first so this phase has its upstream video."
-        if stage_key not in {'denoise', 'deflicker', "cleanup", "stabilize"} and self.stabilize_enabled():
+        if stage_key not in {'denoise', 'deflicker', 'enhancement', "cleanup", "stabilize"} and self.stabilize_enabled():
             stabilized_output = self.stabilization_output()
             if not stabilized_output or not resolve(stabilized_output).exists():
                 return False, "Run Stabilization first so this phase has its upstream video."
-        if stage_key not in {"denoise", "deflicker", "cleanup", "stabilize", "detail"} and self.detail_enabled():
+        if stage_key not in {"denoise", "deflicker", 'enhancement', "cleanup", "stabilize", "detail"} and self.detail_enabled():
             detailed_output = self.detail_output()
             if not detailed_output or not resolve(detailed_output).exists():
                 return False, "Run Detail Enhancement first so this stage has its upstream video."
@@ -2574,6 +2672,8 @@ class PipelineApp:
         ):
             return False, "Select at least one Clean Up operation: Detect Defects, AI DeScratch, DeVignette, or Dearchive. Light Deflicker has its own stage."
         missing = [key for key in stage.required if not values.get(key)]
+        if stage_key == 'enhancement' and not self.settings.get('global', {}).get('source'):
+            missing = ['source material on the Global tab']
         if stage_key in {'denoise', "deflicker", "cleanup", "stabilize", "detail", "outpaint"} and not self.settings.get("global", {}).get("source"):
             missing = ["source material on the Global tab"]
         if stage_key == "recomp":
@@ -3011,7 +3111,7 @@ class PipelineApp:
         return {"before": before, "after": after, "stale": "true" if stale else "false"}
 
     def cleanup_diagnostics_state(self) -> dict:
-        source = self.deflickered_source_for_downstream()
+        source = self.enhanced_source_for_downstream()
         output = self.cleanup_output() if source else ""
         return cleanup_diagnostics_for(
             ROOT, resolve_video_source(source) if source else None,
@@ -3019,7 +3119,7 @@ class PipelineApp:
         )
 
     def cleanup_comparison_state(self) -> dict[str, str]:
-        source = self.deflickered_source_for_downstream()
+        source = self.enhanced_source_for_downstream()
         output = self.cleanup_output() if source else ""
         exists = bool(source and output and resolve(source).exists() and resolve(output).exists())
         return {
@@ -3088,6 +3188,7 @@ class PipelineApp:
         soundtrack_output = soundtrack_output_for(soundtrack_source, self.settings.get("audio", {})) if (self.soundtrack_enabled() and soundtrack_source) else ""
         denoise_output = self.denoise_output() if self.denoise_enabled() else ''
         deflicker_output = self.deflicker_output() if self.deflicker_enabled() else ''
+        enhancement_output = self.enhancement_output() if self.enhancement_enabled() else ''
         cleanup_output = self.cleanup_output() if self.cleanup_enabled() else ""
         stabilization_output = self.stabilization_output() if self.stabilize_enabled() else ""
         detail_output = self.detail_output() if self.detail_enabled() else ""
@@ -3103,6 +3204,8 @@ class PipelineApp:
             return {"path": stabilization_output, "kind": "stabilized", "label": "Stabilized output"}
         if cleanup_output and resolve(cleanup_output).exists():
             return {"path": cleanup_output, "kind": "cleanup", "label": "Clean Up output"}
+        if enhancement_output and comparison_output_ready(self, 'enhancement'):
+            return {'path': enhancement_output, 'kind': 'enhanced', 'label': 'Detail Enhancement / Deblur output'}
         if deflicker_output and self.deflicker_output_ready():
             return {"path": deflicker_output, "kind": "deflickered", "label": "Light Deflicker output"}
         if denoise_output and comparison_output_ready(self, 'denoise'):
@@ -3119,6 +3222,8 @@ class PipelineApp:
             return {"path": stabilization_output, "kind": "stabilized_pending", "label": "Pending stabilized output"}
         if cleanup_output:
             return {"path": cleanup_output, "kind": "cleanup_pending", "label": "Pending Clean Up output"}
+        if enhancement_output:
+            return {'path': enhancement_output, 'kind': 'enhanced_pending', 'label': 'Pending Detail Enhancement / Deblur output'}
         if deflicker_output:
             return {"path": deflicker_output, "kind": "deflickered_pending", "label": "Pending Light Deflicker output"}
         if denoise_output:
@@ -3172,7 +3277,7 @@ class PipelineApp:
         return True, "Started upscale preview."
 
     def upscale_preview_clip_source(self, preview_seconds: float) -> tuple[Path, float, float, str]:
-        if not (self.denoise_enabled() or self.deflicker_enabled() or self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
+        if not (self.denoise_enabled() or self.deflicker_enabled() or self.enhancement_enabled() or self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
             global_settings = self.settings.get("global", {})
             source_text = global_settings.get("source", "")
             source = resolve_video_source(source_text)
@@ -3771,6 +3876,9 @@ def outpaint_source_for_settings(settings: dict) -> str:
     if source_text and is_true(global_values, 'deflicker'):
         source_text = deflicker_stage.output_for(source_text, settings.get('deflicker', {}),
                                                settings.get('cloud', {}).get('intermediate_format', 'high'))
+    if source_text and is_true(global_values, 'enhancement'):
+        source_text = enhancement_stage.output_for(source_text, settings.get('enhancement', {}),
+            settings.get('cloud', {}).get('intermediate_format', 'high'))
     if source_text and is_true(global_values, "cleanup"):
         source_text = cleanup_output_for(source_text, settings.get("cleanup", {}))
     if source_text and is_true(global_values, "stabilize"):

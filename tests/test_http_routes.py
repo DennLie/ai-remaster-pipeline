@@ -67,6 +67,7 @@ EXPECTED_POST_ROUTES = {
     "/api/denoise-batch", "/api/denoise-grid", "/api/denoise-diff",
     "/api/denoise-playback",
     "/api/deflicker-batch",
+    "/api/enhancement-batch",
 }
 
 
@@ -157,6 +158,21 @@ class HelperBehaviourTests(unittest.TestCase):
         handler.do_POST()
         state.APP.run_deflicker_batch.assert_called_once_with(rows)
         self.assertEqual(handler.responses['json']['state'], {'_view':'deflicker'})
+
+    def test_enhancement_subset_and_shared_media_keep_their_stage(self) -> None:
+        from ai_remaster_gui import denoise_playback
+        rows = [{'method': 'nafnet', 'preset': 'settings'}]
+        state.APP.run_enhancement_batch = mock.Mock(return_value=(True, 'started'))
+        handler = _Handler('/api/enhancement-batch', {'variants': rows})
+        handler.do_POST()
+        state.APP.run_enhancement_batch.assert_called_once_with(rows)
+        self.assertEqual(handler.responses['json']['state'], {'_view': 'enhancement'})
+        with mock.patch.object(denoise_playback, 'playback_segment', return_value={}) as call:
+            _Handler('/api/denoise-playback', {'variant': 'ready.mkv', 'frame': 7, 'stage': 'enhancement'}).do_POST()
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'enhancement')
+        with mock.patch.object(http_handler, 'inspect_denoise', return_value={}) as call:
+            _Handler('/api/denoise-inspector?variant=ready.mkv&frame=7&stage=enhancement').do_GET()
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'enhancement')
 
     def test_send_result_success_merges_dict_and_state(self) -> None:
         with mock.patch.object(http_handler, "merge_manifest_shots", return_value={"merged": 2}):

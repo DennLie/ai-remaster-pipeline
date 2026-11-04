@@ -37,8 +37,8 @@ class DenoiseMethodTests(unittest.TestCase):
         self.assertEqual(opts["global"]["denoise"], "false")
         self.assertEqual(opts["denoise"]["method"], "off")
         self.assertEqual(opts["global"]["deflicker"], "false")
-        self.assertEqual([stage.key for stage in STAGES][:4],
-                         ["denoise", "deflicker", "cleanup", "stabilize"])
+        self.assertEqual([stage.key for stage in STAGES][:5],
+                         ["denoise", "deflicker", 'enhancement', "cleanup", "stabilize"])
         source = str(ROOT / "input" / "fixture.mkv")
         first = denoise_output_for(source, {"method": "hqdn3d", "preset": "gentle"}, "lossless")
         second = denoise_output_for(source, {"method": "hqdn3d", "preset": "balanced"}, "lossless")

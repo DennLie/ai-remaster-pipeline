@@ -9,7 +9,7 @@ function denoiseWorkspaceFor(key = comparisonStageKey()) {
 }
 
 function denoiseWorkspaceActivate(key) {
-  if (!['denoise','deflicker'].includes(key)) return;
+  if (!['denoise','deflicker','enhancement'].includes(key)) return;
   const workspace = denoiseWorkspaceFor(key);
   if (workspace === denoiseWorkspaceActive) return;
   denoiseWorkspaceDeactivate();
@@ -22,8 +22,8 @@ function denoiseWorkspaceDeactivate() {
 }
 
 function createDenoiseWorkspace(stageKey) {
-const methods = stageKey === 'deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS;
-const presets = stageKey === 'deflicker' ? [{key:'settings',label:'Current settings'}] : DENOISE_PRESETS;
+const methods = denoiseMethods(stageKey);
+const presets = denoisePresets(stageKey);
 const denoiseWorkspaceVariants = presets.flatMap(preset => methods.map(method => ({method:method.key,preset:preset.key})));
 let matrix = state?.[stageKey+'_matrix'] || {};
 const denoiseMatrixState = () => matrix;
@@ -190,10 +190,10 @@ async function denoiseWorkspaceGenerate() {
 
 function renderContext(variants) {
   const settings=state?.settings || {},values=settings[stageKey] || {};
-  const parameters=variants.map(({method})=>method==='arp' ? [method,values.strength,values.max_correction]
+  const parameters=variants.map(({method})=>stageKey==='enhancement' ? [method,values.mix,['nafnet','restormer'].includes(method) ? null : values.preset] : method==='arp' ? [method,values.strength,values.max_correction]
     : method.startsWith('ffmpeg_') ? [method,values.window]
     : [method,values.localized_confirm_single_shot,values.localized_confirm_film_experiment]);
-  return JSON.stringify([settings.global,stageKey==='deflicker' ? settings.denoise : null,
+  return JSON.stringify([settings.global,stageKey!=='denoise' ? settings.denoise : null,stageKey==='enhancement' ? settings.deflicker : null,
     settings.cloud?.intermediate_format,parameters]);
 }
 
@@ -549,7 +549,7 @@ async function useSelected(selected=selectedVariant()) {
   if(button) button.disabled=true;
   denoiseWorkspaceUpdateSelectionUi();
   try {
-    const values=stageKey==='deflicker' ? {method:selected.method,force:'false'}
+    const values=stageKey!=='denoise' ? {method:selected.method,force:'false'}
       : {method:selected.method,preset:selected.preset || 'gentle',force:'false'};
     const result=await postJson('/api/settings',{stage:stageKey,values});
     if(!result?.ok) throw new Error(result?.error || 'Settings could not be saved.');

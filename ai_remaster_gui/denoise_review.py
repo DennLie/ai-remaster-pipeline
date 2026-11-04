@@ -24,8 +24,10 @@ _REPORT_VERSION = 1
 
 
 def comparison_source(app, stage: str = "denoise") -> str:
-    if stage not in ("denoise", "deflicker"):
-        raise ValueError("Choose Remove Noise or Light Deflicker for comparison.")
+    if stage not in ("denoise", "deflicker", 'enhancement'):
+        raise ValueError("Choose a supported restoration comparison stage.")
+    if stage == 'enhancement':
+        return app.deflickered_source_for_downstream()
     return app.denoised_source_for_downstream() if stage == "deflicker" else pipeline_source_text(app.settings)
 
 
@@ -40,10 +42,15 @@ def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | No
     source = _video_path(source_text)
     if stage == 'deflicker' and str(app.settings.get('global', {}).get('denoise', 'false')) == 'true':
         selected_output(app, 'denoise')
+    if stage == 'enhancement':
+        for upstream in ('denoise', 'deflicker'):
+            if app.settings.get('global', {}).get(upstream) == 'true':
+                selected_output(app, upstream)
     output = resolve(candidate)
     # A path existing *somewhere* under the repository is not a legal output.
     # Never permit symlinks/.. escapes or another stage's files.
-    folder = ROOT / "intermediate" / "deflickered" if stage == "deflicker" else _OUTPUTS
+    folder = {'denoise': _OUTPUTS, 'deflicker': ROOT / 'intermediate' / 'deflickered',
+              'enhancement': ROOT / 'intermediate' / 'enhanced'}[stage]
     if output.resolve().parent != folder.resolve():
         raise ValueError("Only finished ARP variants from the requested comparison stage may be reviewed.")
     if is_unfinished_media_artifact(output) or output.suffix.lower() != ".mkv":
@@ -59,7 +66,8 @@ def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | No
         fp = provenance.get("source_fingerprint") or {}
         source_stat = source.stat()
         if (
-            provenance.get("tool") != ("deflicker_video.py" if stage == "deflicker" else "denoise_video.py")
+            provenance.get("tool") != {'denoise': 'denoise_video.py', 'deflicker': 'deflicker_video.py',
+                                       'enhancement': 'enhancement_video.py'}[stage]
             or resolve(str(provenance.get("source", ""))).resolve() != source.resolve()
             or fp.get("size") != source_stat.st_size
             or fp.get("mtime_ns") != source_stat.st_mtime_ns
@@ -67,14 +75,18 @@ def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | No
                                       or provenance.get("preset") not in ("gentle", "balanced", "strong"))
         ):
             raise ValueError("This result belongs to a different source or has stale provenance.")
-        if stage == "deflicker":
-            from .deflicker import backend, output_for
-            values = {**app.settings.get("deflicker", {}), "method": provenance.get("method")}
-            profile = backend.canonical_profile(app.settings.get("cloud", {}).get("intermediate_format"))
-            if (provenance.get("version") != backend.VERSION or provenance.get("parameters") != backend.options(values)
+        if stage in ('deflicker', 'enhancement'):
+            if stage == 'deflicker':
+                from . import deflicker as processing
+            else:
+                from . import enhancement as processing
+            values = {**app.settings.get(stage, {}), "method": provenance.get("method")}
+            profile = processing.backend.canonical_profile(app.settings.get("cloud", {}).get("intermediate_format"))
+            if (provenance.get("version") != processing.backend.VERSION or provenance.get("parameters") != processing.backend.options(values)
                     or provenance.get("intermediate_profile") != profile
-                    or resolve(output_for(source_text, values, profile)).resolve() != output.resolve()):
-                raise ValueError("This Light Deflicker result has stale parameters, format or provenance.")
+                    or resolve(processing.output_for(source_text, values, profile)).resolve() != output.resolve()):
+                title = 'Light Deflicker' if stage == 'deflicker' else 'enhancement'
+                raise ValueError(f'This {title} result has stale parameters, format or provenance.')
         else:
             from .deflicker import backend
             from denoise_video import ALGORITHM_VERSION
@@ -93,7 +105,10 @@ def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | No
 def selected_output(app, stage: str) -> Path:
     """The selected pipeline result, using the same rules as comparison variants."""
     values = app.settings.get(stage, {})
-    candidate = app.deflicker_output() if stage == 'deflicker' else app.denoise_output()
+    getter = {'denoise': 'denoise_output', 'deflicker': 'deflicker_output', 'enhancement': 'enhancement_output'}.get(stage)
+    if getter is None:
+        raise ValueError('Choose a supported restoration comparison stage.')
+    candidate = getattr(app, getter)()
     return review_pair(app, candidate, stage, method=values.get('method', 'arp' if stage == 'deflicker' else 'off'),
                        preset=values.get('preset', 'gentle') if stage == 'denoise' else None)[1]
 

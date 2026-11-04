@@ -74,6 +74,18 @@ STAGES = (
         (),
     ),
     Stage(
+        "enhancement",
+        "Detail Enhancement / Deblur",
+        "Native 1x enhancement after Light Deflicker. Compare sharpening, assumed-PSF deconvolution and pretrained image deblurring; sharper does not prove recovered detail.",
+        ("intermediate/enhanced",),
+        (
+            ("method", "Enhancement method", "select:off|unsharp|cas|multiscale|richardson_lucy|nafnet|restormer", "off"),
+            ("preset", "Classical method strength", "select:gentle|balanced|strong", "gentle"),
+            ("mix", "Enhanced picture mix (%)", "range:0|100|1", "100"),
+        ),
+        (),
+    ),
+    Stage(
         "cleanup",
         "Clean Up",
         "Reconstruct masked scratches with ProPainter, correct vignettes, then optionally restore archive footage with Dearchive at a selectable model-safe resolution.",

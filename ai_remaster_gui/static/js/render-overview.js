@@ -11,7 +11,7 @@ function drawGlobal() {
   const colorize = global.colorize !== 'false';
   const upscale = global.upscale === 'true';
   const soundtrack = global.add_soundtrack === 'true';
-  const noProcessing = !denoise && !deflicker && !cleanup && !stabilize && !detail && !expandOutpaint && !colorize && !upscale && !soundtrack;
+  const noProcessing = !denoise && !deflicker && global.enhancement !== 'true' && !cleanup && !stabilize && !detail && !expandOutpaint && !colorize && !upscale && !soundtrack;
   const analysis = state.source_analysis || {};
   const sourceTone = source && !analysis.ready
     ? (analysis.message || 'Analyzing source material')
@@ -58,6 +58,7 @@ function drawGlobal() {
   document.getElementById('globalCommercialModelGuard').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDenoise').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDeflicker').addEventListener('change', saveGlobalPipelineOptions);
+  document.getElementById('globalEnhancement').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalCleanup').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalStabilize').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDetail').addEventListener('change', saveGlobalPipelineOptions);
@@ -84,6 +85,13 @@ function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint,
         icon: 'cleanup',
         title: 'Light Deflicker',
         body: 'Optional model-free brightness correction after Remove Noise and before Clean Up. Compare ARP, FFmpeg and experimental Localized methods without changing the pipeline selection.',
+      })}
+      ${workflowOptionHtml({
+        id: 'globalEnhancement',
+        checked: state.settings.global.enhancement === 'true',
+        icon: 'cleanup',
+        title: 'Detail Enhancement / Deblur',
+        body: 'Optional native 1× enhancement after Light Deflicker. Compare classical sharpening, Richardson–Lucy, NAFNet and Restormer before explicitly adopting an output.',
       })}
       ${workflowOptionHtml({
         id: 'globalCleanup',

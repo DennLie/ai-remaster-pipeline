@@ -142,7 +142,7 @@ test('legacy frame rate parses fractional rates without borrowing another worksp
 test('server inspection remains read-only and verifies signed output lineage',()=>{
   const api=read('ai_remaster_gui/http_handler.py'),backend=read('ai_remaster_gui/denoise_review.py');
   assert.match(api,/parsed\.path == "\/api\/denoise-inspector"/);
-  assert.match(backend,/provenance\.get\("tool"\) != \("deflicker_video.py" if stage == "deflicker" else "denoise_video.py"\)/);
+  for(const tool of ['denoise_video.py','deflicker_video.py','enhancement_video.py']) assert.ok(backend.includes(tool));
   assert.match(backend,/output\.resolve\(\)\.parent != folder\.resolve\(\)/);
   assert.match(backend,/is_unfinished_media_artifact\(output\)/);
   assert.match(review,/cleanupDifferencePixels/);

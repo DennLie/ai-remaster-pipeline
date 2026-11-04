@@ -1817,6 +1817,7 @@ async function saveGlobalPipelineOptions() {
       commercial_model_guard: String(document.getElementById('globalCommercialModelGuard').checked),
       denoise: String(document.getElementById('globalDenoise').checked),
       deflicker: String(document.getElementById('globalDeflicker').checked),
+      enhancement: String(document.getElementById('globalEnhancement').checked),
       cleanup: String(document.getElementById('globalCleanup').checked),
       stabilize: String(document.getElementById('globalStabilize').checked),
       detail: String(document.getElementById('globalDetail').checked),

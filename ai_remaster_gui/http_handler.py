@@ -450,6 +450,9 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/denoise-batch":
             self._send_action("Remove Noise batch",
                               lambda: state.APP.run_denoise_batch(data.get("variants")), view="denoise")
+        elif parsed.path == "/api/enhancement-batch":
+            self._send_action('Detail Enhancement / Deblur batch',
+                              lambda: state.APP.run_enhancement_batch(data.get('variants')), view='enhancement')
         elif parsed.path == "/api/deflicker-batch":
             self._send_action("Light Deflicker batch",
                               lambda: state.APP.run_deflicker_batch(data.get("variants")), view="deflicker")

@@ -207,7 +207,7 @@ function createDenoiseStillReview(host,options) {
             throw new Error('The exact comparison variants have different frame mappings.');
           pairs.set(slot,cached);reference=cached.info;continue;
         }
-        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(path)+'&frame='+request.frame+(options.stage?.()==='deflicker' ? '&stage=deflicker' : ''),{cache:'no-store',signal:loadAbort.signal});
+        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(path)+'&frame='+request.frame+'&stage='+encodeURIComponent(options.stage?.() || 'denoise'),{cache:'no-store',signal:loadAbort.signal});
         if(!response.ok) throw new Error('The inspection endpoint answered with HTTP '+response.status+'.');
         const data=await response.json();
         if(!data?.ok) throw new Error(data?.error || 'The exact frame is unavailable.');

@@ -167,7 +167,7 @@ test('Clean Up no longer renders Deflicker controls, while both tabs use the sam
   assert.doesNotMatch(cleanup,/data-deflicker-only|light_deflicker|deflicker_method|localized_confirm/);
   assert.match(helpers,/st.key === 'deflicker'\) return drawDenoise/);
   const playback=fs.readFileSync(path.join(base,'denoise-playback.js'),'utf8');
-  assert.match(playback,/body.stage='deflicker'/);
+  assert.match(playback,/body.stage=options.stage\(\)/);
   const still=fs.readFileSync(path.join(base,'denoise-review.js'),'utf8');
-  assert.match(still,/&stage=deflicker/);
+  assert.match(still,/encodeURIComponent\(options.stage\?\.\(\) \|\| 'denoise'\)/);
 });
