@@ -5,6 +5,10 @@ let lastRenderSignature = '';
 let lastOutpaintVisualSignature = '';
 let lastSeenLogCount = null;
 let quitting = false;
+let tabEpoch = 0;
+let tabLoading = false;
+let refreshEpoch = 0;
+let refreshApplied = 0;
 
 const media = path => '/media?path=' + encodeURIComponent(path);
 const mediaClip = (path, start, end, key) => (
@@ -24,12 +28,16 @@ async function api(path, opts = {}) {
 }
 
 async function refresh(force = false) {
-  if (quitting) return;
+  if (quitting || tabLoading) return;
+  const tab=active,epoch=tabEpoch,request=++refreshEpoch;
   const snap = captureScrollState();
   const editing = isEditingField();
   const mediaActive = hasMediaOnPage();
 
-  state = await api(stateUrl());
+  const nextState = await api(stateUrl());
+  if(tab!==active || epoch!==tabEpoch || request<refreshApplied) return;
+  refreshApplied=request;
+  state = nextState;
   pruneSelected();
   if (!availableTabs().includes(active)) active = 'global';
   notifyNewLogErrors();
@@ -414,18 +422,26 @@ function drawTabs() {
 }
 
 async function selectTab(tab) {
+  const epoch=++tabEpoch;
+  tabLoading=true;
   if (isRestorationComparison()) denoiseWorkspaceDeactivate();
   active = tab;
   drawTabs();
   if (tab === 'outpaint') showOutpaintLoadingShell();
   else if (['shots', 'references', 'colour'].includes(tab)) showShotLoadingShell(tab);
-  state = await api(stateUrl());
-  pruneSelected();
-  drawTabs();
-  draw(false);
-  wireColourShotVideos();
-  lastRenderSignature = renderSignature();
-  lastOutpaintVisualSignature = outpaintVisualSignature();
+  try {
+    const nextState = await api(stateUrl());
+    if(epoch!==tabEpoch) return;
+    state = nextState;
+    pruneSelected();
+    drawTabs();
+    draw(false);
+    wireColourShotVideos();
+    lastRenderSignature = renderSignature();
+    lastOutpaintVisualSignature = outpaintVisualSignature();
+  } finally {
+    if(epoch===tabEpoch) tabLoading=false;
+  }
 }
 
 // The Outpainting page waits for the trimmed source-section clip, which the server makes in

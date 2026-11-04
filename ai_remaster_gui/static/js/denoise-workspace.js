@@ -1,6 +1,46 @@
-/* Matrix-owned comparison membership. Slot IDs are stable across selection changes. */
-let denoiseWorkspaceVariants = DENOISE_PRESETS.flatMap(preset =>
-  DENOISE_METHODS.map(method => ({method:method.key, preset:preset.key})));
+/* Each tab owns its state; only the mounted workspace owns decoders and DOM work. */
+const denoiseWorkspaces = new Map();
+let denoiseWorkspaceActive = null;
+let denoiseWorkspaceStarting = null;
+
+function denoiseWorkspaceFor(key = comparisonStageKey()) {
+  if (!denoiseWorkspaces.has(key)) denoiseWorkspaces.set(key, createDenoiseWorkspace(key));
+  return denoiseWorkspaces.get(key);
+}
+
+function denoiseWorkspaceActivate(key) {
+  if (!['denoise','deflicker'].includes(key)) return;
+  const workspace = denoiseWorkspaceFor(key);
+  if (workspace === denoiseWorkspaceActive) return;
+  denoiseWorkspaceDeactivate();
+  denoiseWorkspaceActive = workspace;
+}
+
+function denoiseWorkspaceDeactivate() {
+  denoiseWorkspaceActive?.deactivate();
+  denoiseWorkspaceActive = null;
+}
+
+function createDenoiseWorkspace(stageKey) {
+const methods = stageKey === 'deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS;
+const presets = stageKey === 'deflicker' ? [{key:'settings',label:'Current settings'}] : DENOISE_PRESETS;
+const denoiseWorkspaceVariants = presets.flatMap(preset => methods.map(method => ({method:method.key,preset:preset.key})));
+let matrix = state?.[stageKey+'_matrix'] || {};
+const denoiseMatrixState = () => matrix;
+const pipelineVariant = () => denoiseStageVariant(stageKey);
+const variantPath = (method,preset) => denoiseVariantPath(method,preset,stageKey,matrix);
+const variantReady = (method,preset) => denoiseVariantReady(method,preset,stageKey,matrix);
+const labelFor = (method,preset) => denoiseVariantLabelFor(method,preset,stageKey);
+let denoiseMatrixSelected = null;
+let denoiseComparePaths = [];
+let denoiseCompareZoom = 1, denoiseComparePan = {x:0,y:0};
+let denoiseCompareNative = false, denoiseCompareGrid = false;
+let denoiseCompareZoomView = null;
+let denoiseCompareDiffMode = 'direction', denoiseCompareDiffContrast = 32;
+let fps = 0, count = 1, length = 0;
+let chart = null, metrics = null, chartPath = '';
+let mounted = false, mountEpoch = 0, inputEpoch = 0;
+let adoptionPending = false, adoptionError = '';
 let denoiseWorkspaceSelection = null;
 let denoiseWorkspaceSource = '';
 let denoiseWorkspaceObserver = null;
@@ -8,45 +48,33 @@ let denoiseWorkspaceHost = null;
 let denoiseWorkspaceGenerationDismissed = false;
 let denoiseWorkspaceGenerationPending = false;
 let denoiseWorkspaceGenerationError = '';
+let generationContext = '', generationVariants = [];
 let denoiseWorkspacePlayback = null;
 let denoiseWorkspaceStill = null;
 let denoiseWorkspaceExact = false;
 let denoiseWorkspaceFrame = 0;
 const denoiseWorkspaceViews = new Map();
 const denoiseWorkspaceWipes = new Map();
-let denoiseWorkspaceStage = 'denoise';
-const denoiseWorkspaceSaved = new Map();
-
-function denoiseWorkspaceDeactivate() {
-  if (!denoiseWorkspaceStage) return;
-  denoiseWorkspaceSaved.set(denoiseWorkspaceStage,{selection:denoiseWorkspaceSelection,source:denoiseWorkspaceSource,
-    selected:denoiseMatrixSelected,frame:denoiseWorkspaceFrame,views:new Map(denoiseWorkspaceViews),wipes:new Map(denoiseWorkspaceWipes),
-    zoom:denoiseCompareZoom,pan:{...denoiseComparePan},native:denoiseCompareNative,exact:denoiseWorkspaceExact,grid:denoiseCompareGrid,
-    diffMode:denoiseCompareDiffMode,diffContrast:denoiseCompareDiffContrast});
+function deactivate() {
+  mounted = false; mountEpoch++;
   denoiseWorkspaceStill?.destroy();denoiseWorkspaceStill=null;
   denoiseWorkspacePlayback?.destroy();denoiseWorkspacePlayback=null;
   denoiseWorkspaceObserver?.disconnect();denoiseWorkspaceObserver=null;denoiseWorkspaceHost=null;
   denoiseCompareZoomView?.destroy();denoiseCompareZoomView=null;
-  denoiseWorkspaceStage='';
+  chart?.destroy();chart=null;
 }
 
-function denoiseWorkspaceActivate(key) {
-  if(!['denoise','deflicker'].includes(key) || key===denoiseWorkspaceStage) return;
-  denoiseWorkspaceDeactivate();
-  const saved=denoiseWorkspaceSaved.get(key);
-  denoiseWorkspaceStage=key;
-  denoiseWorkspaceVariants=denoisePresets().flatMap(preset=>denoiseMethods().map(method=>({method:method.key,preset:preset.key})));
-  denoiseWorkspaceSelection=saved?.selection ?? null;denoiseWorkspaceSource=saved?.source || '';
-  denoiseMatrixSelected=saved?.selected || null;denoiseWorkspaceFrame=saved?.frame || 0;
-  denoiseCompareZoom=saved?.zoom || 1;denoiseComparePan=saved?.pan || {x:0,y:0};
-  denoiseCompareNative=Boolean(saved?.native);denoiseWorkspaceExact=Boolean(saved?.exact);
-  denoiseCompareGrid=Boolean(saved?.grid);
-  denoiseCompareDiffMode=saved?.diffMode || 'direction';denoiseCompareDiffContrast=saved?.diffContrast || 32;
-  denoiseWorkspaceViews.clear();denoiseWorkspaceWipes.clear();
-  for(const [slot,view] of saved?.views || []) denoiseWorkspaceViews.set(slot,view);
-  for(const [slot,wipe] of saved?.wipes || []) denoiseWorkspaceWipes.set(slot,wipe);
-  denoiseWorkspaceGenerationDismissed=false;denoiseWorkspaceGenerationError='';
-  denoiseReviewFps=0;
+function selectedVariant() { return denoiseMatrixSelected || pipelineVariant(); }
+function snapshot() {
+  return {stage:stageKey,variants:denoiseWorkspaceVariants.map(v=>({...v})),selected:{...selectedVariant()},
+    selection:[...(denoiseWorkspaceSelection || [])],paths:[...denoiseComparePaths],frame:denoiseWorkspaceFrame,
+    zoom:denoiseCompareZoom,pan:{...denoiseComparePan},native:denoiseCompareNative,grid:denoiseCompareGrid,
+    exact:denoiseWorkspaceExact,views:new Map(denoiseWorkspaceViews),wipes:new Map(denoiseWorkspaceWipes),
+    diffMode:denoiseCompareDiffMode,diffContrast:denoiseCompareDiffContrast,fps,count,length,
+    generationPending:denoiseWorkspaceGenerationPending,generationError:denoiseWorkspaceGenerationError,
+    generationDismissed:denoiseWorkspaceGenerationDismissed,adoptionPending,chartPath,metrics:metrics ? {...metrics} : null,
+    loading:Boolean(denoiseWorkspaceExact ? denoiseWorkspaceStill?.state.loading : denoiseWorkspacePlayback?.state.loading),
+    error:(denoiseWorkspaceExact ? denoiseWorkspaceStill?.state.error : denoiseWorkspacePlayback?.state.error) || ''};
 }
 
 function denoiseWorkspaceKey(variant) { return variant.method + '/' + variant.preset; }
@@ -57,16 +85,18 @@ function denoiseWorkspaceSelected() {
   return denoiseWorkspaceVariants.filter(v => denoiseWorkspaceHas(v.method,v.preset));
 }
 function denoiseWorkspaceMissing() {
-  return denoiseWorkspaceSelected().filter(v => !denoiseVariantReady(v.method,v.preset));
+  return denoiseWorkspaceSelected().filter(v => !variantReady(v.method,v.preset));
 }
 
 function denoiseWorkspaceInitialize(candidates) {
-  denoiseWorkspaceActivate(comparisonStageKey());
+  const latest = state?.[stageKey+'_matrix'];
+  if (latest && Object.hasOwn(latest,'source')) matrix = latest;
+  if(generationContext && generationContext!==renderContext(generationVariants)) denoiseWorkspaceGenerationError='';
   const source = candidates.find(v => v.kind === 'source')?.path || '';
-  const identity = [source, state?.settings?.global?.source, denoiseCompareSectionKey()].join('|');
+  const identity = [source, matrix.source_revision, state?.settings?.global?.source, denoiseCompareSectionKey()].join('|');
   if (denoiseWorkspaceSelection === null) {
-    const stage = denoiseStageVariant();
-    const ready = denoiseWorkspaceVariants.filter(v => denoiseVariantReady(v.method,v.preset));
+    const stage = pipelineVariant();
+    const ready = denoiseWorkspaceVariants.filter(v => variantReady(v.method,v.preset));
     const initial = stage.method === 'off' ? ready.slice(0,2)
       : [stage, ...ready.filter(v => !denoiseSameVariant(v,stage)).slice(0,1)];
     denoiseWorkspaceSelection = new Set(initial.map(denoiseWorkspaceKey));
@@ -74,18 +104,19 @@ function denoiseWorkspaceInitialize(candidates) {
   }
   if (identity !== denoiseWorkspaceSource) {
     denoiseWorkspaceSource = identity;
+    inputEpoch++;
     denoiseWorkspaceGenerationDismissed = false;
     denoiseWorkspaceGenerationError = '';
-    denoiseCompareStart = 0;
     denoiseCompareZoom = 1;
     denoiseCompareNative = false;
     denoiseWorkspaceFrame = 0;
     denoiseComparePan = {x:0,y:0};
+    fps=0;count=1;metrics=null;
   }
+  length=denoiseCompareAvailableLength();
   denoiseComparePaths = [source, ...denoiseWorkspaceVariants.map((v,index) => {
-    denoiseCompareDiffState[index+1] ||= {enabled:false,url:'',key:'',request:0,loading:false};
-    return denoiseWorkspaceHas(v.method,v.preset) && denoiseVariantReady(v.method,v.preset)
-      ? denoiseVariantPath(v.method,v.preset) : '';
+    return denoiseWorkspaceHas(v.method,v.preset) && variantReady(v.method,v.preset)
+      ? variantPath(v.method,v.preset) : '';
   })];
 }
 
@@ -94,7 +125,7 @@ function denoiseWorkspaceToggle(method,preset) {
   denoiseWorkspaceSelection ||= new Set();
   if (denoiseWorkspaceSelection.has(key)) {
     denoiseWorkspaceSelection.delete(key);
-    if (denoiseSameVariant(denoiseSelectedVariant(),{method,preset}))
+    if (denoiseSameVariant(selectedVariant(),{method,preset}))
       denoiseMatrixSelected = denoiseWorkspaceSelected()[0] || {method:'off',preset:''};
   } else {
     denoiseWorkspaceSelection.add(key);
@@ -107,7 +138,7 @@ function denoiseWorkspaceToggle(method,preset) {
 
 function denoiseWorkspaceSelectAll() {
   denoiseWorkspaceSelection = new Set(denoiseWorkspaceVariants.map(denoiseWorkspaceKey));
-  if (denoiseSelectedVariant().method === 'off') denoiseMatrixSelected = denoiseWorkspaceVariants[0];
+  if (selectedVariant().method === 'off') denoiseMatrixSelected = denoiseWorkspaceVariants[0];
   denoiseWorkspaceGenerationDismissed = false;
   denoiseWorkspaceGenerationError = '';
   denoiseWorkspaceRefresh();
@@ -134,37 +165,51 @@ function denoiseWorkspaceRequestGeneration() {
 }
 
 async function denoiseWorkspaceGenerate() {
-  if (state.running || denoiseWorkspaceGenerationPending) return;
+  if (state.running || denoiseWorkspaceStarting) return;
   const variants = denoiseWorkspaceMissing();
   if (!variants.length) return;
   denoiseWorkspaceGenerationPending = true;
+  const request={context:renderContext(variants),epoch:inputEpoch};
+  generationContext=request.context;generationVariants=variants;
+  denoiseWorkspaceStarting=request;
   denoiseWorkspaceGenerationError = '';
   denoiseWorkspaceUpdateSelectionUi();
   try {
-    const result = await postJson('/api/'+comparisonStageKey()+'-batch', {variants});
+    const result = await postJson('/api/'+stageKey+'-batch', {variants});
     if (!result?.ok) throw new Error(result?.error || 'The renderer could not be started.');
     await refresh();
   } catch (error) {
-    denoiseWorkspaceGenerationError = 'Rendering could not start: ' + (error?.message || 'local server unavailable');
+    if(request.epoch===inputEpoch && request.context===renderContext(variants))
+      denoiseWorkspaceGenerationError = 'Rendering could not start: ' + (error?.message || 'local server unavailable');
   } finally {
     denoiseWorkspaceGenerationPending = false;
-    if (isRestorationComparison()) denoiseWorkspaceUpdateSelectionUi();
+    if(denoiseWorkspaceStarting===request) denoiseWorkspaceStarting=null;
+    if (denoiseWorkspaceActive===workspace) denoiseWorkspaceUpdateSelectionUi();
   }
 }
 
+function renderContext(variants) {
+  const settings=state?.settings || {},values=settings[stageKey] || {};
+  const parameters=variants.map(({method})=>method==='arp' ? [method,values.strength,values.max_correction]
+    : method.startsWith('ffmpeg_') ? [method,values.window]
+    : [method,values.localized_confirm_single_shot,values.localized_confirm_film_experiment]);
+  return JSON.stringify([settings.global,stageKey==='deflicker' ? settings.denoise : null,
+    settings.cloud?.intermediate_format,parameters]);
+}
+
 function denoiseWorkspaceUpdateSelectionUi() {
-  const selected = denoiseSelectedVariant();
+  const selected = selectedVariant();
   const count = document.querySelector('[data-dm-comparison-count]');
   if (count) count.textContent = `${denoiseWorkspaceSelection?.size || 0}/${denoiseWorkspaceVariants.length} selected`;
   const missing = denoiseWorkspaceMissing();
   const prompt = document.querySelector('[data-dm-generation]');
   if (prompt) prompt.hidden = !missing.length || denoiseWorkspaceGenerationDismissed;
   const text = document.querySelector('[data-dm-generation-text]');
-  if (text) text.textContent = 'Render for the current input? ' + missing.map(v => denoiseVariantLabelFor(v.method,v.preset)).join(', ') + '. Pipeline selection stays unchanged.';
+  if (text) text.textContent = 'Render for the current input? ' + missing.map(v => labelFor(v.method,v.preset)).join(', ') + '. Pipeline selection stays unchanged.';
   const button = document.querySelector('[data-dm-generate]');
   if (button) {
     button.textContent = `Render ${missing.length} missing variant${missing.length === 1 ? '' : 's'}`;
-    button.disabled = Boolean(state.running || denoiseWorkspaceGenerationPending || !missing.length);
+    button.disabled = Boolean(state.running || denoiseWorkspaceStarting || !missing.length);
   }
   const status = document.querySelector('[data-dm-generation-status]');
   if (status) status.textContent = denoiseWorkspaceGenerationError ||
@@ -178,44 +223,46 @@ function denoiseWorkspaceUpdateSelectionUi() {
     const focus = panel.querySelector('[data-dc-focus]');
     if (focus) focus.setAttribute('aria-pressed',String(focused));
     const pipeline = panel.querySelector('[data-dc-pipeline]');
-    if (pipeline) pipeline.hidden = !denoiseSameVariant(variant,denoiseStageVariant());
+    if (pipeline) pipeline.hidden = !denoiseSameVariant(variant,pipelineVariant());
   });
   const off = document.querySelector('.denoise-off-option');
   if (off) {
-    const isOff = denoiseStageVariant().method === 'off';
+    const isOff = pipelineVariant().method === 'off';
     off.textContent = isOff ? 'Pipeline: unchanged input' : 'Pipeline: use unchanged input';
     off.classList.toggle('is-current',isOff);
     off.setAttribute('aria-pressed',String(isOff));
-    off.disabled = Boolean(state.running || isOff || denoiseUseVariantPending);
+    off.disabled = Boolean(state.running || isOff || adoptionPending);
   }
+  const notice=document.querySelector('[data-dm-notice]');
+  if(notice) notice.textContent=adoptionError;
 }
 
 function denoiseWorkspaceRefresh() {
-  const stage = state?.stages?.find(v => v.key === comparisonStageKey());
+  const stage = state?.stages?.find(v => v.key === stageKey);
   if (!stage || !document.getElementById('denoiseComparePlayers')) return;
   denoiseWorkspaceRender(denoiseCompareCandidates(stage));
   denoiseMatrixUpdateUi();
   const method = document.querySelector('[data-field="method"]');
   const preset = document.querySelector('[data-field="preset"]');
-  const pipelineChanged = method && method.value !== denoiseStageVariant().method ||
-    preset && preset.value !== (denoiseStageVariant().preset || 'gentle');
-  if (method) method.value = denoiseStageVariant().method;
-  if (preset) preset.value = denoiseStageVariant().preset || 'gentle';
-  if (pipelineChanged) showCommand(comparisonStageKey());
+  const pipelineChanged = method && method.value !== pipelineVariant().method ||
+    preset && preset.value !== (pipelineVariant().preset || 'gentle');
+  if (method) method.value = pipelineVariant().method;
+  if (preset) preset.value = pipelineVariant().preset || 'gentle';
+  if (pipelineChanged) showCommand(stageKey);
   const expected = document.querySelector('[data-dm-expected]');
   if (expected) {
-    const html = shotOutputList(state.expected_outputs?.[comparisonStageKey()] || [],null);
+    const html = shotOutputList(state.expected_outputs?.[stageKey] || [],null);
     if (expected.innerHTML !== html) expected.innerHTML = html;
   }
   document.querySelectorAll('.denoise-settings-sidebar .actions > button').forEach(button => {
-    if (button.getAttribute('onclick') === `runStage('${comparisonStageKey()}')`) button.disabled = Boolean(state.running);
+    if (button.getAttribute('onclick') === `runStage('${stageKey}')`) button.disabled = Boolean(state.running);
     if (button.getAttribute('onclick') === 'stopRun()') button.disabled = !state.running;
   });
 }
 
 function denoiseWorkspacePanelHtml(slot, path) {
   const variant = denoiseWorkspaceVariants[slot-1];
-  const label = slot ? denoiseVariantLabelFor(variant.method,variant.preset) : 'Original';
+  const label = slot ? labelFor(variant.method,variant.preset) : 'Original';
   return `<div class="denoise-result-heading">
       ${slot ? `<button type="button" data-dc-focus aria-pressed="false" onclick="denoiseWorkspaceFocus(${slot})" title="Inspect ${esc(label)} and its frame changes">${esc(label)}</button>
       <small data-dc-pipeline hidden>Pipeline</small>` : '<strong>Original</strong><small>Shared reference</small>'}
@@ -285,19 +332,21 @@ function denoiseWorkspaceWirePlayback(host) {
   if (denoiseWorkspacePlayback?.host===host) return;
   denoiseWorkspacePlayback?.destroy();
   denoiseWorkspaceStill?.destroy();
-  const fps=denoiseCompareFps() || 30;
-  const stageKey=comparisonStageKey();
+  const rate=fps || denoiseCompareFpsValue(state?.source_info?.fps) || 30;
+  const epoch=mountEpoch;
+  const current=()=>mounted && mountEpoch===epoch && denoiseWorkspaceActive===workspace && host.isConnected;
   const identity=slot=>[stageKey,denoiseWorkspaceSource,denoiseMatrixState().source_revision,
     slot ? denoiseMatrixState().variants?.find(v=>denoiseSameVariant(v,denoiseWorkspaceVariants[slot-1]))?.revision : ''].join('|');
   denoiseWorkspacePlayback=createDenoisePlayback(host,{
     stage:()=>stageKey,
-    fps,count:Math.max(1,Math.round(denoiseCompareAvailableLength()*fps)),exact:denoiseWorkspaceExact,
+    fps:rate,count:Math.max(1,Math.round(length*rate)),frame:denoiseWorkspaceFrame,exact:denoiseWorkspaceExact,
     slots:()=>denoiseWorkspacePlaybackSlots(host),
     path:slot=>slot ? denoiseComparePaths[slot] || '' : '',
     identity,
     diffMode:()=>denoiseCompareDiffMode,contrast:()=>denoiseCompareDiffContrast,
-    painted:()=>denoiseCompareZoomView?.apply(),
+    painted:()=>{if(current()) denoiseCompareZoomView?.apply();},
     changed:(playback,message)=>{
+      if(!current()) return;
       denoiseWorkspaceExact=playback.exact;
       denoiseWorkspaceStill?.reconcile();
       denoiseWorkspaceUpdatePlayback(playback,message);
@@ -310,10 +359,15 @@ function denoiseWorkspaceWirePlayback(host) {
     path:slot=>slot ? denoiseComparePaths[slot] || '' : '',identity,
     view:slot=>denoiseWorkspaceViews.get(slot) || 'result',
     diffMode:()=>denoiseCompareDiffMode,contrast:()=>denoiseCompareDiffContrast,
-    painted:()=>denoiseCompareZoomView?.apply(),
-    changed:()=>{denoiseWorkspaceUpdatePlayback(denoiseWorkspacePlayback.state);denoiseMatrixUpdateUi();},
+    painted:()=>{if(current()) denoiseCompareZoomView?.apply();},
+    metadata:info=>{if(current()) denoiseWorkspacePlayback.setMetadata(info);},
+    measured:(frameMetrics,slot)=>{
+      if(!frameMetrics) {if(current()) metrics=null;return;}
+      if(current() && variantPath(selectedVariant().method,selectedVariant().preset)===denoiseComparePaths[slot])
+        metrics={...frameMetrics,frame:denoiseWorkspaceFrame};
+    },
+    changed:()=>{if(current()) {denoiseWorkspaceUpdatePlayback(denoiseWorkspacePlayback.state);denoiseMatrixUpdateUi();}},
   });
-  denoiseWorkspacePlayback.state.frame=denoiseWorkspaceFrame;
   for (const [slot,mode] of denoiseWorkspaceViews) denoiseWorkspacePlayback.setView(slot,mode);
 }
 
@@ -324,13 +378,14 @@ function denoiseWorkspaceUpdatePlayback(playback,message='') {
   const loading=exact ? Boolean(still?.loading) : playback.loading;
   const error=exact ? still?.error || '' : playback.error;
   denoiseWorkspaceFrame=playback.frame;
+  fps=playback.fps;count=playback.count;
   host.classList.toggle('is-buffering',loading);host.classList.toggle('has-playback-error',Boolean(error));
   host.setAttribute('aria-busy',String(loading));
   host.querySelectorAll('[data-dp-canvas]').forEach(canvas=>{
     const current=canvas.dataset.dpFrame===String(playback.frame) && canvas.dataset.dpQuality===(exact ? 'exact' : 'preview');
     canvas.classList.toggle('is-awaiting-frame',Boolean(error || !current || loading && exact));
   });
-  denoiseCompareEffectiveLength=playback.count/playback.fps;denoiseCompareLength=denoiseCompareEffectiveLength;
+  length=playback.count/playback.fps;
   const seek=document.getElementById('denoiseCompareSeek');
   if(seek) {seek.max=String((playback.count-1)/playback.fps);seek.step=String(1/playback.fps);seek.value=String(playback.frame/playback.fps);}
   const label=document.getElementById('denoiseCompareTime');
@@ -347,7 +402,7 @@ function denoiseWorkspaceUpdatePlayback(playback,message='') {
     : exact ? loading ? `Decoding exact frame ${playback.frame+1}…` : 'Exact 8-bit RGB still · no lossy preview compression. Press Play to return to compressed playback.'
     : message || 'Frame-locked views · compressed display. Differences are computed before display compression.';
   host.querySelectorAll('[data-dp-status]').forEach(output=>{output.textContent=loading || error ? status : '';});
-  denoiseCompareSetPlaying(playback.playing);denoiseReviewHighlight(playback.frame);
+  denoiseCompareSetPlaying(playback.playing);chart?.highlight(playback.frame);
   denoiseWorkspaceUpdateModes();denoiseCompareNotice(status);
 }
 
@@ -355,6 +410,7 @@ function denoiseWorkspaceFocus(slot) {
   const variant = denoiseWorkspaceVariants[slot-1];
   if (!variant || !denoiseWorkspaceHas(variant.method,variant.preset)) return;
   denoiseMatrixSelected = variant;
+  metrics=null;
   denoiseMatrixUpdateUi();
 }
 
@@ -368,8 +424,10 @@ function denoiseWorkspaceObserve(host) {
     denoiseWorkspaceObserver?.disconnect();
     denoiseWorkspaceHost = host;
     if (typeof IntersectionObserver === 'function') {
+      const epoch=mountEpoch;
       const observer = new IntersectionObserver(entries => {
-        if (!host.isConnected || !isRestorationComparison()) {
+        if(epoch!==mountEpoch) return;
+        if (!host.isConnected || !mounted || denoiseWorkspaceActive!==workspace) {
           observer.disconnect();
           if (denoiseWorkspacePlayback?.host===host) {
             denoiseWorkspacePlayback.destroy(); denoiseWorkspacePlayback=null;
@@ -399,12 +457,12 @@ function denoiseWorkspaceObserve(host) {
 function denoiseWorkspaceRender(candidates) {
   const host = document.getElementById('denoiseComparePlayers');
   if (!host) return;
+  if(denoiseWorkspaceHost && denoiseWorkspaceHost!==host) deactivate();
   const sourceBefore = denoiseWorkspaceSource;
   denoiseWorkspaceInitialize(candidates);
-  denoiseCompareEnsureLength();
+  mounted=true;
   if (sourceBefore !== denoiseWorkspaceSource) {
-    denoiseWorkspacePlayback?.destroy(); denoiseWorkspacePlayback=null;
-    denoiseWorkspaceStill?.destroy();denoiseWorkspaceStill=null;
+    deactivate();mounted=true;
   }
   if (!host.querySelector('.denoise-workspace')) {
     host.innerHTML = '<div class="denoise-workspace"><div class="denoise-original-column"></div><div class="denoise-results-grid" aria-label="Selected comparison results"></div></div>';
@@ -418,8 +476,6 @@ function denoiseWorkspaceRender(candidates) {
     if (slots.includes(slot)) return;
     denoiseWorkspaceObserver?.unobserve(panel);
     panel.querySelectorAll('video').forEach(video => {video.pause(); video.removeAttribute('src'); video.load();});
-    denoiseCompareDiffState[slot].request++;
-    denoiseCompareDiffState[slot].loading = false;
     panel.remove();
     changed = true;
   });
@@ -437,11 +493,6 @@ function denoiseWorkspaceRender(candidates) {
     }
     if (panel.dataset.mediaKey === key) continue;
     panel.querySelectorAll('video').forEach(video => {video.pause(); video.removeAttribute('src'); video.load();});
-    if (slot) {
-      const diff = denoiseCompareDiffState[slot];
-      diff.request++;
-      diff.url = ''; diff.key = ''; diff.loading = false;
-    }
     panel.innerHTML = denoiseWorkspacePanelHtml(slot,path);
     panel.dataset.mediaKey = key;
     changed = true;
@@ -460,10 +511,105 @@ function denoiseWorkspaceRender(candidates) {
   denoiseWorkspaceObserve(host);
   denoiseWorkspaceWirePlayback(host);
   if (changed || denoiseCompareZoomView?.host !== host) {
-    denoiseCompareWirePan();
+    wireZoom(host);
   }
   denoiseWorkspacePlayback.reconcile();
   denoiseWorkspaceStill.reconcile();
   denoiseWorkspaceUpdateModes();
   denoiseCompareUpdateChartChoices();
 }
+
+function wireZoom(host) {
+  denoiseCompareZoomView?.destroy();
+  const epoch=mountEpoch;
+  denoiseCompareZoomView=createReviewZoom(host,'.denoise-compare-video-wrap',document.getElementById('denoiseCompareZoomControls'),
+    {zoom:denoiseCompareZoom,...denoiseComparePan,native:denoiseCompareNative,grid:denoiseCompareGrid},value=>{
+      if(epoch!==mountEpoch || !mounted) return;
+      denoiseCompareZoom=value.zoom;denoiseComparePan={x:value.x,y:value.y};
+      denoiseCompareNative=Boolean(value.native);denoiseCompareGrid=Boolean(value.grid);
+      denoiseWorkspaceStill?.updateWipes();
+    });
+}
+
+function setViewport(value) {
+  if(value.zoom!==undefined) denoiseCompareZoom=reviewZoomClamp(value.zoom,1/32,32);
+  if(value.pan) denoiseComparePan={...value.pan};
+  if(value.native!==undefined) denoiseCompareNative=Boolean(value.native);
+  if(value.grid!==undefined) denoiseCompareGrid=Boolean(value.grid);
+  if(denoiseCompareZoomView) {
+    denoiseCompareZoomView.setViewport({zoom:denoiseCompareZoom,...denoiseComparePan,native:denoiseCompareNative,grid:denoiseCompareGrid});
+  }
+}
+
+async function useSelected(selected=selectedVariant()) {
+  if(state.running || adoptionPending || selected.method!=='off' && !variantReady(selected.method,selected.preset)) return;
+  adoptionPending=true;adoptionError='';
+  const context=renderContext([]),epoch=inputEpoch;
+  const button=document.getElementById('denoiseUseVariant');
+  if(button) button.disabled=true;
+  denoiseWorkspaceUpdateSelectionUi();
+  try {
+    const values=stageKey==='deflicker' ? {method:selected.method,force:'false'}
+      : {method:selected.method,preset:selected.preset || 'gentle',force:'false'};
+    const result=await postJson('/api/settings',{stage:stageKey,values});
+    if(!result?.ok) throw new Error(result?.error || 'Settings could not be saved.');
+    if(denoiseWorkspaceActive===workspace && epoch===inputEpoch && context===renderContext([])) {
+      const force=document.querySelector('[data-field="force"]');
+      if(force) force.checked=false;
+    }
+    await refresh();
+  }catch(error) {
+    if(epoch===inputEpoch && context===renderContext([])) adoptionError='The pipeline selection could not be changed: '+(error?.message || 'unknown error');
+  }finally {
+    adoptionPending=false;
+    if(denoiseWorkspaceActive===workspace) denoiseMatrixUpdateUi();
+  }
+}
+
+const workspace={initialize:denoiseWorkspaceInitialize,deactivate,snapshot,
+  has:denoiseWorkspaceHas,toggle:denoiseWorkspaceToggle,selectAll:denoiseWorkspaceSelectAll,clear:denoiseWorkspaceClear,
+  generate:denoiseWorkspaceGenerate,dismiss:denoiseWorkspaceDismissGeneration,request:denoiseWorkspaceRequestGeneration,
+  updateSelectionUi:denoiseWorkspaceUpdateSelectionUi,refresh:denoiseWorkspaceRefresh,render:denoiseWorkspaceRender,
+  setView:denoiseWorkspaceSetView,setExact:denoiseWorkspaceSetExact,updateModes:denoiseWorkspaceUpdateModes,
+  focus:denoiseWorkspaceFocus,slotVisible:denoiseWorkspaceSlotVisible,setViewport,useSelected,
+  retry:()=>denoiseWorkspaceStill?.reconcile(true),
+  seek:seconds=>denoiseWorkspacePlayback?.seekSeconds(seconds),
+  seekFrame:frame=>{denoiseWorkspaceFrame=Math.max(0,Math.round(frame));return denoiseWorkspacePlayback?.seekFrame(frame);},
+  step:frames=>denoiseWorkspacePlayback?.step(frames),playPause:()=>denoiseWorkspacePlayback?.toggle(),
+  setWipe:(slot,value)=>{denoiseWorkspaceWipes.set(slot,Math.max(0,Math.min(100,Number(value)||0)));denoiseWorkspaceStill?.draw();},
+  setDifference:(mode,contrast)=>{denoiseCompareDiffMode=mode;denoiseCompareDiffContrast=contrast;denoiseWorkspacePlayback?.reconcile();denoiseWorkspaceStill?.draw();denoiseWorkspaceUpdateModes();},
+  syncChart:()=>{
+    if(!mounted || !denoiseWorkspaceHost) return;
+    if(!chart) chart=createDenoiseReviewChart(denoiseWorkspaceHost.parentElement || denoiseWorkspaceHost,{
+      stage:stageKey,selection:()=>{
+        const selected=selectedVariant(),path=selected.method==='off' ? '' : variantPath(selected.method,selected.preset);
+        const row=matrix.variants?.find(item=>denoiseSameVariant(item,selected));
+        return {path,identity:[denoiseWorkspaceSource,row?.revision].join('|')};
+      },frame:()=>denoiseWorkspaceFrame,seek:frame=>{denoiseWorkspacePlayback?.pause();return workspace.seekFrame(frame);},
+      changed:path=>{chartPath=path;metrics=null;denoiseWorkspaceStill?.draw();},
+    });
+    chart.reconcile();
+  },
+};
+return workspace;
+}
+
+// Existing inline controls enter the workspace here; asynchronous work never resolves through active.
+function denoiseWorkspaceSnapshot(key) {return denoiseWorkspaceFor(key).snapshot();}
+function denoiseWorkspaceInitialize(candidates) {denoiseWorkspaceActivate(comparisonStageKey());return denoiseWorkspaceFor().initialize(candidates);}
+function denoiseWorkspaceHas(method,preset) {return denoiseWorkspaceFor().has(method,preset);}
+function denoiseWorkspaceToggle(method,preset) {return denoiseWorkspaceFor().toggle(method,preset);}
+function denoiseWorkspaceSelectAll() {return denoiseWorkspaceFor().selectAll();}
+function denoiseWorkspaceClear() {return denoiseWorkspaceFor().clear();}
+function denoiseWorkspaceGenerate() {return denoiseWorkspaceFor().generate();}
+function denoiseWorkspaceDismissGeneration() {return denoiseWorkspaceFor().dismiss();}
+function denoiseWorkspaceRequestGeneration() {return denoiseWorkspaceFor().request();}
+function denoiseWorkspaceUpdateSelectionUi() {return denoiseWorkspaceFor().updateSelectionUi();}
+function denoiseWorkspaceRefresh() {return denoiseWorkspaceFor().refresh();}
+function denoiseWorkspaceRender(candidates) {denoiseWorkspaceActivate(comparisonStageKey());return denoiseWorkspaceFor().render(candidates);}
+function denoiseWorkspaceSetView(slot,mode) {return denoiseWorkspaceFor().setView(slot,mode);}
+function denoiseWorkspaceSetExact(enabled=!denoiseWorkspaceSnapshot().exact) {return denoiseWorkspaceFor().setExact(enabled);}
+function denoiseWorkspaceRetry() {return denoiseWorkspaceFor().retry();}
+function denoiseWorkspaceUpdateModes() {return denoiseWorkspaceFor().updateModes();}
+function denoiseWorkspaceFocus(slot) {return denoiseWorkspaceFor().focus(slot);}
+function denoiseWorkspaceSlotVisible(slot) {return denoiseWorkspaceFor().slotVisible(slot);}

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const base = path.join(__dirname,'../ai_remaster_gui/static/js');
-const script = ['render-denoise.js','denoise-workspace.js'].map(file => fs.readFileSync(path.join(base,file),'utf8')).join('\n');
+const script = ['review-zoom.js','render-denoise.js','denoise-workspace.js','denoise-review.js'].map(file => fs.readFileSync(path.join(base,file),'utf8')).join('\n');
 
 function setup() {
   const source = {path:'input/source.mkv',kind:'source'};
@@ -15,7 +15,7 @@ function setup() {
     source_info:{duration:'2.4'},
     stages:[{key:'denoise',files:variants.map(v => ({path:v.output}))}],
     denoise_matrix:{source:source.path,source_revision:'s1',variants}};
-  const context = vm.createContext({state,active:'denoise',denoiseReviewVariant:'',
+  const context = vm.createContext({state,active:'denoise',AbortController,
     document:{querySelector:()=>null,querySelectorAll:()=>[],getElementById:()=>null},
     esc:String,parseDuration:Number,mediaClip:(path,start,end,key)=>`${path}?${start}:${end}:${key}`});
   vm.runInContext(script,context);
@@ -28,19 +28,18 @@ test('all nine selected variants have stable independent slots; empty selection 
   context.denoiseWorkspaceSelectAll();
   const candidates=context.denoiseCompareCandidates(context.state.stages[0]);
   context.denoiseCompareInitializePaths(candidates);
-  const first=Array.from(evaluate('denoiseComparePaths'));
+  const first=Array.from(context.denoiseWorkspaceSnapshot().paths);
   assert.equal(first.length,10);
   assert.equal(new Set(first).size,10);
-  assert.equal(evaluate('Object.keys(denoiseCompareDiffState).length'),9);
   context.denoiseMatrixSelect('hqdn3d','gentle');
   context.denoiseCompareInitializePaths(candidates);
-  const second=Array.from(evaluate('denoiseComparePaths'));
+  const second=Array.from(context.denoiseWorkspaceSnapshot().paths);
   assert.equal(second[1],'');
   assert.deepEqual(second.slice(2),first.slice(2));
   context.denoiseWorkspaceClear();
   context.denoiseCompareInitializePaths(candidates);
-  assert.equal(evaluate('denoiseComparePaths.filter(Boolean).length'),1);
-  assert.equal(evaluate('denoiseWorkspaceSelection.size'),0);
+  assert.equal(context.denoiseWorkspaceSnapshot().paths.filter(Boolean).length,1);
+  assert.equal(context.denoiseWorkspaceSnapshot().selection.length,0);
 });
 
 test('switching to Detail restores exactly three legacy slots',()=>{
@@ -48,14 +47,14 @@ test('switching to Detail restores exactly three legacy slots',()=>{
   context.denoiseWorkspaceSelectAll();
   const candidates=context.denoiseCompareCandidates(context.state.stages[0]);
   context.denoiseCompareInitializePaths(candidates);
-  assert.equal(evaluate('denoiseComparePaths.length'),10);
+  assert.equal(context.denoiseWorkspaceSnapshot().paths.length,10);
   context.active='detail';
   context.denoiseCompareInitializePaths(candidates);
   assert.equal(evaluate('denoiseComparePaths.length'),3);
   context.active='denoise';
   context.denoiseCompareInitializePaths(candidates);
-  assert.equal(evaluate('denoiseComparePaths.length'),10);
-  assert.equal(evaluate('denoiseWorkspaceSelection.size'),9);
+  assert.equal(context.denoiseWorkspaceSnapshot().paths.length,10);
+  assert.equal(context.denoiseWorkspaceSnapshot().selection.length,9);
 });
 
 test('full-film duration is not capped; legacy clip start clamps against the whole input',()=>{
@@ -63,7 +62,8 @@ test('full-film duration is not capped; legacy clip start clamps against the who
   state.source_info.duration='1200';
   assert.equal(context.denoiseCompareFullDuration(),1200);
   context.denoiseCompareEnsureLength();
-  assert.equal(evaluate('denoiseCompareEffectiveLength'),1200);
+  context.denoiseWorkspaceInitialize(context.denoiseCompareCandidates(state.stages[0]));
+  assert.equal(context.denoiseWorkspaceSnapshot().length,1200);
   context.active='detail';
   context.renderDenoiseComparePlayers=()=>{};
   context.document.getElementById=id=>id==='denoiseCompareStart'?{value:'900'}:
@@ -93,7 +93,7 @@ test('selection and arrows never generate or adopt; explicit confirmation render
   context.denoiseWorkspaceSelectAll();
   assert.equal(calls.length,0);
   context.denoiseWorkspaceDismissGeneration();
-  assert.equal(evaluate('denoiseWorkspaceGenerationDismissed'),true);
+  assert.equal(context.denoiseWorkspaceSnapshot().generationDismissed,true);
   await context.denoiseWorkspaceGenerate();
   assert.equal(calls.length,1);
   assert.equal(calls[0].url,'/api/denoise-batch');
@@ -117,8 +117,8 @@ test('generation failures preserve selections and expose a retryable error',asyn
   context.denoiseMatrixSelect('nlmeans','strong');
   context.postJson=async()=>({ok:false,error:'A command is already running.'});
   await context.denoiseWorkspaceGenerate();
-  assert.match(evaluate('denoiseWorkspaceGenerationError'),/already running/);
-  assert.equal(evaluate('denoiseWorkspaceGenerationPending'),false);
+  assert.match(context.denoiseWorkspaceSnapshot().generationError,/already running/);
+  assert.equal(context.denoiseWorkspaceSnapshot().generationPending,false);
   assert.equal(context.denoiseWorkspaceHas('nlmeans','strong'),true);
 });
 
@@ -135,8 +135,8 @@ test('pipeline adoption is explicit and neither regenerates nor changes comparis
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)),{
     stage:'denoise',values:{method:'bm3d',preset:'gentle',force:'false'},
   });
-  assert.equal(evaluate('denoiseWorkspaceSelection.size'),9);
-  assert.equal(evaluate('denoiseUseVariantPending'),false);
+  assert.equal(context.denoiseWorkspaceSnapshot().selection.length,9);
+  assert.equal(context.denoiseWorkspaceSnapshot().adoptionPending,false);
 });
 
 test('live diff requests are deduplicated and late responses cannot resurrect a disabled diff',async()=>{
@@ -168,13 +168,13 @@ function fakeWorkspace(context) {
     querySelector(){return null},classList:classes()});
   const original=column(),results=column();
   const panels=()=>[...original.children,...results.children];
-  const host={isConnected:true,querySelector(selector){
+  const host={isConnected:true,classList:classes(),setAttribute(){},querySelector(selector){
     if(selector==='.denoise-workspace')return{classList:classes()};
     if(selector==='.denoise-original-column')return original;
     if(selector==='.denoise-results-grid')return results;
     const slot=selector.match(/data-dc-slot="(\d+)"/);
     return slot?panels().find(p=>p.dataset.dcSlot===slot[1])||null:null;
-  },querySelectorAll(){return panels()}};
+  },querySelectorAll(selector){return selector==='[data-dc-slot]'?panels():[]}};
   context.document={
     getElementById(id){return id==='denoiseComparePlayers'?host:panels().map(p=>p.video).find(v=>v?.id===id)||null},
     querySelector(selector){return host.querySelector(selector)},querySelectorAll:()=>[],
@@ -192,7 +192,9 @@ function fakeWorkspace(context) {
   context.denoiseCompareWireVideos=()=>{};
   context.denoiseCompareSyncAllDiffAvailability=()=>{};
   context.denoiseCompareUpdateChartChoices=()=>{};
-  context.createDenoisePlayback=(host)=>({host,state:{frame:0},reconcile(){},setView(){},destroy(){}});
+  context.createReviewZoom=(host)=>({host,setViewport(){},apply(){},destroy(){}});
+  context.createDenoisePlayback=(host,options)=>({host,state:{frame:options.frame},reconcile(){},setView(){},destroy(){},
+    seekFrame(frame){this.state.frame=frame;options.changed({...this.state,fps:30,count:72,exact:false});}});
   context.createDenoiseStillReview=()=>({state:{pairs:new Map()},reconcile(){},draw(){},destroy(){},wipe(){return 50}});
   return {panels,host};
 }
@@ -206,20 +208,45 @@ test('polling, additions and same-count replacements preserve unaffected canvase
   const master=panels()[0].canvas;
   const first=panels().find(p=>p.dataset.dcSlot==='1').canvas;
   const other=panels().find(p=>p.dataset.dcSlot==='2').canvas;
-  evaluate('denoiseWorkspacePlayback.state.frame=36');
-  evaluate('denoiseCompareZoom=4;denoiseComparePan={x:.2,y:.3}');
+   context.denoiseWorkspaceFor().seekFrame(36);
+   context.denoiseWorkspaceFor().setViewport({zoom:4,pan:{x:.2,y:.3}});
   render();
   assert.equal(panels()[0].canvas,master);
   assert.equal(panels().find(p=>p.dataset.dcSlot==='1').canvas,first);
-  assert.equal(evaluate('denoiseWorkspacePlayback.state.frame'),36);
+  assert.equal(context.denoiseWorkspaceSnapshot().frame,36);
   variants[0].revision='v2';
   render();
   assert.notEqual(panels().find(p=>p.dataset.dcSlot==='1').canvas,first);
   assert.equal(panels().find(p=>p.dataset.dcSlot==='2').canvas,other);
   assert.equal(panels()[0].canvas,master);
-  assert.equal(evaluate('denoiseCompareZoom'),4);
-  assert.equal(evaluate('denoiseComparePan.x'),.2);
+  assert.equal(context.denoiseWorkspaceSnapshot().zoom,4);
+  assert.equal(context.denoiseWorkspaceSnapshot().pan.x,.2);
   context.denoiseMatrixSelect('hqdn3d','strong');
   assert.equal(panels().length,9);
   assert.equal(panels()[0].canvas,master);
+});
+
+test('leaving a mounted workspace disposes its display adapters and rejects their late callbacks',()=>{
+  const {context,state}=setup();context.denoiseWorkspaceSelectAll();fakeWorkspace(context);
+  const callbacks=[],metadata=[],destroyed=[];
+  for(const name of ['createDenoisePlayback','createDenoiseStillReview','createReviewZoom']) {
+    const create=context[name];
+    context[name]=(host,options,...args)=>{
+      if(name==='createDenoisePlayback') callbacks.push(options.changed);
+      if(name==='createDenoiseStillReview') metadata.push(options.metadata);
+      const adapter=create(host,options,...args);
+      const destroy=adapter.destroy;
+      adapter.destroy=()=>{destroyed.push(name);destroy.call(adapter)};
+      return adapter;
+    };
+  }
+  context.denoiseWorkspaceRender(context.denoiseCompareCandidates(state.stages[0]));
+  context.denoiseWorkspaceFor().seekFrame(17);
+  context.denoiseWorkspaceDeactivate();context.active='deflicker';
+  state.deflicker_matrix={source:'denoised.mkv',source_revision:'v1',variants:[]};
+  context.denoiseWorkspaceInitialize([{path:'denoised.mkv',kind:'source'}]);
+  callbacks[0]({frame:55,fps:1,count:60,exact:true});metadata[0]({frames:60,fps:1});
+  assert.deepEqual(destroyed.sort(),['createDenoisePlayback','createDenoiseStillReview','createReviewZoom'].sort());
+  assert.equal(context.denoiseWorkspaceSnapshot('denoise').frame,17);
+  assert.equal(context.denoiseWorkspaceSnapshot().frame,0);assert.equal(context.denoiseWorkspaceSnapshot().fps,0);
 });

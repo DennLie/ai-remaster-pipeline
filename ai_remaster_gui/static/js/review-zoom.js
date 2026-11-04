@@ -198,5 +198,7 @@ function createReviewZoom(host, selector, controls, state, changed) {
   const resize = new ResizeObserver(() => { if (host.isConnected) apply(); else resize.disconnect(); });
   resize.observe(host);
   apply();
-  return {host, state, apply, setZoom, fit, native, destroy(){abort.abort(); resize.disconnect();}};
+  return {host, state, apply, setZoom, fit, native,
+    setViewport(value){Object.assign(state,value);apply();},
+    destroy(){abort.abort(); resize.disconnect();}};
 }

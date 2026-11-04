@@ -20,7 +20,7 @@ function denoisePlaybackTime(seconds) {
 }
 
 function createDenoisePlayback(host, options) {
-  const state = {frame:0, fps:options.fps || 30, count:Math.max(1,options.count || 1),
+  const state = {frame:options.frame || 0, fps:options.fps || 30, count:Math.max(1,options.count || 1),
     playing:false, loading:false, error:'', exact:Boolean(options.exact), views:new Map()};
   let epoch=0, streams=[], next=[], abort=null, key='', requested=0, transition=false, destroyed=false;
   let recovering=false, watchdog=null;
@@ -305,6 +305,7 @@ function createDenoisePlayback(host, options) {
     void seekFrame(state.frame);
   }
   return {host,state,reconcile,seekFrame,seekSeconds(value){return seekFrame(Number(value)*state.fps);},
+    setMetadata(info){state.count=info.frames;state.fps=info.fps;},
     step(delta){pause();return seekFrame(state.frame+delta);},pause,toggle,setView,setExact,draw,
     destroy(){destroyed=true;epoch++;abort?.abort();clearTimeout(watchdog);streams.forEach(dispose);
       document.removeEventListener?.('visibilitychange',visibility);

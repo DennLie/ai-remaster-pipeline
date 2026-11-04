@@ -10,6 +10,7 @@ function setup() {
   const listeners={},requests=[],canvases=new Map(),handles=new Map();
   const playback={state:{frame:4,exact:true,count:720000,fps:24,playing:false}};
   let slots=[1,2],mode='direction',contrast=32,revision='v1',notifications=0;
+  const revisions=new Map();
   const views=new Map([[1,'result'],[2,'difference']]);
   function canvas() {
     const element={width:4,height:2,dataset:{},pixels:new Uint8ClampedArray(32),draws:[],
@@ -50,10 +51,11 @@ function setup() {
     },
   });
   for(const file of ['review-contrast.js','frame-inspector.js','denoise-review.js']) vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),context);
-  const controller=context.createDenoiseStillReview(host,{playback:()=>playback,slots:()=>slots,path:slot=>slot?'variant'+slot:'',identity:()=>revision,
-    view:slot=>views.get(slot)||'result',diffMode:()=>mode,contrast:()=>contrast,painted(){},changed(){notifications++}});
+  const controller=context.createDenoiseStillReview(host,{playback:()=>playback,slots:()=>slots,path:slot=>slot?'variant'+slot:'',identity:slot=>revisions.get(slot)||revision,
+    view:slot=>views.get(slot)||'result',diffMode:()=>mode,contrast:()=>contrast,painted(){},changed(){notifications++},
+    metadata(info){playback.state.count=info.frames;playback.state.fps=info.fps;}});
   return {context,controller,playback,canvases,handles,listeners,requests,views,
-    setSlots(value){slots=value},setDiff(value,boost){mode=value;contrast=boost},revise(){revision='v2'},notifications:()=>notifications};
+    setSlots(value){slots=value},setDiff(value,boost){mode=value;contrast=boost},revise(slot){if(slot===undefined) revision='v2';else revisions.set(slot,'v2')},notifications:()=>notifications};
 }
 
 test('exact stills replace the existing canvases atomically at the shared frame, at native dimensions',async()=>{
@@ -117,6 +119,22 @@ test('replaced output revisions invalidate exact pixels even at the same frame',
     controller.reconcile();await settle();const pair=controller.state.pairs.get(1);
     revise();controller.reconcile();assert.equal(controller.state.pairs.size,0);await settle();
     assert.notEqual(controller.state.pairs.get(1),pair);assert.equal(requests.length,4);
+  }finally{controller.destroy()}
+});
+
+test('changing one variant retains other exact frames instead of decoding them again',async()=>{
+  const {controller,requests,revise}=setup();
+  try {
+    controller.reconcile();await settle();
+    const unaffected=controller.state.pairs.get(2),replaced=controller.state.pairs.get(1);
+    revise(1);controller.reconcile();
+    assert.equal(controller.state.pairs.get(2),unaffected);
+    assert.equal(controller.state.pairs.has(1),false);
+    assert.equal(replaced.difference.width,0);
+    await settle();
+    assert.equal(controller.state.pairs.get(2),unaffected);
+    assert.equal(requests.length,3);
+    assert.equal(requests.at(-1).variant,'variant1');
   }finally{controller.destroy()}
 });
 

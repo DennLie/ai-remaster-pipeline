@@ -1,11 +1,4 @@
 /* Exact 8-bit RGB stills share the comparison's canvases, clock and crop. */
-let denoiseReviewVariant = '';
-let denoiseReviewFrame = 0;
-let denoiseReviewFps = 0;
-let denoiseReviewMetrics = null;
-let denoiseReviewEntries = [];
-let denoiseReviewChartEpoch = 0;
-let denoiseReviewChartKey = '';
 
 function denoiseReviewErrorText(error) {
   return String(error?.message || error || 'The exact still could not be loaded.')
@@ -18,45 +11,6 @@ function denoiseReviewErrorText(error) {
 function denoiseReviewVariants(candidates) {
   const items=candidates || [], hasKinds=items.some(item=>item.kind);
   return items.filter((item,index)=>(hasKinds ? item.kind!=='source' : index>0) && denoisePreviewIsFinal(item.path));
-}
-
-function denoiseReviewSyncSelection(selected) {
-  const path=selected && selected.method!=='off' && denoiseVariantReady(selected.method,selected.preset)
-    ? denoiseVariantPath(selected.method,selected.preset) : '';
-  const row=denoiseMatrixState().variants?.find(item=>denoiseSameVariant(item,selected));
-  const key=JSON.stringify([comparisonStageKey(),path,denoiseMatrixState().source_revision,row?.revision]);
-  if(key===denoiseReviewChartKey) return;
-  denoiseReviewChartKey=key;
-  denoiseReviewVariant=path;
-  denoiseReviewMetrics=null;
-  denoiseReviewEntries=[];
-  denoiseReviewChartEpoch++;
-  const chart=document.querySelector('[data-dr-chart]');
-  chart?.replaceChildren();
-  const status=document.querySelector('[data-dr-chart-status]');
-  if(status) status.textContent=path ? 'Calculating luminance changes…' : 'Choose a finished variant.';
-  denoiseCompareUpdateChartChoices();
-  if(path) void denoiseReviewLoadChart(path);
-  denoiseWorkspaceStill?.draw();
-}
-
-function denoiseReviewStart() {
-  denoiseReviewVariant='';
-  denoiseReviewChartKey='';
-  denoiseReviewMetrics=null;
-  denoiseReviewChartEpoch++;
-  const chart=document.querySelector('[data-dr-chart]');
-  chart?.addEventListener('keydown',event=>{
-    const keys={ArrowLeft:-1,ArrowRight:1,Home:0,End:0,PageUp:-10,PageDown:10};
-    if(!(event.key in keys)) return;
-    const bars=[...chart.querySelectorAll('[data-dr-bar]')];
-    if(!bars.length) return;
-    const current=Math.max(0,bars.findIndex(bar=>bar.tabIndex===0));
-    const next=event.key==='Home' ? 0 : event.key==='End' ? bars.length-1
-      : Math.max(0,Math.min(bars.length-1,current+keys[event.key]));
-    event.preventDefault();bars[next].focus();bars[next].click();
-  });
-  denoiseReviewSyncSelection(denoiseSelectedVariant());
 }
 
 function denoiseReviewChartRows(report) {
@@ -77,8 +31,12 @@ function denoiseReviewChartRows(report) {
     darkHeight:item.dark ? Math.max(2,100*item.dark/(peak||1)) : 0}));
 }
 
-function denoiseReviewHighlight(frame=denoiseWorkspacePlayback?.state.frame ?? denoiseReviewFrame) {
-  const chart=document.querySelector('[data-dr-chart]');
+function createDenoiseReviewChart(host,options) {
+  const chart=host.querySelector('[data-dr-chart]'),status=host.querySelector('[data-dr-chart-status]');
+  let entries=[],key='',path='',epoch=0,destroyed=false,abort=null;
+  const events=new AbortController();
+  const current=ticket=>!destroyed && ticket===epoch && host.isConnected;
+  function highlight(frame=options.frame()) {
   if(!chart) return;
   const bars=[...chart.querySelectorAll('[data-dr-bar]')];
   const nearest=bars.reduce((best,bar)=>!best || Math.abs(Number(bar.dataset.drBar)-frame)<Math.abs(Number(best.dataset.drBar)-frame) ? bar : best,null);
@@ -87,25 +45,24 @@ function denoiseReviewHighlight(frame=denoiseWorkspacePlayback?.state.frame ?? d
     bar.classList.toggle('is-current',active);bar.tabIndex=bar===nearest ? 0 : -1;
     bar.setAttribute('aria-current',String(active));
   }
-  const selected=denoiseReviewEntries.find(item=>item.frame===frame);
-  const readout=document.querySelector('[data-dr-chart-status]');
+  const selected=entries.find(item=>item.frame===frame);
+  const readout=status;
   if(readout && selected) readout.textContent=`Frame ${frame+1}: brightened ${selected.bright.toFixed(2)} / 255 · darkened ${selected.dark.toFixed(2)} / 255`;
-  else if(readout && denoiseReviewEntries.length) readout.textContent=`Frame ${frame+1}: not in the chart sample; exact stills are available on request.`;
+  else if(readout && entries.length) readout.textContent=`Frame ${frame+1}: not in the chart sample; exact stills are available on request.`;
 }
 
-async function denoiseReviewLoadChart(path) {
-  const ticket=++denoiseReviewChartEpoch,chart=document.querySelector('[data-dr-chart]');
+async function loadChart(ticket) {
   if(!chart) return;
-  const status=document.querySelector('[data-dr-chart-status]');
+  abort=new AbortController();
   try {
-    const response=await fetch('/api/denoise-frame-differences?variant='+encodeURIComponent(path)+'&stage='+comparisonStageKey(),{cache:'no-store'});
+    const response=await fetch('/api/denoise-frame-differences?variant='+encodeURIComponent(path)+'&stage='+options.stage,{cache:'no-store',signal:abort.signal});
     if(!response.ok) throw new Error('The chart endpoint answered with HTTP '+response.status+'.');
     const report=await response.json();
     if(!report?.ok) throw new Error(report?.error || 'The chart is unavailable.');
-    if(ticket!==denoiseReviewChartEpoch || path!==denoiseReviewVariant || !chart.isConnected) return;
-    denoiseReviewEntries=denoiseReviewChartRows(report);
+    if(!current(ticket)) return;
+    entries=denoiseReviewChartRows(report);
     const parts=document.createDocumentFragment();
-    for(const item of denoiseReviewEntries) {
+    for(const item of entries) {
       const button=document.createElement('button');
       button.type='button';button.className='denoise-review-bar';button.dataset.drBar=String(item.frame);button.tabIndex=-1;
       button.style.setProperty('--bright-height',item.brightHeight.toFixed(2)+'%');
@@ -113,17 +70,37 @@ async function denoiseReviewLoadChart(path) {
       button.title=`Frame ${item.frame+1} · bright +${item.bright.toFixed(2)} · dark −${item.dark.toFixed(2)} / 255`;
       button.setAttribute('aria-label',button.title);
       button.addEventListener('click',()=>{
-        denoiseWorkspacePlayback?.pause();
-        void denoiseWorkspacePlayback?.seekFrame(item.frame);
+        if(current(ticket)) void options.seek(item.frame);
       });
       parts.appendChild(button);
     }
     chart.replaceChildren(parts);
     chart.title=report.sampled ? 'Up to 240 real frame samples, not a complete film scan' : 'Click a bar to move the shared comparison frame';
-    denoiseReviewHighlight();
+    highlight();
   }catch(error) {
-    if(ticket===denoiseReviewChartEpoch && chart.isConnected && status) status.textContent='Chart unavailable: '+denoiseReviewErrorText(error);
+    if(current(ticket) && status && error?.name!=='AbortError') status.textContent='Chart unavailable: '+denoiseReviewErrorText(error);
   }
+}
+
+  chart?.addEventListener('keydown',event=>{
+    const keys={ArrowLeft:-1,ArrowRight:1,Home:0,End:0,PageUp:-10,PageDown:10};
+    if(!(event.key in keys)) return;
+    const bars=[...chart.querySelectorAll('[data-dr-bar]')];
+    if(!bars.length) return;
+    const selected=Math.max(0,bars.findIndex(bar=>bar.tabIndex===0));
+    const next=event.key==='Home' ? 0 : event.key==='End' ? bars.length-1
+      : Math.max(0,Math.min(bars.length-1,selected+keys[event.key]));
+    event.preventDefault();bars[next].focus();bars[next].click();
+  },{signal:events.signal});
+  return {highlight,reconcile(){
+    const selection=options.selection(),next=JSON.stringify([selection.path,selection.identity]);
+    if(next===key || destroyed) return;
+    key=next;path=selection.path;epoch++;abort?.abort();entries=[];
+    chart?.replaceChildren();
+    if(status) status.textContent=path ? 'Calculating luminance changes…' : 'Choose a finished variant.';
+    options.changed(path);
+    if(path) void loadChart(epoch);
+  },destroy(){destroyed=true;epoch++;abort?.abort();events.abort();}};
 }
 
 function denoiseReviewLoadImage(path) {
@@ -156,11 +133,11 @@ function denoiseReviewPixels(pair, mode, contrast) {
 
 function createDenoiseStillReview(host,options) {
   const state={loading:false,error:'',frame:-1,pairs:new Map()};
-  let epoch=0,key='',inFlight=false,pending=null,destroyed=false,drag=null;
+  let epoch=0,key='',inFlight=false,pending=null,destroyed=false,drag=null,loadAbort=null;
   const wipes=options.wipes || new Map(),abort=new AbortController();
-  function clear() {
-    for(const pair of state.pairs.values()) if(pair.difference) {pair.difference.width=0;pair.difference.height=0;}
-    state.pairs.clear();denoiseReviewMetrics=null;
+  function clear(retained=new Map()) {
+    for(const [slot,pair] of state.pairs) if(retained.get(slot)!==pair && pair.difference) {pair.difference.width=0;pair.difference.height=0;}
+    state.pairs=retained;options.measured?.(null);
   }
   function current(ticket) {return !destroyed && ticket===epoch && options.playback().state.exact && host.isConnected;}
   function notify() {options.changed();}
@@ -207,7 +184,7 @@ function createDenoiseStillReview(host,options) {
         }
       }
       canvas.dataset.dpFrame=String(state.frame);canvas.dataset.dpQuality='exact';
-      if(options.path(slot)===denoiseReviewVariant) {denoiseReviewMetrics=pair.metrics;denoiseReviewFrame=state.frame;}
+      options.measured?.(pair.metrics,slot);
     };
     try {
       paint(0,reference,'original');
@@ -217,12 +194,20 @@ function createDenoiseStillReview(host,options) {
   }
   async function load(request) {
     inFlight=true;
+    loadAbort=new AbortController();
     const pairs=new Map();
     try {
       let reference=null;
-      for(const slot of request.slots) {
+      for(const item of request.items) {
+        const {slot,path,key}=item;
         if(!current(request.ticket)) return;
-        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(options.path(slot))+'&frame='+request.frame+(options.stage?.()==='deflicker' ? '&stage=deflicker' : ''),{cache:'no-store'});
+        const cached=state.pairs.get(slot);
+        if(cached?.key===key) {
+          if(reference && ['before','frames','fps','width','height'].some(name=>reference[name]!==cached.info[name]))
+            throw new Error('The exact comparison variants have different frame mappings.');
+          pairs.set(slot,cached);reference=cached.info;continue;
+        }
+        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(path)+'&frame='+request.frame+(options.stage?.()==='deflicker' ? '&stage=deflicker' : ''),{cache:'no-store',signal:loadAbort.signal});
         if(!response.ok) throw new Error('The inspection endpoint answered with HTTP '+response.status+'.');
         const data=await response.json();
         if(!data?.ok) throw new Error(data?.error || 'The exact frame is unavailable.');
@@ -238,7 +223,7 @@ function createDenoiseStillReview(host,options) {
         if([before,after].some(image=>image.naturalWidth!==data.width || image.naturalHeight!==data.height))
           throw new Error('The decoded still dimensions do not match the frame metadata.');
         if(!current(request.ticket)) return;
-        const pair={before,after,metrics:null,difference:null,diffKey:''};
+        const pair={before,after,metrics:null,difference:null,diffKey:'',key,info:data};
         if(slot) {
           pair.difference=denoiseReviewPixels(pair,options.diffMode(),options.contrast());
           pair.diffKey=options.diffMode()+'|'+options.contrast();
@@ -247,13 +232,12 @@ function createDenoiseStillReview(host,options) {
       }
       if(!current(request.ticket)) return;
       state.pairs=pairs;state.frame=request.frame;state.loading=false;state.error='';
-      const playback=options.playback().state;
-      if(reference) {playback.count=reference.frames;playback.fps=reference.fps;denoiseReviewFps=reference.fps;}
+      if(reference) options.metadata?.(reference);
       draw();notify();
     }catch(error) {
       if(current(request.ticket)) {state.loading=false;state.error=denoiseReviewErrorText(error);clear();notify();}
     }finally {
-      if(state.pairs!==pairs) for(const pair of pairs.values()) if(pair.difference) {pair.difference.width=0;pair.difference.height=0;}
+      if(state.pairs!==pairs) for(const [slot,pair] of pairs) if(state.pairs.get(slot)!==pair && pair.difference) {pair.difference.width=0;pair.difference.height=0;}
       inFlight=false;
       const next=pending;pending=null;
       if(next && current(next.ticket)) void load(next);
@@ -261,12 +245,18 @@ function createDenoiseStillReview(host,options) {
   }
   function reconcile(retry=false) {
     const playback=options.playback().state,slots=options.slots();
-    const next=playback.exact ? JSON.stringify([playback.frame,slots.map(slot=>[slot,options.identity(slot),options.path(slot)])]) : 'preview';
+    const items=slots.map(slot=>({slot,path:options.path(slot),key:JSON.stringify([playback.frame,options.identity(slot),options.path(slot)])}));
+    const next=playback.exact ? JSON.stringify(items.map(item=>[item.slot,item.key])) : 'preview';
     if(!retry && next===key) {if(playback.exact) draw();return;}
-    key=next;epoch++;pending=null;clear();state.frame=-1;state.error='';
+    const retained=new Map();
+    if(playback.exact && !retry) for(const item of items) {
+      const pair=state.pairs.get(item.slot);
+      if(pair?.key===item.key) retained.set(item.slot,pair);
+    }
+    key=next;epoch++;loadAbort?.abort();pending=null;clear(retained);state.frame=-1;state.error='';
     state.loading=Boolean(playback.exact && slots.length);
     if(state.loading) {
-      const request={frame:playback.frame,slots,ticket:epoch};
+      const request={frame:playback.frame,items,ticket:epoch};
       if(inFlight) pending=request;else void load(request);
     }
     updateWipes();notify();
@@ -306,5 +296,5 @@ function createDenoiseStillReview(host,options) {
     setWipe(slot,event.key==='Home' || event.key==='End' ? keys[event.key] : (wipes.get(slot) ?? 50)+keys[event.key]);notify();
   },{signal:abort.signal,capture:true});
   return {state,reconcile,draw,updateWipes,wipe:slot=>wipes.get(slot) ?? 50,
-    destroy(){destroyed=true;epoch++;pending=null;end({});abort.abort();clear();}};
+    destroy(){destroyed=true;epoch++;pending=null;loadAbort?.abort();end({});abort.abort();clear();}};
 }

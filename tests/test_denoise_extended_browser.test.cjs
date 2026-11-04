@@ -77,26 +77,6 @@ test('chart validates simultaneous brightening and darkening, ordering and total
   assert.throws(()=>context.denoiseReviewChartRows({metric:'directional_mean_luma_8bit',frames:2,samples:[{...samples[0],mean_abs_luma:8}]}),/Invalid/);
 });
 
-test('chart highlighting follows the shared playhead without changing exact-frame measurements',()=>{
-  const previous=context.document;
-  let selected=false;
-  const bar={dataset:{drBar:'4'},classList:{toggle(key,value){selected=value}},setAttribute(){}};
-  const chart={querySelectorAll:()=>[bar]},status={textContent:''};
-  context.document={querySelector:selector=>selector==='[data-dr-chart]'?chart:selector==='[data-dr-chart-status]'?status:null};
-  try {
-    vm.runInContext('denoiseReviewFrame=4;denoiseReviewEntries=[{frame:4,bright:1,dark:2}]',context);
-    context.denoiseReviewHighlight(4);assert.equal(selected,true);assert.equal(bar.tabIndex,0);assert.match(status.textContent,/Frame 5/);
-    context.denoiseReviewHighlight(8);assert.equal(selected,false);assert.equal(bar.tabIndex,0);assert.match(status.textContent,/Frame 9: not in the chart sample/);
-    assert.equal(vm.runInContext('denoiseReviewFrame',context),4);
-  }finally{context.document=previous}
-});
-
-test('chart navigation seeks the shared clock rather than decoding an independent inspector',()=>{
-  assert.match(review,/button\.addEventListener\('click',[\s\S]*?denoiseWorkspacePlayback\?\.seekFrame\(item.frame\)/);
-  assert.doesNotMatch(review,/denoiseReviewSelectFrame|denoiseReviewAlignVideo/);
-  assert.ok(compare.indexOf('data-dr-chart role')<compare.indexOf('id="denoiseComparePlayers"'));
-});
-
 test('transport icon and accessible label change together',()=>{
   const previous=context.document,button={setAttribute(key,value){this[key]=value}};
   context.document={getElementById:()=>button};
@@ -150,13 +130,13 @@ test('wipe endpoints are factual and the grip fades at both image edges',()=>{
   assert.equal(context.comparisonWipeVisibleState(100,'RESULT','en'),'ONLY ORIGINAL · 100%');
 });
 
-test('decoded frame rate takes priority over source metadata, including fractional rates',()=>{
+test('legacy frame rate parses fractional rates without borrowing another workspace clock',()=>{
   const previous=context.state;
   try {
     context.state={source_info:{fps:'30000/1001'}};
-    vm.runInContext('denoiseReviewFps=0',context);assert.ok(Math.abs(context.denoiseCompareFps()-29.97)<.001);
-    vm.runInContext('denoiseReviewFps=24000/1001',context);assert.ok(Math.abs(context.denoiseCompareFps()-23.976)<.001);
-  }finally{context.state=previous;vm.runInContext('denoiseReviewFps=0',context)}
+    assert.ok(Math.abs(context.denoiseCompareFps()-29.97)<.001);
+    context.state.source_info.fps='24000/1001';assert.ok(Math.abs(context.denoiseCompareFps()-23.976)<.001);
+  }finally{context.state=previous}
 });
 
 test('server inspection remains read-only and verifies signed output lineage',()=>{
