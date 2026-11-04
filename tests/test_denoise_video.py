@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,6 +95,33 @@ class DenoiseMethodTests(unittest.TestCase):
             second = denoise_video.run(input_video, outputs["hqdn3d"], method="hqdn3d",
                                        preset="gentle", intermediate_profile="lossless", ffmpeg=ffmpeg)
             self.assertTrue(second["reused"])
+            stat = input_video.stat()
+            os.utime(input_video, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+            target_stat = outputs['hqdn3d'].stat()
+            reused = denoise_video.run(input_video, outputs['hqdn3d'], method='hqdn3d',
+                preset='gentle', intermediate_profile='lossless', ffmpeg=ffmpeg)
+            self.assertTrue(reused['reused'])
+            self.assertEqual(outputs['hqdn3d'].stat().st_mtime_ns, target_stat.st_mtime_ns)
+            provenance = json.loads(outputs['hqdn3d'].with_suffix('.mkv.sig.json').read_text())
+            self.assertEqual(provenance['source_fingerprint']['mtime_ns'], input_video.stat().st_mtime_ns)
+            target = outputs['hqdn3d']
+            before = target.read_bytes()
+            # An encoding failure before replacement preserves the last success.
+            real_run = subprocess.run
+            def fail_encoding(command, **kwargs):
+                if str(command[-1]).endswith('.partial.mkv'):
+                    raise subprocess.CalledProcessError(1, command)
+                return real_run(command, **kwargs)
+            with patch.object(denoise_video.subprocess, 'run', side_effect=fail_encoding), self.assertRaises(subprocess.CalledProcessError):
+                denoise_video.run(input_video, target, method='hqdn3d', preset='gentle',
+                    intermediate_profile='lossless', ffmpeg=ffmpeg, force=True)
+            self.assertEqual(target.read_bytes(), before)
+            self.assertTrue(target.with_suffix('.mkv.sig.json').is_file())
+            # After replacement, failed publication cannot retain the old ready marker.
+            with patch.object(denoise_video, 'write_signature', side_effect=OSError('publication failed')), self.assertRaises(OSError):
+                denoise_video.run(input_video, target, method='hqdn3d', preset='gentle',
+                    intermediate_profile='lossless', ffmpeg=ffmpeg, force=True)
+            self.assertFalse(target.with_suffix('.mkv.sig.json').exists())
 
     def test_rejects_same_source_output(self):
         with tempfile.TemporaryDirectory() as td:

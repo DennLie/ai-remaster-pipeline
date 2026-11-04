@@ -16,7 +16,7 @@ from pathlib import Path
 
 from common import (
     ROOT, file_fingerprint, find_ffmpeg, resolve_path, resumable_output,
-    root_relative, write_signature,
+    root_relative, write_signature, signature_path,
 )
 from intermediate_video import canonical_profile, codec_args, container_args
 
@@ -92,6 +92,8 @@ def run(source: Path, target: Path, *, method: str, preset: str,
     info = probe(ffmpeg, source)
     sig = signature(source, method, preset, profile)
     if not force and resumable_output(target, sig, video_like=source):
+        if not dry_run:
+            write_signature(target, sig)
         return {"output": str(target), "reused": True, "method": method, "preset": preset}
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.stem + ".partial.mkv")
@@ -122,6 +124,8 @@ def run(source: Path, target: Path, *, method: str, preset: str,
                 and finished.get("nb_frames") not in (None, "N/A")
                 and int(info["nb_frames"]) != int(finished["nb_frames"])):
             raise ValueError("Denoiser changed frame count unexpectedly")
+        # Retain the last success until replacement starts, never its old ready marker.
+        signature_path(target).unlink(missing_ok=True)
         partial.replace(target)
         write_signature(target, sig)
     except BaseException:

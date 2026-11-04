@@ -16,7 +16,7 @@ from ai_remaster_gui import denoise_review, frame_inspector
 
 
 class MinimalApp:
-    settings = {"global": {"source": "unused"}}
+    settings = {"global": {"source": "unused"}, "cloud": {"intermediate_format": "lossless"}}
 
 
 class DenoiseReviewTests(unittest.TestCase):
@@ -134,6 +134,23 @@ class DenoiseReviewTests(unittest.TestCase):
         self.assertNotEqual(str(self.variant),str(self.input))
         path = denoise_review.review_pair(MinimalApp(),str(self.variant))
         self.assertEqual(path[0],self.input)
+
+    def test_selected_result_and_comparison_share_rules_without_hashing_the_film(self):
+        from types import SimpleNamespace
+        app = SimpleNamespace(settings={**MinimalApp.settings,
+            'denoise': {'method': 'hqdn3d', 'preset': 'gentle'}}, denoise_output=lambda: str(self.variant))
+        from ai_remaster_gui.deflicker import backend
+        with patch.object(backend, 'file_fingerprint', side_effect=AssertionError('Polling hashed the film')):
+            self.assertTrue(denoise_review.output_ready(app, 'denoise'))
+            for field, value in (('version', -1), ('intermediate_profile', None), ('intermediate_profile', 'high'), ('preset', 'strong')):
+                with self.subTest(field=field):
+                    self.write_provenance()
+                    data = json.loads(self.sidecar.read_text())
+                    data[field] = value
+                    self.sidecar.write_text(json.dumps(data))
+                    self.assertFalse(denoise_review.output_ready(app, 'denoise'))
+            # Comparison can still inspect another valid preset, without adopting it.
+            self.assertEqual(denoise_review.review_pair(app, str(self.variant))[1], self.variant)
 
 
 if __name__=="__main__":

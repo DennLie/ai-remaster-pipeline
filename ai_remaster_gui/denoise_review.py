@@ -29,14 +29,17 @@ def comparison_source(app, stage: str = "denoise") -> str:
     return app.denoised_source_for_downstream() if stage == "deflicker" else pipeline_source_text(app.settings)
 
 
-def review_pair(app, candidate: str, stage: str = "denoise") -> tuple[Path, Path]:
+def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | None = None,
+                preset: str | None = None) -> tuple[Path, Path]:
     """Enforce stage-bound candidate and signed source lineage before decoding."""
-    if not candidate or len(candidate) > 2048:
+    if not isinstance(candidate, str) or not candidate or len(candidate) > 2048:
         raise ValueError("Choose a finished comparison-stage output.")
     source_text = comparison_source(app, stage)
     if not source_text:
         raise FileNotFoundError("Choose the original film source.")
     source = _video_path(source_text)
+    if stage == 'deflicker' and str(app.settings.get('global', {}).get('denoise', 'false')) == 'true':
+        selected_output(app, 'denoise')
     output = resolve(candidate)
     # A path existing *somewhere* under the repository is not a legal output.
     # Never permit symlinks/.. escapes or another stage's files.
@@ -72,9 +75,35 @@ def review_pair(app, candidate: str, stage: str = "denoise") -> tuple[Path, Path
                     or provenance.get("intermediate_profile") != profile
                     or resolve(output_for(source_text, values, profile)).resolve() != output.resolve()):
                 raise ValueError("This Light Deflicker result has stale parameters, format or provenance.")
+        else:
+            from .deflicker import backend
+            from denoise_video import ALGORITHM_VERSION
+            profile = backend.canonical_profile(app.settings.get('cloud', {}).get('intermediate_format'))
+            if (provenance.get('version') != ALGORITHM_VERSION or not provenance.get('intermediate_profile')
+                    or backend.canonical_profile(provenance.get('intermediate_profile')) != profile):
+                raise ValueError('This Remove Noise result has stale parameters, format or provenance.')
+        if (method is not None and provenance.get('method') != method
+                or preset is not None and provenance.get('preset') != preset):
+            raise ValueError('This result belongs to a different selected variant.')
     except (OSError, json.JSONDecodeError, TypeError, AttributeError) as exc:
         raise ValueError("Invalid comparison-stage output provenance.") from exc
     return source, output
+
+
+def selected_output(app, stage: str) -> Path:
+    """The selected pipeline result, using the same rules as comparison variants."""
+    values = app.settings.get(stage, {})
+    candidate = app.deflicker_output() if stage == 'deflicker' else app.denoise_output()
+    return review_pair(app, candidate, stage, method=values.get('method', 'arp' if stage == 'deflicker' else 'off'),
+                       preset=values.get('preset', 'gentle') if stage == 'denoise' else None)[1]
+
+
+def output_ready(app, stage: str) -> bool:
+    try:
+        selected_output(app, stage)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
 
 
 def inspect_denoise(app, candidate: str, frame: int, stage: str = "denoise") -> dict:

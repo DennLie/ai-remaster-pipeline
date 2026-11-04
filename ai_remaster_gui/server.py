@@ -52,6 +52,7 @@ from .commercial_policy import pipeline_issues, stage_issue
 from .models import CLEANUP_NEGATIVE_PROMPT, CLEANUP_PROMPT, COLORIZE_STAGE_KEYS, SHOT_STAGE_KEYS, STAGES, Stage, output_stage
 from .denoise_matrix import VARIANTS as DENOISE_MATRIX_VARIANTS, parse_frames as denoise_matrix_parse_frames, export_identity as denoise_matrix_identity, output_path as denoise_matrix_output, validate_variants as denoise_matrix_validate_variants
 from .denoise_review import review_pair as denoise_review_pair
+from .denoise_review import output_ready as comparison_output_ready
 from .denoise_diff_video import render_diff_preview as render_denoise_diff_preview
 from .frame_inspector import _metadata as denoise_frame_metadata
 from . import deflicker as deflicker_stage
@@ -575,17 +576,10 @@ class PipelineApp:
         ]
 
     def denoise_matrix_ready(self) -> list[dict]:
-        from .paths import resolve
-        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
         rows = []
         for item in self.denoise_matrix_rows():
             try:
-                _, output = denoise_review_pair(self, item["output"])
-                signature = json.loads(output.with_suffix(output.suffix + ".sig.json").read_text(encoding="utf-8"))
-                if (signature.get("method"), signature.get("preset")) != (item["method"], item["preset"]):
-                    continue
-                if canonical_intermediate_profile(signature.get("intermediate_profile")) != profile:
-                    continue
+                _, output = denoise_review_pair(self, item["output"], method=item['method'], preset=item['preset'])
                 stat = output.stat()
                 rows.append({**item, "revision": f"{stat.st_mtime_ns}-{stat.st_size}"})
             except (OSError, ValueError, FileNotFoundError, KeyError, TypeError):
@@ -749,11 +743,7 @@ class PipelineApp:
         return self.deflicker_output() if self.deflicker_enabled() else self.denoised_source_for_downstream()
 
     def deflicker_output_ready(self) -> bool:
-        try:
-            denoise_review_pair(self, self.deflicker_output(), "deflicker")
-            return True
-        except (OSError, ValueError, TypeError):
-            return False
+        return comparison_output_ready(self, 'deflicker')
 
     def deflicker_matrix_state(self) -> dict:
         from .denoise_review import review_pair
@@ -800,7 +790,7 @@ class PipelineApp:
             deflicker_stage.validate_variants(rows)
             self.ensure_pipeline_source()
             source = resolve_video_source(self.denoised_source_for_downstream())
-            if not source.is_file():
+            if not source.is_file() or self.denoise_enabled() and not comparison_output_ready(self, 'denoise'):
                 raise ValueError("Run Remove Noise first so Light Deflicker has its processing input.")
             values = self.settings.get("deflicker", {})
             deflicker_stage.validate_requests(source, rows, values)
@@ -1824,7 +1814,7 @@ class PipelineApp:
 
     def hydrate_stage_inputs(self, completed_stage: str = "") -> None:
         denoise_expected_text = self.denoise_output()
-        denoise_ready = bool(denoise_expected_text and resolve(denoise_expected_text).exists())
+        denoise_ready = comparison_output_ready(self, 'denoise') if self.denoise_enabled() else False
         self.settings.setdefault('denoise', {})['output'] = denoise_expected_text
         denoised_text = (
             rel(resolve(denoise_expected_text)) if self.denoise_enabled() and denoise_ready
@@ -2015,7 +2005,7 @@ class PipelineApp:
         return []
 
     def existing_outputs(self, stage_key: str) -> list[str]:
-        if stage_key == "deflicker" and not self.deflicker_output_ready():
+        if stage_key in {'denoise', 'deflicker'} and not comparison_output_ready(self, stage_key):
             return []
         return [path for path in self.expected_outputs(stage_key) if path and resolve(path).exists()]
 
@@ -2518,8 +2508,7 @@ class PipelineApp:
             return False, "Upscale is disabled on the Overview tab."
         stage = next(item for item in STAGES if item.key == stage_key)
         if stage_key != 'denoise' and self.denoise_enabled():
-            denoised_output = self.denoise_output()
-            if not denoised_output or not resolve(denoised_output).exists():
+            if not comparison_output_ready(self, 'denoise'):
                 return False, 'Run Remove Noise first so this stage has its upstream video.'
         if stage_key not in {'denoise', 'deflicker'} and self.deflicker_enabled():
             if not self.deflicker_output_ready():
@@ -3116,7 +3105,7 @@ class PipelineApp:
             return {"path": cleanup_output, "kind": "cleanup", "label": "Clean Up output"}
         if deflicker_output and self.deflicker_output_ready():
             return {"path": deflicker_output, "kind": "deflickered", "label": "Light Deflicker output"}
-        if denoise_output and resolve(denoise_output).exists():
+        if denoise_output and comparison_output_ready(self, 'denoise'):
             return {'path': denoise_output, 'kind': 'denoised', 'label': 'Remove Noise output'}
         if self.upscale_enabled() and upscale_output:
             return {"path": upscale_output, "kind": "upscaled_pending", "label": "Pending upscaled output"}

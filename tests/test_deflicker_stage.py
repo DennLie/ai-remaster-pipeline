@@ -148,6 +148,29 @@ class DeflickerMediaTests(unittest.TestCase):
         values = {**self.settings["deflicker"], "method":method}
         return deflicker.backend.run(self.source, values, "lossless")
 
+    def test_unsigned_denoise_is_neither_a_pipeline_input_nor_a_finished_output(self):
+        output = self.root / 'intermediate' / 'denoised' / 'selected.mkv'
+        output.parent.mkdir(parents=True)
+        output.write_bytes(self.source.read_bytes())
+        self.settings['global'].update(denoise='true', deflicker='false', cleanup='false',
+            stabilize='false', detail='false', upscale='false', add_soundtrack='false')
+        self.settings['denoise'].update(method='hqdn3d', preset='gentle')
+        with patch.object(server.APP, 'settings', self.settings), patch.object(server.APP, 'denoise_output', return_value=str(output)):
+            self.assertEqual(server.APP.existing_outputs('denoise'), [])
+            self.assertNotEqual(server.APP.output_selection_state().get('kind'), 'denoised')
+            with patch.object(server.APP, 'save'):
+                server.APP.hydrate_stage_inputs()
+            self.assertEqual(self.settings['stabilize']['input_video'], '')
+            # Enable the downstream stage only after checking output selection.
+            self.settings['global']['deflicker'] = 'true'
+            ok, message = server.APP.run_stage('deflicker')
+            self.assertFalse(ok)
+            self.assertIn('Run Remove Noise first', message)
+            with patch.object(server.APP, 'ensure_pipeline_source'):
+                ok, message = server.APP.run_deflicker_batch([{'method': 'arp', 'preset': 'settings'}])
+            self.assertFalse(ok)
+            self.assertIn('Run Remove Noise first', message)
+
     def test_all_five_existing_algorithms_keep_frames_geometry_audio_and_reuse(self):
         original = self.source.read_bytes()
         for method in deflicker.METHODS:
@@ -163,6 +186,21 @@ class DeflickerMediaTests(unittest.TestCase):
                 probe = subprocess.run([server.local_tool("ffprobe"), "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=index", "-of", "csv=p=0", str(output)], capture_output=True, text=True, check=True)
                 self.assertTrue(probe.stdout.strip())
         self.assertEqual(self.source.read_bytes(), original)
+
+    def test_deflicker_rejects_a_result_when_its_selected_denoise_predecessor_is_unsigned(self):
+        import denoise_video
+        noise = self.root / 'intermediate' / 'denoised' / 'selected.mkv'
+        denoise_video.run(self.source, noise, method='hqdn3d', preset='gentle',
+            intermediate_profile='lossless', ffmpeg=server.local_tool('ffmpeg'))
+        self.settings['global']['denoise'] = 'true'
+        self.settings['denoise'].update(method='hqdn3d', preset='gentle')
+        self.app.denoise_output = self.app.denoised_source_for_downstream = lambda: str(noise)
+        with patch.object(denoise_review, '_OUTPUTS', noise.parent):
+            output = deflicker.backend.run(noise, {**self.settings['deflicker'], 'method': 'ffmpeg_median'}, 'lossless')
+            denoise_review.review_pair(self.app, str(output), 'deflicker')
+            noise.with_suffix('.mkv.sig.json').unlink()
+            with self.assertRaisesRegex(ValueError, 'provenance'):
+                denoise_review.review_pair(self.app, str(output), 'deflicker')
 
     def test_shared_exact_frame_reel_and_difference_use_the_deflicker_input(self):
         output = self.render("ffmpeg_median")

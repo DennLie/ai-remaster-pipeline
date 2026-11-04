@@ -69,6 +69,17 @@ legacy Clean Up becomes disabled instead of an empty job; mixed Clean Up
 projects keep their remaining operations. The legacy Clean Up CLI still
 supports its old flags, but GUI commands never pass them.
 
+For Remove Noise and Light Deflicker, comparison and pipeline consumption use
+the same completed-provenance rules. File existence alone does not make a
+result usable. The selected method/preset, parameters, intermediate format and
+current processing input must match; Deflicker also requires a valid selected
+Denoise predecessor when Remove Noise is enabled. Invalid files are retained,
+but do not unblock downstream processing. A source timestamp change initially
+invalidates its results. An explicit render request may verify unchanged content,
+reuse the existing video and refresh its provenance; polling never hashes the
+whole film. Failed encoding before replacement preserves the last valid result,
+whereas failed publication after replacement cannot retain an old ready marker.
+
 ## First Windows test — same source and frames
 
 Use the existing **Draft PR #30** branch (when available); keep your original

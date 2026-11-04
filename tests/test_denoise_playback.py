@@ -33,11 +33,12 @@ class PlaybackTests(unittest.TestCase):
             writer.release()
         stat = self.source.stat()
         self.result.with_suffix(".mkv.sig.json").write_text(json.dumps({
-            "tool": "denoise_video.py", "source": str(self.source),
+            "tool": "denoise_video.py", "version": 1, "source": str(self.source),
             "source_fingerprint": {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns},
             "method": "bm3d", "preset": "balanced", "intermediate_profile": "lossless",
         }), encoding="utf-8")
-        self.app = SimpleNamespace(settings={"global": {"source": str(self.source)}})
+        self.app = SimpleNamespace(settings={"global": {"source": str(self.source)},
+            "cloud": {"intermediate_format": "lossless"}})
         for change in (patch.object(playback, "_CACHE", self.root / "cache"),
                        patch.object(denoise_review, "_OUTPUTS", self.outputs)):
             change.start()
