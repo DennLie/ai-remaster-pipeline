@@ -32,9 +32,15 @@ def cache_categories() -> tuple[dict, ...]:
         },
         {
             "key": "denoise",
-            "title": "Remove Noise previews",
-            "description": "Cached frame-locked comparison segments. Denoised master outputs are retained.",
+            "title": "Noise / Deflicker previews",
+            "description": "Cached frame-locked comparison segments. Denoised and deflickered masters are retained.",
             "folders": (ROOT / ".cache" / "denoise_playback",),
+        },
+        {
+            "key": "deflicker",
+            "title": "Light Deflicker analysis",
+            "description": "Temporary model-free correction passes and gain reports. Deflickered masters are retained.",
+            "folders": (ROOT / ".cache" / "deflicker",),
         },
         {
             "key": "cleanup",

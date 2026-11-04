@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import cleanup_video  # noqa: E402
 import denoise_video  # noqa: E402
+import deflicker_video  # noqa: E402
 from ai_remaster_gui import app  # noqa: E402
 from ai_remaster_gui.runtime_settings import base_settings  # noqa: E402
 
@@ -28,6 +29,7 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
         settings["global"].update({
             "source": source,
             "denoise": "true",
+            "deflicker": "true",
             "cleanup": "true",
             "stabilize": "true",
             "detail": "true",
@@ -37,31 +39,34 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
             "add_soundtrack": "false",
         })
         settings["denoise"].update({"method": "nlmeans", "preset": "gentle"})
-        settings["cleanup"].update({
-            "light_deflicker": "true",
-            "deflicker_method": "localized_stream",
+        settings["deflicker"].update({
+            "method": "localized_stream",
             "localized_confirm_film_experiment": "true",
+        })
+        settings["cleanup"].update({
             "dearchive": "false",
             "ai_descratch": "false",
-            "devignette": "false",
+            "devignette": "true",
             "detect_defects": "false",
         })
         before = app.APP.settings
         try:
             app.APP.settings = settings
             self.assertEqual(
-                [stage.key for stage in app.APP.active_stages()][:4],
-                ["denoise", "cleanup", "stabilize", "detail"],
+                [stage.key for stage in app.APP.active_stages()][:5],
+                ["denoise", "deflicker", "cleanup", "stabilize", "detail"],
             )
             noise = app.APP.command_for("denoise")
             cleanup = app.APP.command_for("cleanup")
+            deflicker = app.APP.command_for("deflicker")
             stabilize = app.APP.command_for("stabilize")
             detail = app.APP.command_for("detail")
             self.assertEqual(noise[noise.index("--source") + 1], source)
             self.assertEqual(
-                cleanup[cleanup.index("--source") + 1],
+                deflicker[deflicker.index("--source") + 1],
                 noise[noise.index("--output") + 1],
             )
+            self.assertEqual(cleanup[cleanup.index("--source") + 1], deflicker[deflicker.index("--output") + 1])
             self.assertEqual(
                 stabilize[stabilize.index("--source") + 1],
                 cleanup[cleanup.index("--output") + 1],
@@ -75,8 +80,9 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
                 "nlmeans",
             )
             opts = cleanup_video.build_parser().parse_args(cleanup[3:])
-            self.assertEqual(opts.deflicker_method, "localized_stream")
-            self.assertTrue(opts.localized_confirm_film_experiment)
+            self.assertFalse(opts.light_deflicker)
+            self.assertIn("--localized-confirm-film-experiment", deflicker)
+            self.assertEqual(deflicker[deflicker.index("--method") + 1], "localized_stream")
             self.assertFalse(opts.dearchive)
 
             # A different denoise preset must invalidate *downstream*
@@ -87,8 +93,11 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
             self.assertNotEqual(
                 cleanup_before, cleanup_after[cleanup_after.index("--output") + 1]
             )
-            # Disabling denoise must route Clean Up directly to the original.
+            # Disabling denoise routes Deflicker to the original; disabling both bypasses both.
             settings["global"]["denoise"] = "false"
+            direct_deflicker = app.APP.command_for("deflicker")
+            self.assertEqual(direct_deflicker[direct_deflicker.index("--source") + 1], source)
+            settings["global"]["deflicker"] = "false"
             direct = app.APP.command_for("cleanup")
             self.assertEqual(direct[direct.index("--source") + 1], source)
         finally:
@@ -104,6 +113,8 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
             original = folder / "original.mkv"
             denoised = folder / "denoised.mkv"
             cleaned = folder / "localized.mkv"
+            workdir = deflicker_video.work_directory(denoised, {"method":"localized_stream"}, "lossless")
+            self.addCleanup(shutil.rmtree, workdir, ignore_errors=True)
             created = subprocess.run(
                 [
                     ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
@@ -132,10 +143,9 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
             self.assertTrue(noise_cached["reused"])
 
             cmd = [
-                sys.executable, str(ROOT / "scripts" / "cleanup_video.py"),
+                sys.executable, str(ROOT / "scripts" / "deflicker_video.py"),
                 "--source", str(denoised), "--output", str(cleaned),
-                "--no-dearchive", "--light-deflicker",
-                "--deflicker-method", "localized_stream",
+                "--method", "localized_stream",
                 "--localized-confirm-film-experiment",
                 "--intermediate-profile", "lossless",
             ]
@@ -181,7 +191,7 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
                 cmd, cwd=ROOT, capture_output=True, text=True, timeout=55,
             )
             self.assertEqual(repeat.returncode, 0, repeat.stderr)
-            self.assertIn("Reuse Clean Up output", repeat.stdout)
+            self.assertIn("Reuse Light Deflicker output", repeat.stdout)
 
 
 if __name__ == "__main__":

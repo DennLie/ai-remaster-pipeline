@@ -147,6 +147,7 @@ def base_settings() -> dict[str, dict[str, str]]:
         "source_sequence_fps": "24",
         "source_sequence_preview": "",
         "denoise": "false",
+        "deflicker": "false",
         "cleanup": "false",
         "commercial_model_guard": "false",
         "stabilize": "false",
@@ -173,6 +174,30 @@ def base_settings() -> dict[str, dict[str, str]]:
         "intermediate_format": "high",
     }
     return defaults
+
+
+def migrate_deflicker_settings(stored: dict) -> dict:
+    """Migrate raw saved settings before defaults merge, without overriding a new-stage choice."""
+    stored = {key: dict(value) if isinstance(value, dict) else value for key, value in stored.items()}
+    cleanup = stored.get("cleanup", {})
+    if not isinstance(cleanup, dict) or "light_deflicker" not in cleanup:
+        return stored
+    enabled = str(cleanup.pop("light_deflicker")).lower() == "true"
+    global_values = stored.setdefault("global", {})
+    was_cleanup = str(global_values.get("cleanup", "false")).lower() == "true"
+    global_values.setdefault("deflicker", "true" if enabled and was_cleanup else "false")
+    target = stored.setdefault("deflicker", {})
+    for old, new in (("deflicker_method", "method"), ("deflicker_window", "window"),
+                     ("deflicker_strength", "strength"), ("deflicker_max_correction", "max_correction"),
+                     ("localized_confirm_single_shot", "localized_confirm_single_shot"),
+                     ("localized_confirm_film_experiment", "localized_confirm_film_experiment")):
+        if old in cleanup:
+            target.setdefault(new, cleanup.pop(old))
+    # An old deflicker-only project must not turn into an empty Clean Up job.
+    if enabled and was_cleanup and not any(str(cleanup.get(key, default)).lower() == "true" for key, default in
+                                          (("dearchive", "true"), ("ai_descratch", "false"), ("devignette", "false"), ("detect_defects", "false"))):
+        global_values["cleanup"] = "false"
+    return stored
 
 
 def normalize_settings(defaults: dict[str, dict[str, str]], include_newest_source: bool = True) -> dict[str, dict[str, str]]:
@@ -377,7 +402,7 @@ def load_settings() -> dict[str, dict[str, str]]:
     settings_file = getattr(app_module, "SETTINGS_FILE", SETTINGS_FILE)
     if settings_file.exists():
         try:
-            stored = json.loads(settings_file.read_text(encoding="utf-8"))
+            stored = migrate_deflicker_settings(json.loads(settings_file.read_text(encoding="utf-8")))
             for key, values in stored.items():
                 if key in defaults and isinstance(values, dict):
                     defaults[key].update({k: str(v) for k, v in values.items()})

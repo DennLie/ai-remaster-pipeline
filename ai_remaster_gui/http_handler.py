@@ -200,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 candidate = query.get("variant", [""])[0]
                 frame = int(query.get("frame", ["0"])[0])
-                self.send_json({"ok": True, **inspect_denoise(state.APP, candidate, frame)})
+                self.send_json({"ok": True, **inspect_denoise(state.APP, candidate, frame, query.get("stage", ["denoise"])[0])})
             except (ValueError, IndexError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             try:
                 candidate = query.get("variant", [""])[0]
-                self.send_json({"ok": True, **denoise_frame_differences(state.APP, candidate)})
+                self.send_json({"ok": True, **denoise_frame_differences(state.APP, candidate, query.get("stage", ["denoise"])[0])})
             except (ValueError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
@@ -450,11 +450,14 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/denoise-batch":
             self._send_action("Remove Noise batch",
                               lambda: state.APP.run_denoise_batch(data.get("variants")), view="denoise")
+        elif parsed.path == "/api/deflicker-batch":
+            self._send_action("Light Deflicker batch",
+                              lambda: state.APP.run_deflicker_batch(data.get("variants")), view="deflicker")
         elif parsed.path == "/api/denoise-playback":
             from .denoise_playback import playback_segment
             self._send_result("Remove Noise playback", lambda: playback_segment(
                 state.APP, data.get("variant", ""), data.get("frame", 0),
-                data.get("mode", "direction"), data.get("contrast", 32)))
+                data.get("mode", "direction"), data.get("contrast", 32), data.get("stage", "denoise")))
         elif parsed.path == "/api/denoise-grid":
             self._send_action("Remove Noise grid",
                               lambda: state.APP.run_denoise_grid(str(data.get("frames", ""))), view="denoise")

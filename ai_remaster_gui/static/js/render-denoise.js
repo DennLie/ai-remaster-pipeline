@@ -14,6 +14,7 @@ let denoiseCompareLengthSection = '';
 let denoiseComparePan = { x: 0, y: 0 };
 let denoiseCompareZoomView = null;
 let denoiseCompareNative = false;
+let denoiseCompareGrid = false;
 const denoiseCompareDiffState = {
   1: {enabled: false, url: '', key: '', request: 0, loading: false},
   2: {enabled: false, url: '', key: '', request: 0, loading: false},
@@ -37,14 +38,32 @@ let denoiseUseVariantPending = false;
 let denoiseBatchPending = false;
 let denoiseGridPending = false;
 
+const DEFLICKER_METHODS = [
+  {key:'arp',label:'ARP Conservative'},
+  {key:'ffmpeg_median',label:'FFmpeg Median'},
+  {key:'ffmpeg_am',label:'FFmpeg Arithmetic Mean'},
+  {key:'localized_research',label:'Localized · short experiment'},
+  {key:'localized_stream',label:'Localized · film streaming'},
+];
+function comparisonStageKey() { return typeof active==='string' && active==='deflicker' ? 'deflicker' : 'denoise'; }
+function isRestorationComparison() { return typeof active==='string' && ['denoise','deflicker'].includes(active); }
+function denoiseMethods() { return comparisonStageKey()==='deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS; }
+function denoisePresets() { return comparisonStageKey()==='deflicker' ? [{key:'settings',label:'Current settings'}] : DENOISE_PRESETS; }
+function denoiseMatrixState() { return state?.[comparisonStageKey()+'_matrix'] || {}; }
+
 function denoiseVariantLabelFor(method, preset) {
   if (method === 'off') return 'Off';
-  const m = DENOISE_METHODS.find(x => x.key === method);
-  const p = DENOISE_PRESETS.find(x => x.key === preset);
+  const m = denoiseMethods().find(x => x.key === method);
+  if(comparisonStageKey()==='deflicker') return m?.label || 'Variant';
+  const p = denoisePresets().find(x => x.key === preset);
   return m && p ? `${m.label} · ${p.label}` : 'Variant';
 }
 
 function denoiseVariantFromPath(path) {
+  if(comparisonStageKey()==='deflicker') {
+    const row=denoiseMatrixState().variants?.find(item=>item.output===path);
+    return row ? {method:row.method,preset:'settings'} : null;
+  }
   const match = String(path || '').match(/_denoised_(hqdn3d|nlmeans|bm3d)_(gentle|balanced|strong)_[0-9a-f]+\.mkv$/i);
   if (!match) return null;
   return { method: match[1].toLowerCase(), preset: match[2].toLowerCase() };
@@ -58,13 +77,13 @@ function denoiseVariantLabel(path) {
 }
 
 function denoiseVariantPath(method, preset) {
-  const variants = state?.denoise_matrix?.variants;
+  const variants = denoiseMatrixState().variants;
   if (Array.isArray(variants)) {
     const variant = variants.find(v => v.method === method && v.preset === preset);
     if (!variant) return '';
     if (variant.output) return denoisePreviewIsFinal(variant.output) ? variant.output : '';
   }
-  const st = (state?.stages || []).find(x => x.key === 'denoise');
+  const st = (state?.stages || []).find(x => x.key === comparisonStageKey());
   const files = st?.files || [];
   const pattern = new RegExp(`_denoised_${method}_${preset}_[0-9a-f]+\\.mkv$`, 'i');
   return (files.find(file => pattern.test(file.path || '')) || {}).path || '';
@@ -72,25 +91,25 @@ function denoiseVariantPath(method, preset) {
 
 function denoiseVariantReady(method, preset) {
   if (method === 'off') return true;
-  const variants = state?.denoise_matrix?.variants;
+  const variants = denoiseMatrixState().variants;
   if (Array.isArray(variants)) return variants.some(v => v.method === method && v.preset === preset);
   return Boolean(denoiseVariantPath(method, preset));
 }
 
 function denoiseStageVariant() {
-  const values = state?.settings?.denoise || {};
-  const method = values.method || 'off';
-  const preset = values.preset || 'gentle';
-  if (method === 'off' || !DENOISE_METHODS.some(x => x.key === method) ||
-      !DENOISE_PRESETS.some(x => x.key === preset)) return { method: 'off', preset: '' };
+  const values = state?.settings?.[comparisonStageKey()] || {};
+  const method = values.method || (comparisonStageKey()==='deflicker' ? 'arp' : 'off');
+  const preset = comparisonStageKey()==='deflicker' ? 'settings' : values.preset || 'gentle';
+  if (method === 'off' || !denoiseMethods().some(x => x.key === method) ||
+      !denoisePresets().some(x => x.key === preset)) return { method: 'off', preset: '' };
   return { method, preset };
 }
 
 function denoiseSelectedVariant() {
   if (denoiseMatrixSelected &&
       (denoiseMatrixSelected.method === 'off' ||
-       (DENOISE_METHODS.some(x => x.key === denoiseMatrixSelected.method) &&
-        DENOISE_PRESETS.some(x => x.key === denoiseMatrixSelected.preset)))) {
+        (denoiseMethods().some(x => x.key === denoiseMatrixSelected.method) &&
+         denoisePresets().some(x => x.key === denoiseMatrixSelected.preset)))) {
     return denoiseMatrixSelected;
   }
   const current = denoiseStageVariant();
@@ -102,15 +121,15 @@ function denoiseSelectedVariant() {
     denoiseMatrixSelected = { method: current.method, preset: current.preset };
     return denoiseMatrixSelected;
   }
-  for (const method of DENOISE_METHODS) {
-    for (const preset of DENOISE_PRESETS) {
+  for (const method of denoiseMethods()) {
+    for (const preset of denoisePresets()) {
       if (denoiseVariantReady(method.key, preset.key)) {
         denoiseMatrixSelected = { method: method.key, preset: preset.key };
         return denoiseMatrixSelected;
       }
     }
   }
-  denoiseMatrixSelected = { method: 'bm3d', preset: 'balanced' };
+  denoiseMatrixSelected = comparisonStageKey()==='deflicker' ? current : { method: 'bm3d', preset: 'balanced' };
   return denoiseMatrixSelected;
 }
 
@@ -130,15 +149,15 @@ function denoiseCompareCandidates(st) {
   const global = (state && state.settings && state.settings.global) || {};
   const source = st.key === 'detail'
     ? ((state && state.detail_comparison && state.detail_comparison.source) || '')
-    : (state?.denoise_matrix?.source || global.source_sequence_preview || global.source || '');
+    : (denoiseMatrixState().source || (st.key==='deflicker' ? '' : global.source_sequence_preview || global.source || ''));
   const candidates = [];
   if (source && denoisePreviewIsFinal(source) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(source)) {
     candidates.push({ path: source, label: 'Original — ' + source, kind: 'source' });
   }
   for (const file of (st.files || [])) {
     const path = file.path || '';
-    if (st.key === 'denoise' && Array.isArray(state?.denoise_matrix?.variants) &&
-        !state.denoise_matrix.variants.some(v => denoiseVariantPath(v.method, v.preset) === path)) continue;
+    if (['denoise','deflicker'].includes(st.key) && Array.isArray(denoiseMatrixState().variants) &&
+        !denoiseMatrixState().variants.some(v => denoiseVariantPath(v.method, v.preset) === path)) continue;
     if (denoisePreviewIsFinal(path) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
       candidates.push({ path, label: denoiseVariantLabel(path), kind: 'variant' });
     }
@@ -171,14 +190,14 @@ function denoiseCompareSectionKey() {
 
 function denoiseCompareFullDuration() {
   const available = denoiseCompareAvailableLength();
-  if (typeof active === 'string' && active === 'denoise') return available;
+  if (isRestorationComparison()) return available;
   if (!(available >= 1)) return 0;
   return Math.min(12, available);
 }
 
 function denoiseCompareEnsureLength() {
   const full = denoiseCompareFullDuration();
-  if (typeof active === 'string' && active === 'denoise') {
+  if (isRestorationComparison()) {
     denoiseCompareLength = full || denoiseCompareLength || 1;
     denoiseCompareEffectiveLength = denoiseCompareLength;
     denoiseCompareStart = 0;
@@ -232,7 +251,7 @@ function denoiseCompareSetEffectiveLength(value) {
 }
 
 function denoiseCompareInitializePaths(candidates) {
-  if (typeof active === 'string' && active === 'denoise') {
+  if (isRestorationComparison()) {
     denoiseWorkspaceInitialize(candidates);
     return;
   }
@@ -255,16 +274,18 @@ function denoiseCompareInitializePaths(candidates) {
 }
 
 function drawDenoise(st, settings, expected, progress) {
+  const shared=['denoise','deflicker'].includes(st.key);
+  if(shared) denoiseWorkspaceActivate(st.key);
   const candidates = denoiseCompareCandidates(st);
   denoiseCompareInitializePaths(candidates);
   denoiseCompareEnsureLength();
   document.getElementById('app').innerHTML = `
-    <div class="editor-page ${st.key === 'denoise' ? 'denoise-editor-page' : ''}">
-      <aside class="card denoise-settings-sidebar" aria-label="${st.key === 'denoise' ? 'Remove Noise settings' : 'Detail enhancement settings'}">
+    <div class="editor-page ${shared ? 'denoise-editor-page' : ''}">
+      <aside class="card denoise-settings-sidebar" aria-label="${esc(st.title)} settings">
         <h2>${esc(st.title)}</h2>
-        <p>${esc(st.key === 'denoise' ? 'Compare noise-reduction variants against the original, then choose one for the pipeline.' : st.description)}</p>
+        <p>${esc(shared ? `Compare ${st.key==='deflicker' ? 'brightness-correction' : 'noise-reduction'} variants against the processing input, then choose one for the pipeline.` : st.description)}</p>
         ${progressHtml(progress.percent, progress.label)}
-        ${st.key === 'denoise' ? denoiseMatrixHtml() : st.fields.map(field => fieldHtml(st, field)).join('')}
+        ${shared ? denoiseMatrixHtml() : st.fields.map(field => fieldHtml(st, field)).join('')}
         <div data-dm-expected>${shotOutputList(expected, null)}</div>
         ${stageCheckboxes(settings)}
         <div class="actions">
@@ -276,9 +297,9 @@ function drawDenoise(st, settings, expected, progress) {
       <section class="card denoise-compare-card">
         <div class="denoise-compare-heading">
           <h2>Comparison</h2>
-          <span class="denoise-compare-info" ${st.key === 'denoise' ? 'data-ds-quality' : ''} title="${st.key === 'denoise' ? 'Frame-locked playback is compressed. Exact still decodes the same frame without lossy preview compression, in these viewports.' : 'Browser synchronization is approximate.'}">${st.key === 'denoise' ? 'Frame-locked · compressed display' : 'Preview · approximate sync'}</span>
-          ${st.key === 'denoise' ? '<button type="button" data-ds-exact aria-pressed="false" onclick="denoiseWorkspaceSetExact(!denoiseWorkspaceExact)" title="Pause and decode this frame without lossy preview compression">Exact still</button><button type="button" data-ds-retry hidden onclick="denoiseWorkspaceStill.reconcile(true)">Retry exact still</button>' : ''}
-          ${reviewZoomControlsHtml('denoiseCompareZoomControls', 'denoiseCompareSetZoom', 'denoiseCompareFit',st.key === 'denoise')}
+          <span class="denoise-compare-info" ${shared ? 'data-ds-quality' : ''} title="${shared ? 'Frame-locked playback is compressed. Exact still decodes the same frame without lossy preview compression, in these viewports.' : 'Browser synchronization is approximate.'}">${shared ? 'Frame-locked · compressed display' : 'Preview · approximate sync'}</span>
+          ${shared ? '<button type="button" data-ds-exact aria-pressed="false" onclick="denoiseWorkspaceSetExact(!denoiseWorkspaceExact)" title="Pause and decode this frame without lossy preview compression">Exact still</button><button type="button" data-ds-retry hidden onclick="denoiseWorkspaceStill.reconcile(true)">Retry exact still</button>' : ''}
+          ${reviewZoomControlsHtml('denoiseCompareZoomControls', 'denoiseCompareSetZoom', 'denoiseCompareFit',shared)}
           <div class="denoise-compare-transport" role="group" aria-label="Comparison playback">
             <button type="button" onclick="denoiseCompareStep(-10)" title="Back 10 frames" aria-label="Back 10 frames">${denoiseCompareTransportIcon('previous10')}</button>
             <button type="button" onclick="denoiseCompareStep(-1)" title="Previous frame" aria-label="Previous frame">${denoiseCompareTransportIcon('previous')}</button>
@@ -288,7 +309,7 @@ function drawDenoise(st, settings, expected, progress) {
           </div>
         </div>
         <details class="denoise-preview-settings"><summary>Preview settings</summary>
-        ${st.key !== 'denoise' ? `
+        ${!shared ? `
         <div class="denoise-compare-toolbar">
           <label>Start time (s) <input id="denoiseCompareStart" type="number" min="0" max="360000" step="0.1" value="${denoiseCompareStart}"></label>
           <label>Clip duration <select id="denoiseCompareLength">
@@ -302,11 +323,11 @@ function drawDenoise(st, settings, expected, progress) {
           </select></label>` : ''}
         </div>
         ` : '<p class="shot-empty">Full processing input. Internal caching never limits the timeline. Original and result pixels are compared before display compression.</p>'}
-        ${st.key === 'denoise' ? denoiseCompareDisplayHtml() : ''}
-        ${st.key === 'denoise' ? '<label class="denoise-time-jump">Position (s) <input data-dp-jump type="number" min="0" step="0.001" value="0" onchange="denoiseCompareSeek(this.value)"></label>' : ''}
+        ${shared ? denoiseCompareDisplayHtml() : ''}
+        ${shared ? '<label class="denoise-time-jump">Position (s) <input data-dp-jump type="number" min="0" step="0.001" value="0" onchange="denoiseCompareSeek(this.value)"></label>' : ''}
         </details>
         <p class="review-zoom-hint">Drag image to pan · Scroll to zoom · 1:1 maps source pixels to display pixels · Percent is relative to Fit.</p>
-        ${st.key === 'denoise' ? `<div class="denoise-compact-rail">
+        ${shared ? `<div class="denoise-compact-rail">
           <div class="denoise-compact-rail-heading"><strong>Frame changes</strong>
             <span data-dc-chart-variant>Choose a result to inspect.</span>
             <output data-dr-chart-status role="status">Choose a finished variant.</output>
@@ -325,7 +346,7 @@ function drawDenoise(st, settings, expected, progress) {
   bindStageFields(st.key);
   showCommand(st.key);
   renderDenoiseComparePlayers(candidates);
-  if (st.key === 'denoise') {
+  if (shared) {
     denoiseReviewStart();
     denoiseMatrixUpdateUi();
     updateDenoiseMatrixStatus();
@@ -333,6 +354,7 @@ function drawDenoise(st, settings, expected, progress) {
 }
 
 function denoiseMatrixHtml() {
+  if(comparisonStageKey()==='deflicker') return deflickerPickerHtml();
   const matrix = state.denoise_matrix || {};
   denoiseMatrixRenderedReady = Number(matrix.ready || 0);
   const count = denoiseMatrixRenderedReady;
@@ -377,20 +399,7 @@ function denoiseMatrixHtml() {
       <button type="button" class="denoise-off-option ${stage.method === 'off' ? 'is-current' : ''}" onclick="denoiseMatrixUseOff()" ${busy ? 'disabled' : ''} aria-pressed="${stage.method === 'off'}">
         Pipeline: use unchanged source
       </button>
-      <div class="denoise-selected-variant" data-denoise-selected aria-live="polite">
-        <div class="denoise-selected-main">
-          <strong class="denoise-selected-name" data-dm-selected-label>${selectedLabel}</strong>
-          <span class="denoise-selected-state" data-dm-selected-state></span>
-        </div>
-        <div class="denoise-selected-meta" data-dm-selected-meta></div>
-        <div class="denoise-selected-output" data-dm-selected-output></div>
-        <div class="denoise-selected-actions">
-          <button type="button" class="primary" id="denoiseUseVariant" onclick="denoiseMatrixUseSelected()" ${busy ? 'disabled' : ''}>Use for pipeline</button>
-          <button type="button" id="denoiseCopyVariant" onclick="denoiseMatrixCopySelected()" ${busy ? 'disabled' : ''}>Copy settings</button>
-        </div>
-        <small class="denoise-selected-stage">Selected for pipeline: <strong data-dm-stage-output>${stageLabel}</strong></small>
-        <output class="denoise-selected-notice" data-dm-notice role="status"></output>
-      </div>
+      ${comparisonSelectedHtml(selectedLabel,stageLabel,busy)}
       <details class="denoise-batch-export">
         <summary>Batch export · ${count}/9 rendered</summary>
         <p>Render all nine variants at once, reuse matching signatures, then export frame grids and pixel differences as a ZIP.</p>
@@ -410,17 +419,28 @@ function denoiseMatrixHtml() {
     </section>`;
 }
 
+function comparisonSelectedHtml(selectedLabel,stageLabel,busy) {
+  return `<div class="denoise-selected-variant" data-denoise-selected aria-live="polite">
+    <div class="denoise-selected-main"><strong class="denoise-selected-name" data-dm-selected-label>${esc(selectedLabel)}</strong><span class="denoise-selected-state" data-dm-selected-state></span></div>
+    <div class="denoise-selected-meta" data-dm-selected-meta></div><div class="denoise-selected-output" data-dm-selected-output></div>
+    <div class="denoise-selected-actions"><button type="button" class="primary" id="denoiseUseVariant" onclick="denoiseMatrixUseSelected()" ${busy ? 'disabled' : ''}>Use for pipeline</button>
+      <button type="button" id="denoiseCopyVariant" onclick="denoiseMatrixCopySelected()" ${busy ? 'disabled' : ''}>Copy settings</button></div>
+    <small class="denoise-selected-stage">Selected for pipeline: <strong data-dm-stage-output>${esc(stageLabel)}</strong></small><output class="denoise-selected-notice" data-dm-notice role="status"></output>
+  </div>`;
+}
+
 function denoiseMatrixCellHtml(method, preset, selected) {
   const ready = denoiseVariantReady(method.key, preset.key);
   const isSelected = denoiseWorkspaceHas(method.key, preset.key);
   const pipeline = denoiseSameVariant({method:method.key,preset:preset.key}, denoiseStageVariant());
-  const label = `${method.label} · ${preset.label}`;
+  const label = denoiseVariantLabelFor(method.key,preset.key);
   const stateLabel = ready ? 'ready' : 'not rendered';
   return `<button type="button" role="checkbox" aria-checked="${isSelected}" aria-label="${label}, ${stateLabel}${pipeline ? ', selected for pipeline' : ''}"
     class="denoise-variant-cell ${ready ? 'is-ready' : 'is-missing'} ${isSelected ? 'is-selected' : ''}"
     data-denoise-cell data-method="${method.key}" data-preset="${preset.key}"
     onclick="denoiseMatrixSelect('${method.key}','${preset.key}')">
     <svg class="denoise-selection-check" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 8 3 3 7-7"/></svg>
+    ${comparisonStageKey()==='deflicker' ? `<strong>${esc(method.label)}</strong>` : ''}
     <span class="denoise-variant-cell-state">${ready ? 'Ready' : 'Not rendered'}</span>
     <span class="denoise-variant-pipeline" ${pipeline ? '' : 'hidden'}>Pipeline</span>
   </button>`;
@@ -435,8 +455,8 @@ function denoiseMatrixKeyboard(event) {
   let next = -1;
   if (event.key === 'ArrowRight') next = index + 1;
   else if (event.key === 'ArrowLeft') next = index - 1;
-  else if (event.key === 'ArrowDown') next = index + 3;
-  else if (event.key === 'ArrowUp') next = index - 3;
+  else if (event.key === 'ArrowDown') next = index + (comparisonStageKey()==='deflicker' ? 1 : 3);
+  else if (event.key === 'ArrowUp') next = index - (comparisonStageKey()==='deflicker' ? 1 : 3);
   else if (event.key === 'Home') next = 0;
   else if (event.key === 'End') next = cells.length - 1;
   if (next >= 0 && next < cells.length) {
@@ -525,10 +545,16 @@ function denoiseMatrixUpdateUi() {
     if (badge) badge.hidden = !pipeline;
   });
   denoiseWorkspaceUpdateSelectionUi();
+  const analysis=document.querySelector('[data-df-analysis]');
+  if(analysis) {
+    const gains=denoiseMatrixState().variants?.find(item=>item.method===selected.method)?.analysis;
+    analysis.hidden=!gains;
+    analysis.textContent=gains ? `Applied ARP gains: ${gains.corrected}/${gains.frames} frames · maximum ${gains.max_gain_change_pct}% · mean ${gains.mean_abs_gain_change_pct}% · ${gains.cut_boundaries} detected cuts. Estimates, not proof of improved restoration.` : '';
+  }
 }
 
 function denoiseMatrixSelect(method, preset) {
-  if (!DENOISE_METHODS.some(x => x.key === method) || !DENOISE_PRESETS.some(x => x.key === preset)) return;
+  if (!denoiseMethods().some(x => x.key === method) || !denoisePresets().some(x => x.key === preset)) return;
   denoiseWorkspaceToggle(method, preset);
 }
 
@@ -546,7 +572,8 @@ async function denoiseMatrixUseSelected(selected = denoiseSelectedVariant()) {
   const action = document.getElementById('denoiseUseVariant');
   if (action) action.disabled = true;
   try {
-    const result = await postJson('/api/settings', {stage:'denoise', values:{method:selected.method, preset:selected.preset || 'gentle', force:'false'}});
+    const values=comparisonStageKey()==='deflicker' ? {method:selected.method,force:'false'} : {method:selected.method,preset:selected.preset || 'gentle',force:'false'};
+    const result = await postJson('/api/settings', {stage:comparisonStageKey(), values});
     if (!result?.ok) throw new Error(result?.error || 'Settings could not be saved.');
     const force = document.querySelector('[data-field="force"]');
     if (force) force.checked = false;
@@ -580,16 +607,16 @@ async function denoiseMatrixCopySelected() {
 }
 
 function updateDenoiseMatrixStatus() {
-  if (active !== 'denoise') return;
-  const matrix = state?.denoise_matrix || {};
+  if (!isRestorationComparison()) return;
+  const matrix = denoiseMatrixState();
   const count = Number(matrix.ready || 0);
   const status = document.getElementById('denoiseMatrixStatus');
   if (status) {
-    const progress = (state?.phase_progress?.stages || []).find(s => s.key === 'denoise');
-    const running = state.running && (state.running_stage === 'Remove Noise Batch' || state.running_stage === 'Remove Noise Grid');
-    status.textContent = `${count}/9 rendered${running && progress ? ' · ' + progress.label : ''}`;
+    const progress = (state?.phase_progress?.stages || []).find(s => s.key === comparisonStageKey());
+    const running = state.running && matrix.running;
+    status.textContent = `${count}/${denoiseWorkspaceVariants.length} rendered${running && progress ? ' · ' + progress.label : ''}`;
   }
-  const progress = (state?.phase_progress?.stages || []).find(s => s.key === 'denoise');
+  const progress = (state?.phase_progress?.stages || []).find(s => s.key === comparisonStageKey());
   const sidebar = document.querySelector('.denoise-settings-sidebar');
   if (sidebar && progress) {
     const percent = Math.max(0,Math.min(100,Number(progress.percent) || 0));
@@ -691,7 +718,7 @@ function denoiseCompareDisplayHtml() {
 }
 
 function renderDenoiseComparePlayers(candidates) {
-  if (active === 'denoise') {
+  if (isRestorationComparison()) {
     denoiseWorkspaceRender(candidates);
     return;
   }
@@ -772,18 +799,18 @@ function denoiseCompareChoose(index, path) {
   if (!candidates.some(v => v.path === path)) return;
   denoiseComparePaths[index] = path;
   renderDenoiseComparePlayers(candidates);
-  if (active === 'denoise' && index > 0 && path !== denoiseReviewVariant && denoisePreviewIsFinal(path)) {
+  if (isRestorationComparison() && index > 0 && path !== denoiseReviewVariant && denoisePreviewIsFinal(path)) {
     denoiseMatrixSyncFromPath(path);
   }
 }
 
 function denoiseCompareDiffLabel(index) {
-  if (active === 'denoise') return 'Original / ' + denoiseVariantLabel(denoiseComparePaths[index]);
+  if (isRestorationComparison()) return 'Original / ' + denoiseVariantLabel(denoiseComparePaths[index]);
   return Number(index) === 2 ? 'A–C' : 'A–B';
 }
 
 function denoiseCompareDiffVisible(index) {
-  if (active === 'denoise') return denoiseWorkspaceSlotVisible(index);
+  if (isRestorationComparison()) return denoiseWorkspaceSlotVisible(index);
   return Number(index) === 2 ? denoiseCompareLayout !== 'ab' : denoiseCompareLayout !== 'ac';
 }
 
@@ -802,7 +829,7 @@ function denoiseCompareSetDiffContrast(value) {
 }
 
 function denoiseCompareResetDiffCaches() {
-  if (typeof active === 'string' && active === 'denoise' && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
+  if (isRestorationComparison() && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
     denoiseWorkspacePlayback.reconcile();
     denoiseWorkspaceUpdateModes();
     return;
@@ -1108,9 +1135,10 @@ function denoiseCompareWirePan() {
   denoiseCompareZoomView = createReviewZoom(host,
     '.denoise-compare-video-wrap, .denoise-compare-diff-frame',
     document.getElementById('denoiseCompareZoomControls'),
-    {zoom:denoiseCompareZoom, ...denoiseComparePan, native:denoiseCompareNative,grid:denoiseCompareZoomView?.state.grid || false}, value => {
+    {zoom:denoiseCompareZoom, ...denoiseComparePan, native:denoiseCompareNative,grid:denoiseCompareGrid}, value => {
       denoiseCompareZoom = value.zoom;
       denoiseCompareNative = Boolean(value.native);
+      denoiseCompareGrid = Boolean(value.grid);
       denoiseComparePan = {x:value.x, y:value.y};
       if(typeof denoiseWorkspaceStill !== 'undefined') denoiseWorkspaceStill?.updateWipes();
     });
@@ -1187,7 +1215,7 @@ function denoiseCompareSyncPlayback() {
 }
 
 function denoiseCompareSeek(value) {
-  if (typeof active === 'string' && active === 'denoise' && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
+  if (isRestorationComparison() && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
     void denoiseWorkspacePlayback.seekSeconds(value);
     return;
   }
@@ -1217,7 +1245,7 @@ function denoiseCompareSeek(value) {
 }
 
 function denoiseComparePlayPause() {
-  if (typeof active === 'string' && active === 'denoise' && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
+  if (isRestorationComparison() && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
     denoiseWorkspacePlayback.toggle();
     return;
   }
@@ -1246,7 +1274,7 @@ function denoiseComparePlayPause() {
 }
 
 function denoiseCompareStep(frames) {
-  if (typeof active === 'string' && active === 'denoise' && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
+  if (isRestorationComparison() && typeof denoiseWorkspacePlayback !== 'undefined' && denoiseWorkspacePlayback) {
     void denoiseWorkspacePlayback.step(frames);
     return;
   }

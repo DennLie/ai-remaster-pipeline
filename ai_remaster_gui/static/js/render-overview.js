@@ -3,6 +3,7 @@ function drawGlobal() {
   const source = global.source || '';
   const commercialGuard = global.commercial_model_guard === 'true';
   const denoise = global.denoise === 'true';
+  const deflicker = global.deflicker === 'true';
   const cleanup = global.cleanup === 'true';
   const stabilize = global.stabilize === 'true';
   const detail = global.detail === 'true';
@@ -10,7 +11,7 @@ function drawGlobal() {
   const colorize = global.colorize !== 'false';
   const upscale = global.upscale === 'true';
   const soundtrack = global.add_soundtrack === 'true';
-  const noProcessing = !denoise && !cleanup && !stabilize && !detail && !expandOutpaint && !colorize && !upscale && !soundtrack;
+  const noProcessing = !denoise && !deflicker && !cleanup && !stabilize && !detail && !expandOutpaint && !colorize && !upscale && !soundtrack;
   const analysis = state.source_analysis || {};
   const sourceTone = source && !analysis.ready
     ? (analysis.message || 'Analyzing source material')
@@ -56,6 +57,7 @@ function drawGlobal() {
   document.getElementById('globalSource').addEventListener('change', saveGlobal);
   document.getElementById('globalCommercialModelGuard').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDenoise').addEventListener('change', saveGlobalPipelineOptions);
+  document.getElementById('globalDeflicker').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalCleanup').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalStabilize').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDetail').addEventListener('change', saveGlobalPipelineOptions);
@@ -75,6 +77,13 @@ function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint,
         icon: 'cleanup',
         title: 'Remove Noise',
         body: 'Optional independent denoising with Off, hqdn3d, NLMeans or BM3D before Clean Up. Choose separate presets and retain different versions for comparison.',
+      })}
+      ${workflowOptionHtml({
+        id: 'globalDeflicker',
+        checked: state.settings.global.deflicker === 'true',
+        icon: 'cleanup',
+        title: 'Light Deflicker',
+        body: 'Optional model-free brightness correction after Remove Noise and before Clean Up. Compare ARP, FFmpeg and experimental Localized methods without changing the pipeline selection.',
       })}
       ${workflowOptionHtml({
         id: 'globalCleanup',

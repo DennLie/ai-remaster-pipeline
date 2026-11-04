@@ -66,6 +66,7 @@ EXPECTED_POST_ROUTES = {
     "/api/project-load", "/api/cache-delete",
     "/api/denoise-batch", "/api/denoise-grid", "/api/denoise-diff",
     "/api/denoise-playback",
+    "/api/deflicker-batch",
 }
 
 
@@ -132,13 +133,30 @@ class HelperBehaviourTests(unittest.TestCase):
         handler = _Handler('/api/denoise-playback', {'variant': 'ready.mkv', 'frame': 11400, 'mode': 'rgb', 'contrast': 64})
         with mock.patch.object(denoise_playback, 'playback_segment', return_value={'url': 'cached.mp4'}) as render:
             handler.do_POST()
-        render.assert_called_once_with(state.APP, 'ready.mkv', 11400, 'rgb', 64)
+        render.assert_called_once_with(state.APP, 'ready.mkv', 11400, 'rgb', 64, 'denoise')
         self.assertEqual(handler.responses['json'], {'ok': True, 'url': 'cached.mp4'})
 
     def test_denoise_playback_video_rejects_unknown_tokens(self) -> None:
         handler = _Handler('/api/denoise-playback-video?token=../../unrelated.mp4')
         handler.do_GET()
         self.assertEqual(handler.responses['error'], 404)
+
+    def test_shared_inspector_chart_and_playback_forward_deflicker_stage(self) -> None:
+        from ai_remaster_gui import denoise_playback
+        for route, symbol, args in (("/api/denoise-inspector?variant=ready.mkv&frame=7&stage=deflicker", "inspect_denoise", (state.APP, "ready.mkv", 7, "deflicker")),
+                                    ("/api/denoise-frame-differences?variant=ready.mkv&stage=deflicker", "denoise_frame_differences", (state.APP, "ready.mkv", "deflicker"))):
+            with self.subTest(route=route), mock.patch.object(http_handler, symbol, return_value={}) as call:
+                _Handler(route).do_GET()
+                call.assert_called_once_with(*args)
+        with mock.patch.object(denoise_playback, "playback_segment", return_value={}) as call:
+            _Handler('/api/denoise-playback', {'variant':'ready.mkv','frame':7,'stage':'deflicker'}).do_POST()
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'deflicker')
+        state.APP.run_deflicker_batch = mock.Mock(return_value=(True, "started"))
+        rows = [{"method":"ffmpeg_median", "preset":"settings"}]
+        handler = _Handler('/api/deflicker-batch', {'variants':rows})
+        handler.do_POST()
+        state.APP.run_deflicker_batch.assert_called_once_with(rows)
+        self.assertEqual(handler.responses['json']['state'], {'_view':'deflicker'})
 
     def test_send_result_success_merges_dict_and_state(self) -> None:
         with mock.patch.object(http_handler, "merge_manifest_shots", return_value={"merged": 2}):

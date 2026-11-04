@@ -23,8 +23,8 @@ function denoiseReviewVariants(candidates) {
 function denoiseReviewSyncSelection(selected) {
   const path=selected && selected.method!=='off' && denoiseVariantReady(selected.method,selected.preset)
     ? denoiseVariantPath(selected.method,selected.preset) : '';
-  const row=state?.denoise_matrix?.variants?.find(item=>denoiseSameVariant(item,selected));
-  const key=JSON.stringify([path,state?.denoise_matrix?.source_revision,row?.revision]);
+  const row=denoiseMatrixState().variants?.find(item=>denoiseSameVariant(item,selected));
+  const key=JSON.stringify([comparisonStageKey(),path,denoiseMatrixState().source_revision,row?.revision]);
   if(key===denoiseReviewChartKey) return;
   denoiseReviewChartKey=key;
   denoiseReviewVariant=path;
@@ -98,7 +98,7 @@ async function denoiseReviewLoadChart(path) {
   if(!chart) return;
   const status=document.querySelector('[data-dr-chart-status]');
   try {
-    const response=await fetch('/api/denoise-frame-differences?variant='+encodeURIComponent(path),{cache:'no-store'});
+    const response=await fetch('/api/denoise-frame-differences?variant='+encodeURIComponent(path)+'&stage='+comparisonStageKey(),{cache:'no-store'});
     if(!response.ok) throw new Error('The chart endpoint answered with HTTP '+response.status+'.');
     const report=await response.json();
     if(!report?.ok) throw new Error(report?.error || 'The chart is unavailable.');
@@ -222,7 +222,7 @@ function createDenoiseStillReview(host,options) {
       let reference=null;
       for(const slot of request.slots) {
         if(!current(request.ticket)) return;
-        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(options.path(slot))+'&frame='+request.frame,{cache:'no-store'});
+        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(options.path(slot))+'&frame='+request.frame+(options.stage?.()==='deflicker' ? '&stage=deflicker' : ''),{cache:'no-store'});
         if(!response.ok) throw new Error('The inspection endpoint answered with HTTP '+response.status+'.');
         const data=await response.json();
         if(!data?.ok) throw new Error(data?.error || 'The exact frame is unavailable.');

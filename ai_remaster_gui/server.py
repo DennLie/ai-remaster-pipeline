@@ -54,6 +54,7 @@ from .denoise_matrix import VARIANTS as DENOISE_MATRIX_VARIANTS, parse_frames as
 from .denoise_review import review_pair as denoise_review_pair
 from .denoise_diff_video import render_diff_preview as render_denoise_diff_preview
 from .frame_inspector import _metadata as denoise_frame_metadata
+from . import deflicker as deflicker_stage
 from .paths import even_int, format_timecode, is_unfinished_media_artifact, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
 from .power import keep_awake, release_keep_awake
 from .naming import manifest_for_outpainted
@@ -505,6 +506,9 @@ class PipelineApp:
     def cleanup_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "cleanup")
 
+    def deflicker_enabled(self) -> bool:
+        return is_true(self.settings.get("global", {}), "deflicker")
+
     def stabilize_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "stabilize")
 
@@ -525,6 +529,8 @@ class PipelineApp:
         stages: list[Stage] = []
         if self.denoise_enabled():
             stages.append(by_key['denoise'])
+        if self.deflicker_enabled():
+            stages.append(by_key['deflicker'])
         if self.cleanup_enabled():
             stages.append(by_key["cleanup"])
         if self.stabilize_enabled():
@@ -712,12 +718,12 @@ class PipelineApp:
         destination = (ROOT / "output" / "denoise_comparisons").resolve()
         return path if path.parent == destination and path.suffix.lower() == ".zip" else None
 
-    def _start_denoise_matrix(self, title: str, command: list[str]) -> tuple[bool, str]:
+    def _start_denoise_matrix(self, title: str, command: list[str], stage_key: str = "denoise") -> tuple[bool, str]:
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
             self.running_stage = title
-            self.running_stage_key = "denoise"
+            self.running_stage_key = stage_key
             self.run_started_at = time.time()
             self.log.append("> " + redact_command_for_log(command))
             try:
@@ -729,19 +735,89 @@ class PipelineApp:
                 self.run_started_at = 0.0
                 self.log.append(f"Could not start {title}: {exc}")
                 return False, str(exc)
-            threading.Thread(target=self._collect_output, args=("denoise",), daemon=True).start()
+            threading.Thread(target=self._collect_output, args=(stage_key,), daemon=True).start()
         return True, f"Started {title}"
 
     def denoised_source_for_downstream(self) -> str:
         return self.denoise_output() if self.denoise_enabled() else pipeline_source_text(self.settings)
 
-    def cleanup_output(self) -> str:
+    def deflicker_output(self) -> str:
+        return deflicker_stage.output_for(self.denoised_source_for_downstream(), self.settings.get("deflicker", {}),
+                                         self.settings.get("cloud", {}).get("intermediate_format", "high"))
+
+    def deflickered_source_for_downstream(self) -> str:
+        return self.deflicker_output() if self.deflicker_enabled() else self.denoised_source_for_downstream()
+
+    def deflicker_output_ready(self) -> bool:
+        try:
+            denoise_review_pair(self, self.deflicker_output(), "deflicker")
+            return True
+        except (OSError, ValueError, TypeError):
+            return False
+
+    def deflicker_matrix_state(self) -> dict:
+        from .denoise_review import review_pair
         source = self.denoised_source_for_downstream()
+        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+        values = self.settings.get("deflicker", {})
+        ready = []
+        revision = ""
+        if source:
+            try:
+                stat = resolve_video_source(source).stat()
+                revision = f"{stat.st_mtime_ns}-{stat.st_size}"
+            except OSError:
+                pass
+            for method in deflicker_stage.METHODS:
+                try:
+                    output = deflicker_stage.output_for(source, {**values, "method": method}, profile)
+                    _, path = review_pair(self, output, "deflicker")
+                    stat = path.stat()
+                    item = {"method": method, "preset": "settings", "output": output,
+                            "revision": f"{stat.st_mtime_ns}-{stat.st_size}"}
+                    if method == "arp":
+                        diagnostic = cleanup_diagnostics_for(ROOT, resolve_video_source(source), path,
+                            {"light_deflicker": "true", "deflicker_method": "arp", "deflicker_strength": values.get("strength", ".65"),
+                             "deflicker_max_correction": values.get("max_correction", ".08")},
+                            work_directory=deflicker_stage.backend.work_directory(resolve_video_source(source), {**values, "method": method}, profile))
+                        item["analysis"] = diagnostic["deflicker"]
+                    ready.append(item)
+                except (OSError, ValueError, KeyError, TypeError):
+                    continue
+        return {"source": source, "source_revision": revision, "variants": ready, "ready": len(ready),
+                "total": len(deflicker_stage.METHODS), "running": self.running_stage_key == "deflicker"}
+
+    def run_deflicker_batch(self, variants: list[dict] | None = None) -> tuple[bool, str]:
+        if not self.deflicker_enabled():
+            return False, "Enable Light Deflicker on Overview first."
+        if self.quitting:
+            return False, "ARP is shutting down."
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                return False, "A command is already running."
+        rows = variants if variants is not None else [{"method": method, "preset": "settings"} for method in deflicker_stage.METHODS]
+        try:
+            deflicker_stage.validate_variants(rows)
+            self.ensure_pipeline_source()
+            source = resolve_video_source(self.denoised_source_for_downstream())
+            if not source.is_file():
+                raise ValueError("Run Remove Noise first so Light Deflicker has its processing input.")
+            values = self.settings.get("deflicker", {})
+            deflicker_stage.validate_requests(source, rows, values)
+        except (OSError, ValueError, TypeError) as exc:
+            return False, str(exc)
+        command = [sys.executable, "-u", "-m", "ai_remaster_gui.deflicker", "--source", str(source),
+                   "--profile", canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format")),
+                   "--variants", json.dumps(rows), "--settings", json.dumps(values)]
+        return self._start_denoise_matrix("Light Deflicker Batch", command, "deflicker")
+
+    def cleanup_output(self) -> str:
+        source = self.deflickered_source_for_downstream()
         return cleanup_output_for(source, self.settings.get("cleanup", {})) if source else ""
 
     def cleaned_source_for_downstream(self) -> str:
         """Expected immediate output of Clean Up, or the selected source when it is disabled."""
-        return self.cleanup_output() if self.cleanup_enabled() else self.denoised_source_for_downstream()
+        return self.cleanup_output() if self.cleanup_enabled() else self.deflickered_source_for_downstream()
 
     def stabilization_output(self) -> str:
         source = self.cleaned_source_for_downstream()
@@ -936,6 +1012,14 @@ class PipelineApp:
                 label = f"{'Grid' if grid_mode else 'Batch'} {current}/{total}: {item_label}"
             else:
                 label = "Preparing grid" if grid_mode else "Preparing 9 denoise variants"
+        elif self.running_stage_key == "deflicker":
+            label = "Preparing Light Deflicker"
+            for line in log_text.splitlines():
+                match = re.search(r"Light Deflicker batch (complete )?(\d+)/(\d+): (.*)", line)
+                if match:
+                    current, total = int(match[2]), int(match[3])
+                    percent = min(99, int(100 * (current if match[1] else current - 1) / max(total, 1)))
+                    label = f"Light Deflicker {current}/{total}: {match[4]}"
         elif self.running_stage_key == "stabilize":
             label = "Analysing shot motion"
             total = first_int_after(log_text, "detected ")
@@ -1259,6 +1343,7 @@ class PipelineApp:
                 "stabilization_comparison": self.stabilization_comparison_state(),
                 "detail_comparison": self.detail_comparison_state(),
                 "denoise_matrix": self.denoise_matrix_state() if view == "denoise" else {},
+                "deflicker_matrix": self.deflicker_matrix_state() if view == "deflicker" else {},
                 "reference_luminance": {"enabled": False, "plan": [], "matched_shots": 0},
                 "upscale_preview": self.upscale_preview_state(),
                 "upscale_auto_target": self.upscale_auto_target_state() if view == "upscale" else "",
@@ -1315,6 +1400,11 @@ class PipelineApp:
         return payload
 
     def update_settings(self, stage: str, values: dict[str, str]) -> None:
+        if stage == "deflicker":
+            proposed = {**self.settings.get("deflicker", {}), **values}
+            deflicker_stage.backend.options(proposed)
+            for method in ("arp", "ffmpeg_median"):
+                deflicker_stage.backend.options({**proposed, "method": method})
         previous_source = self.settings.get("global", {}).get("source", "") if stage == "global" else ""
         if stage == "global" and "source" in values:
             if str(values.get("source", "")) != previous_source and "source_images" not in values:
@@ -1365,8 +1455,10 @@ class PipelineApp:
             self.log.append(f"Loading source material: {values.get('source')}")
             self.clear_derived_stage_inputs()
             self.hydrate_stage_inputs("global")
-        elif stage == "global" and ({"denoise", "cleanup", "stabilize", "detail", "colorize", "expand_outpaint", "upscale"} & set(values)):
+        elif stage == "global" and ({"denoise", "deflicker", "cleanup", "stabilize", "detail", "colorize", "expand_outpaint", "upscale"} & set(values)):
             self.hydrate_stage_inputs("global")
+        elif stage in {"denoise", "deflicker"}:
+            self.hydrate_stage_inputs(stage)
         elif stage == "colour" and "method" in values:
             if values.get("method") in {"deepexemplar", "colormnet", "cmnet2", "ltx", "openai"}:
                 self.settings.setdefault("recomp", {})["colorization_method"] = str(values["method"])
@@ -1713,6 +1805,7 @@ class PipelineApp:
     def clear_derived_stage_inputs(self) -> None:
         for stage_key, keys in {
             "denoise": ("output",),
+            "deflicker": ("output",),
             "cleanup": ("output",),
             "stabilize": ("input_video", "output"),
             "detail": ("output",),
@@ -1742,10 +1835,13 @@ class PipelineApp:
         clean_expected = resolve(clean_expected_text) if clean_expected_text else None
         clean_ready = bool(clean_expected and clean_expected.exists())
         self.settings.setdefault("cleanup", {})["output"] = clean_expected_text
+        deflicker_expected_text = self.deflicker_output()
+        self.settings.setdefault("deflicker", {})["output"] = deflicker_expected_text
+        deflickered_text = (deflicker_expected_text if self.deflicker_output_ready() else "") if self.deflicker_enabled() else denoised_text
         cleaned_text = (
             rel(clean_expected) if self.cleanup_enabled() and clean_ready
             else "" if self.cleanup_enabled()
-            else denoised_text
+            else deflickered_text
         )
         stabilization_expected_text = self.stabilization_output()
         stabilization_expected = resolve(stabilization_expected_text) if stabilization_expected_text else None
@@ -1864,6 +1960,9 @@ class PipelineApp:
                 return []
             output = self.denoise_output()
             return [output] if output else []
+        if stage_key == "deflicker":
+            output = self.deflicker_output() if self.deflicker_enabled() else ""
+            return [output] if output else []
         if stage_key == "cleanup":
             if not self.cleanup_enabled():
                 return []
@@ -1916,6 +2015,8 @@ class PipelineApp:
         return []
 
     def existing_outputs(self, stage_key: str) -> list[str]:
+        if stage_key == "deflicker" and not self.deflicker_output_ready():
+            return []
         return [path for path in self.expected_outputs(stage_key) if path and resolve(path).exists()]
 
     def existing_shot_list(self) -> str:
@@ -1974,6 +2075,7 @@ class PipelineApp:
     def _stage_command_builders(self) -> dict:
         return {
             'denoise': self._denoise_command,
+            'deflicker': self._deflicker_command,
             "cleanup": self._cleanup_command,
             "stabilize": self._stabilize_command,
             "detail": self._detail_command,
@@ -2042,21 +2144,22 @@ class PipelineApp:
                 '--preset', values.get('preset', 'gentle'),
                 '--intermediate-profile', profile]
 
-    def _cleanup_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
+    def _deflicker_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
         source = self.denoised_source_for_downstream()
+        profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
+        cmd = [sys.executable, "-u", str(SCRIPTS / "deflicker_video.py"), "--source", source,
+               "--output", deflicker_stage.output_for(source, values, profile), "--intermediate-profile", profile]
+        add_value_args(cmd, values, ("method", "window", "strength", "max_correction"))
+        for key in ("localized_confirm_single_shot", "localized_confirm_film_experiment"):
+            if is_true(values, key):
+                cmd.append("--" + key.replace("_", "-"))
+        return cmd
+
+    def _cleanup_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
+        source = self.deflickered_source_for_downstream()
         output = cleanup_output_for(source, values) if source else ""
         cmd = [sys.executable, "-u", str(SCRIPTS / "cleanup_video.py"), "--source", source, "--output", output]
         cmd.extend(["--intermediate-profile", canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))])
-        if is_true(values, "light_deflicker"):
-            cmd.append("--light-deflicker")
-            if values.get("deflicker_method") == "localized_research" and is_true(
-                values, "localized_confirm_single_shot"
-            ):
-                cmd.append("--localized-confirm-single-shot")
-            if values.get("deflicker_method") == "localized_stream" and is_true(
-                values, "localized_confirm_film_experiment"
-            ):
-                cmd.append("--localized-confirm-film-experiment")
         if is_true(values, "detect_defects"):
             cmd.append("--detect-defects")
         if is_true(values, "ai_descratch"):
@@ -2071,7 +2174,7 @@ class PipelineApp:
             cmd,
             values,
             (
-                "repair_device", "deflicker_method", "deflicker_window", "deflicker_strength", "deflicker_max_correction", "defect_sensitivity", "defect_mask_height", "scratch_sensitivity", "scratch_mask_dilate",
+                "repair_device", "defect_sensitivity", "defect_mask_height", "scratch_sensitivity", "scratch_mask_dilate",
                 "ai_descratch_height", "ai_chunk_frames", "dearchive_height", "chunk_seconds",
                 "overlap_frames", "source_fidelity", "prompt", "negative_prompt",
                 "lora_strength", "seed",
@@ -2393,6 +2496,8 @@ class PipelineApp:
             return False, "ARP is shutting down."
         if stage_key == 'denoise' and not self.denoise_enabled():
             return False, 'Remove Noise is disabled on the Overview tab.'
+        if stage_key == 'deflicker' and not self.deflicker_enabled():
+            return False, 'Light Deflicker is disabled on the Overview tab.'
         if stage_key == "cleanup" and not self.cleanup_enabled():
             return False, "Clean Up is disabled on the Overview tab."
         if stage_key == "stabilize" and not self.stabilize_enabled():
@@ -2416,15 +2521,18 @@ class PipelineApp:
             denoised_output = self.denoise_output()
             if not denoised_output or not resolve(denoised_output).exists():
                 return False, 'Run Remove Noise first so this stage has its upstream video.'
-        if stage_key not in {'denoise', 'cleanup'} and self.cleanup_enabled():
+        if stage_key not in {'denoise', 'deflicker'} and self.deflicker_enabled():
+            if not self.deflicker_output_ready():
+                return False, "Run Light Deflicker first so this stage has its upstream video."
+        if stage_key not in {'denoise', 'deflicker', 'cleanup'} and self.cleanup_enabled():
             clean_output = self.cleanup_output()
             if not clean_output or not resolve(clean_output).exists():
                 return False, "Run Clean Up first so this phase has its upstream video."
-        if stage_key not in {'denoise', "cleanup", "stabilize"} and self.stabilize_enabled():
+        if stage_key not in {'denoise', 'deflicker', "cleanup", "stabilize"} and self.stabilize_enabled():
             stabilized_output = self.stabilization_output()
             if not stabilized_output or not resolve(stabilized_output).exists():
                 return False, "Run Stabilization first so this phase has its upstream video."
-        if stage_key not in {"denoise", "cleanup", "stabilize", "detail"} and self.detail_enabled():
+        if stage_key not in {"denoise", "deflicker", "cleanup", "stabilize", "detail"} and self.detail_enabled():
             detailed_output = self.detail_output()
             if not detailed_output or not resolve(detailed_output).exists():
                 return False, "Run Detail Enhancement first so this stage has its upstream video."
@@ -2470,15 +2578,14 @@ class PipelineApp:
                     return False, warning
         values = self.settings[stage_key]
         if stage_key == "cleanup" and not (
-            is_true(values, "light_deflicker")
-            or is_true(values, "detect_defects")
+            is_true(values, "detect_defects")
             or is_true(values, "ai_descratch")
             or is_true(values, "devignette")
             or is_true(values, "dearchive", "true")
         ):
-            return False, "Select at least one Clean Up operation: Light Deflicker, Detect Defects, AI DeScratch, DeVignette, or Dearchive."
+            return False, "Select at least one Clean Up operation: Detect Defects, AI DeScratch, DeVignette, or Dearchive. Light Deflicker has its own stage."
         missing = [key for key in stage.required if not values.get(key)]
-        if stage_key in {'denoise', "cleanup", "stabilize", "detail", "outpaint"} and not self.settings.get("global", {}).get("source"):
+        if stage_key in {'denoise', "deflicker", "cleanup", "stabilize", "detail", "outpaint"} and not self.settings.get("global", {}).get("source"):
             missing = ["source material on the Global tab"]
         if stage_key == "recomp":
             if self.outpaint_enabled() and not values.get("outpainted_video"):
@@ -2505,6 +2612,12 @@ class PipelineApp:
             source_text = self.upscale_input_for()
             if not source_text or not resolve(source_text).exists():
                 return False, "Upscaling input is not available yet. Run Recomposition first when earlier phases are enabled."
+        if stage_key == "deflicker" and values.get("method", "arp") != "off":
+            try:
+                source = resolve_video_source(self.denoised_source_for_downstream())
+                deflicker_stage.validate_requests(source, [{"method": values.get("method", "arp"), "preset": "settings"}], values)
+            except (ValueError, OSError, TypeError) as exc:
+                return False, str(exc)
         uses_runpod = stage_uses_runpod(stage_key, values)
         needs_comfy = not uses_runpod and (
             stage_key in {"outpaint", "audio"}
@@ -2909,7 +3022,7 @@ class PipelineApp:
         return {"before": before, "after": after, "stale": "true" if stale else "false"}
 
     def cleanup_diagnostics_state(self) -> dict:
-        source = pipeline_source_text(self.settings)
+        source = self.deflickered_source_for_downstream()
         output = self.cleanup_output() if source else ""
         return cleanup_diagnostics_for(
             ROOT, resolve_video_source(source) if source else None,
@@ -2917,7 +3030,7 @@ class PipelineApp:
         )
 
     def cleanup_comparison_state(self) -> dict[str, str]:
-        source = pipeline_source_text(self.settings)
+        source = self.deflickered_source_for_downstream()
         output = self.cleanup_output() if source else ""
         exists = bool(source and output and resolve(source).exists() and resolve(output).exists())
         return {
@@ -2926,10 +3039,7 @@ class PipelineApp:
             "source_exists": "true" if source and resolve(source).exists() else "false",
             "exists": "true" if exists else "false",
             "title": "Clean Up Comparison",
-            "method": (
-                self.settings.get("cleanup", {}).get("deflicker_method", "arp")
-                if is_true(self.settings.get("cleanup", {}), "light_deflicker") else "off"
-            ),
+            "method": "off",
         }
 
     def stabilization_comparison_state(self) -> dict[str, str]:
@@ -2988,6 +3098,7 @@ class PipelineApp:
         soundtrack_source = self.soundtrack_source_for()
         soundtrack_output = soundtrack_output_for(soundtrack_source, self.settings.get("audio", {})) if (self.soundtrack_enabled() and soundtrack_source) else ""
         denoise_output = self.denoise_output() if self.denoise_enabled() else ''
+        deflicker_output = self.deflicker_output() if self.deflicker_enabled() else ''
         cleanup_output = self.cleanup_output() if self.cleanup_enabled() else ""
         stabilization_output = self.stabilization_output() if self.stabilize_enabled() else ""
         detail_output = self.detail_output() if self.detail_enabled() else ""
@@ -3003,6 +3114,8 @@ class PipelineApp:
             return {"path": stabilization_output, "kind": "stabilized", "label": "Stabilized output"}
         if cleanup_output and resolve(cleanup_output).exists():
             return {"path": cleanup_output, "kind": "cleanup", "label": "Clean Up output"}
+        if deflicker_output and self.deflicker_output_ready():
+            return {"path": deflicker_output, "kind": "deflickered", "label": "Light Deflicker output"}
         if denoise_output and resolve(denoise_output).exists():
             return {'path': denoise_output, 'kind': 'denoised', 'label': 'Remove Noise output'}
         if self.upscale_enabled() and upscale_output:
@@ -3017,6 +3130,8 @@ class PipelineApp:
             return {"path": stabilization_output, "kind": "stabilized_pending", "label": "Pending stabilized output"}
         if cleanup_output:
             return {"path": cleanup_output, "kind": "cleanup_pending", "label": "Pending Clean Up output"}
+        if deflicker_output:
+            return {"path": deflicker_output, "kind": "deflickered_pending", "label": "Pending Light Deflicker output"}
         if denoise_output:
             return {'path': denoise_output, 'kind': 'denoised_pending', 'label': 'Pending Remove Noise output'}
         return {"path": "", "kind": "", "label": ""}
@@ -3068,7 +3183,7 @@ class PipelineApp:
         return True, "Started upscale preview."
 
     def upscale_preview_clip_source(self, preview_seconds: float) -> tuple[Path, float, float, str]:
-        if not (self.denoise_enabled() or self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
+        if not (self.denoise_enabled() or self.deflicker_enabled() or self.cleanup_enabled() or self.outpaint_enabled() or self.colorize_enabled()):
             global_settings = self.settings.get("global", {})
             source_text = global_settings.get("source", "")
             source = resolve_video_source(source_text)
@@ -3607,11 +3722,7 @@ def cleanup_output_for(source_text: str, values: dict[str, str]) -> str:
         seed,
         source_fidelity=source_fidelity,
         ai_descratch=is_true(values, "ai_descratch"),
-        light_deflicker=is_true(values, "light_deflicker"),
-        deflicker_strength=float(values.get("deflicker_strength", "0.65") or 0.65),
-        deflicker_max_correction=float(values.get("deflicker_max_correction", "0.08") or 0.08),
-        deflicker_method=values.get("deflicker_method", "arp") or "arp",
-        deflicker_window=int(values.get("deflicker_window", "5") or 5),
+        light_deflicker=False,
         detect_defects=is_true(values, "detect_defects"),
         defect_sensitivity=float(values.get("defect_sensitivity", "0.65") or 0.65),
         defect_mask_height=values.get("defect_mask_height", "720"),
@@ -3668,6 +3779,9 @@ def outpaint_source_for_settings(settings: dict) -> str:
     if source_text and is_true(global_values, 'denoise'):
         source_text = denoise_output_for(source_text, settings.get('denoise', {}),
                                         settings.get('cloud', {}).get('intermediate_format', 'high'))
+    if source_text and is_true(global_values, 'deflicker'):
+        source_text = deflicker_stage.output_for(source_text, settings.get('deflicker', {}),
+                                               settings.get('cloud', {}).get('intermediate_format', 'high'))
     if source_text and is_true(global_values, "cleanup"):
         source_text = cleanup_output_for(source_text, settings.get("cleanup", {}))
     if source_text and is_true(global_values, "stabilize"):
@@ -4194,6 +4308,8 @@ def outpaint_chunks_state(settings: dict) -> dict:
             return {"manifest": "", "rows": [], "error": "Run Stabilization first so Outpainting has its upstream video."}
         if is_true(settings.get("global", {}), "cleanup"):
             return {"manifest": "", "rows": [], "error": "Run Clean Up first so Outpainting has its upstream video."}
+        if is_true(settings.get("global", {}), "deflicker"):
+            return {"manifest": "", "rows": [], "error": "Run Light Deflicker first so Outpainting has its upstream video."}
         if is_true(settings.get('global', {}), 'denoise'):
             return {'manifest': '', 'rows': [], 'error': 'Run Remove Noise first so Outpainting has its upstream video.'}
         return {"manifest": "", "rows": [], "error": f"Source material is not a readable file: {source}"}

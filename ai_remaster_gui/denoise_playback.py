@@ -19,10 +19,10 @@ import numpy as np
 
 from .config import ROOT
 from .denoise_diff_video import _diff_frame, _DIFF_MODES, _CONTRASTS
-from .denoise_review import review_pair
+from .denoise_review import review_pair, comparison_source
 from .frame_differences import _validate_pair
 from .frame_inspector import _metadata, _video_path
-from .media import local_tool, pipeline_source_text
+from .media import local_tool
 
 _CACHE = ROOT / ".cache" / "denoise_playback"
 _VERSION = 1
@@ -137,14 +137,15 @@ def _render(source: Path, output: Path | None, target: Path, first: int, count: 
         partial.unlink(missing_ok=True)
 
 
-def playback_segment(app, candidate: str, frame: int, mode: str = "direction", contrast: int = 32) -> dict:
+def playback_segment(app, candidate: str, frame: int, mode: str = "direction", contrast: int = 32, stage: str = "denoise") -> dict:
     if not isinstance(candidate, str):
         raise ValueError("Choose a finished Remove Noise variant.")
     if type(frame) is not int or frame < 0:
         raise ValueError("Choose a nonnegative source frame index.")
     if mode not in _DIFF_MODES or type(contrast) is not int or contrast not in _CONTRASTS:
         raise ValueError("Choose a supported difference mode and amplification.")
-    source, output = review_pair(app, candidate) if candidate else (_video_path(pipeline_source_text(app.settings)), None)
+    source_text = comparison_source(app, stage)
+    source, output = review_pair(app, candidate, stage) if candidate else (_video_path(source_text), None)
     metadata = _metadata(source)
     total = _validate_pair(source, output) if output is not None else metadata["frames"]
     if frame >= total:

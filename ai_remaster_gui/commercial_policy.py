@@ -79,7 +79,7 @@ def stage_issue(
             reasons.append("LTX upscaling models/LoRAs are not cleared for unrestricted commercial use")
         else:
             reasons.append(f"{model} upscaler weights and dependencies have not been fully audited")
-    elif stage not in {"stabilize", "shots", "recomp", "output"}:
+    elif stage not in {"denoise", "deflicker", "stabilize", "shots", "recomp", "output"}:
         reasons.append(f"unrecognized stage {stage!r} has not been reviewed")
 
     if not reasons:

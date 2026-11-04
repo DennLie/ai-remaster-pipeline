@@ -1055,6 +1055,12 @@ input#cleanupCompareSlider[hidden]{display:none !important}
 .denoise-inline-wipe[hidden],.denoise-inline-wipe-control[hidden],.denoise-exact-readout[hidden] {display:none}
 [data-dp-status]:empty {display:none}
 .review-grid-toggle {white-space:nowrap}
+.deflicker-variant-list {display:grid;grid-template-columns:minmax(0,1fr);gap:5px;margin:10px 0}
+.deflicker-variant-list .denoise-variant-cell {display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;min-height:48px;padding:9px 22px 9px 9px}
+.deflicker-variant-list .denoise-variant-cell strong {font-size:12px;font-weight:600;flex:1}
+.deflicker-variant-list .denoise-variant-pipeline {position:static}
+.deflicker-parameters {border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.deflicker-parameters .inline-warning {font-size:12px;line-height:1.45}
 @media (max-width:760px) {
   .denoise-workspace,.denoise-workspace.has-one-result {grid-template-columns:repeat(2,minmax(0,1fr))}
   .denoise-results-grid {grid-template-columns:minmax(0,1fr)}

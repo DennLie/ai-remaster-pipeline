@@ -49,19 +49,17 @@ function sourceInfoHtml(info) {
 // Help text shown under stage fields. Keys are "<stage>.<field>" with a bare
 // "<field>" fallback for keys that are unique across stages.
 const FIELD_DESCRIPTIONS = {
-  'cleanup.light_deflicker':
-    'Reduce rapid whole-frame exposure flicker using bounded per-shot gain adjustments, with no AI model and no blur. Disabled by default. Cuts, long fades and intentional illumination transitions are protected as far as possible; compare the preview before publishing.',
-  'cleanup.deflicker_method':
+  'deflicker.method':
     'ARP Conservative is the default. Localized short-clip mode is for reference tests; Localized Streaming processes entire films with bounded memory and approximate scene/fade protection. Both Localized modes are research-only, not validated.',
-  'cleanup.localized_confirm_single_shot':
-    'Research only: confirm a short clip without cuts or deliberate exposure changes. Limit: 240 frames and 75 million decoded pixels; disable other Clean Up operations.',
-  'cleanup.localized_confirm_film_experiment':
-    'Allows film-length streaming with bounded memory and automatic (fallible) cut/fade protection. Requires visual inspection. Disable other Clean Up operations.',
-  'cleanup.deflicker_window':
+  'deflicker.localized_confirm_single_shot':
+    'Research only: confirm a short clip without cuts or deliberate exposure changes. Limit: 240 frames and 75 million decoded pixels. This stage never runs AI cleanup.',
+  'deflicker.localized_confirm_film_experiment':
+    'Allows film-length streaming with bounded memory and automatic (fallible) cut/fade protection. Requires visual inspection; this is not a production-quality guarantee.',
+  'deflicker.window':
     'FFmpeg Median/Arithmetic Mean only: temporal window in frames, default 5. Large windows can change fades and cuts. This is NOT ARP correction strength.',
-  'cleanup.deflicker_strength':
+  'deflicker.strength':
     'ARP Conservative only. Fraction of the estimated correction to apply. Zero leaves frames unchanged; 0.65 is conservative.',
-  'cleanup.deflicker_max_correction':
+  'deflicker.max_correction':
     'Absolute limit on per-frame gain (e.g. 0.08 = up to 8% brighter or darker). Lower values reduce the risk of changing intentional lighting and scene tone.',
   'cleanup.detect_defects':
     'Create independent, motion-aligned pixel masks of transient dust, small blotches and short scratches. The detector uses only OpenCV/NumPy and does not edit frames or run DART/ProPainter. Saved alongside the cleaned video as _defect_mask.mp4. For commercial mask-only operation, switch off Dearchive and AI DeScratch.',
@@ -819,6 +817,7 @@ function drawStage(st) {
   const sp = stageProgress(st.key);
 
   if (st.key === 'denoise') return drawDenoise(st, s, expected, sp);
+  if (st.key === 'deflicker') return drawDenoise(st, s, expected, sp);
   if (st.key === 'detail') return drawDenoise(st, s, expected, sp);
   if (st.key === 'cleanup') return drawCleanup(st, s, expected, sp);
   if (st.key === 'stabilize') return drawStabilization(st, s, expected, sp);
@@ -885,24 +884,7 @@ function drawCleanup(st, s, expected, sp) {
           <button class="warn" onclick="stopRun()" ${state.running ? '' : 'disabled'}>Stop</button>
         </div>
         ${cleanupLicenseWarning(s)}
-        ${st.fields.map(f => {
-          const only = ['deflicker_strength', 'deflicker_max_correction'].includes(f[0]) ? 'arp'
-            : f[0] === 'deflicker_window' ? 'ffmpeg'
-            : f[0] === 'localized_confirm_single_shot' ? 'localized_research'
-            : f[0] === 'localized_confirm_film_experiment' ? 'localized_stream' : '';
-          return only ? `<div data-deflicker-only="${only}">${fieldHtml(st, f)}</div>` : fieldHtml(st, f);
-        }).join('')}
-        <p class="cleanup-localized-warning" data-deflicker-only="localized_research" hidden>
-          Kurzclip-Forschungstest: maximal 240 Frames, vollständige Szene im Speicher.
-          Oscillation Guard aktiv, Korrektur maximal 8 %.
-          Andere Clean-Up-Operationen ausschalten.
-        </p>
-        <p class="cleanup-localized-warning" data-deflicker-only="localized_stream" hidden>
-          Langfilm-Forschungsmodus: fortlaufende Verarbeitung mit höchstens fünf gepufferten
-          Frames; keine feste Filmlängengrenze. Automatische Schnitt- und Überblendungserkennung
-          kann Fehler übersehen. Oscillation Guard aktiv, Korrektur maximal 8 %.
-          Visuelle Gesamtprüfung erforderlich; andere Clean-Up-Operationen ausschalten.
-        </p>
+        ${st.fields.map(f => fieldHtml(st, f)).join('')}
         ${shotOutputList(expected, null)}
         ${stageCheckboxes(s)}
         <div class="command" id="cmd"></div>
@@ -951,17 +933,6 @@ function drawCleanup(st, s, expected, sp) {
       window.arpCleanupPanelPrefs = next;
     }
   });
-  const updateMethodFields = () => {
-    const method = document.querySelector('.cleanup-settings-sidebar [data-field="deflicker_method"]')?.value || 'arp';
-    document.querySelectorAll('.cleanup-settings-sidebar [data-deflicker-only]').forEach(el => {
-      el.hidden = el.dataset.deflickerOnly === 'ffmpeg'
-        ? !['ffmpeg_median', 'ffmpeg_am'].includes(method)
-        : el.dataset.deflickerOnly !== method;
-    });
-  };
-  updateMethodFields();
-  document.querySelector('.cleanup-settings-sidebar [data-field="deflicker_method"]')
-    ?.addEventListener('change', updateMethodFields);
   bindStageFields('cleanup');
   bindCleanupComparison();
   showCommand('cleanup');

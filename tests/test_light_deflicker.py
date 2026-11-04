@@ -16,6 +16,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import cleanup_video  # noqa: E402
+import deflicker_video  # noqa: E402
 import film_deflicker as flicker  # noqa: E402
 from ai_remaster_gui import app  # noqa: E402
 from ai_remaster_gui.runtime_settings import base_settings  # noqa: E402
@@ -115,84 +116,60 @@ class LightDeflickerUnitTests(unittest.TestCase):
 
     def test_gui_ffmpeg_method_command_matches_cli_artifact(self):
         settings = base_settings()
-        settings["global"].update({"source": "input/film.mp4", "cleanup": "true"})
-        settings["cleanup"].update({
-            "light_deflicker": "true",
-            "deflicker_method": "ffmpeg_median",
-            "deflicker_window": "5",
-            "dearchive": "false",
-            "ai_descratch": "false",
-        })
+        settings["global"].update({"source": "input/film.mp4", "deflicker": "true"})
+        settings["deflicker"].update({"method": "ffmpeg_median", "window": "5"})
         old_settings = app.APP.settings
         try:
             app.APP.settings = settings
-            command = app.APP.command_for("cleanup")
-            self.assertEqual(command[command.index("--deflicker-method") + 1], "ffmpeg_median")
-            self.assertEqual(command[command.index("--deflicker-window") + 1], "5")
-            args = cleanup_video.build_parser().parse_args(command[3:])
-            self.assertEqual(args.deflicker_method, "ffmpeg_median")
-            self.assertEqual(args.deflicker_window, 5)
-            name = Path(app.cleanup_output_for("input/film.mp4", settings["cleanup"])).name
-            self.assertEqual(name, cleanup_video.default_output(Path(args.source), args).name)
+            command = app.APP.command_for("deflicker")
+            self.assertEqual(command[command.index("--method") + 1], "ffmpeg_median")
+            self.assertEqual(command[command.index("--window") + 1], "5")
+            args = deflicker_video.build_parser().parse_args(command[3:])
+            self.assertEqual(args.method, "ffmpeg_median")
+            self.assertEqual(args.window, "5")
+            name = Path(app.APP.deflicker_output()).name
+            self.assertEqual(name, deflicker_video.output_for(Path(args.source), vars(args)).name)
             self.assertNotEqual(
                 name,
-                Path(app.cleanup_output_for("input/film.mp4", dict(
-                    settings["cleanup"], deflicker_method="arp"
-                ))).name,
+                deflicker_video.output_for(Path("input/film.mp4"), dict(settings["deflicker"], method="arp")).name,
             )
         finally:
             app.APP.settings = old_settings
 
     def test_gui_arithmetic_mean_command_and_distinct_output(self):
         settings = base_settings()
-        settings["global"].update({"source": "input/film.mp4", "cleanup": "true"})
-        settings["cleanup"].update({
-            "light_deflicker": "true",
-            "deflicker_method": "ffmpeg_am",
-            "deflicker_window": "9",
-            "dearchive": "false",
-            "ai_descratch": "false",
-        })
+        settings["global"].update({"source": "input/film.mp4", "deflicker": "true"})
+        settings["deflicker"].update({"method": "ffmpeg_am", "window": "9"})
         prior = app.APP.settings
         try:
             app.APP.settings = settings
-            command = app.APP.command_for("cleanup")
-            args = cleanup_video.build_parser().parse_args(command[3:])
-            self.assertEqual(args.deflicker_method, "ffmpeg_am")
-            self.assertEqual(args.deflicker_window, 9)
-            predicted = Path(app.cleanup_output_for("input/film.mp4", settings["cleanup"])).name
-            actual = cleanup_video.default_output(Path(args.source), args).name
+            command = app.APP.command_for("deflicker")
+            args = deflicker_video.build_parser().parse_args(command[3:])
+            self.assertEqual(args.method, "ffmpeg_am")
+            self.assertEqual(args.window, "9")
+            predicted = Path(app.APP.deflicker_output()).name
+            actual = deflicker_video.output_for(Path(args.source), vars(args)).name
             self.assertEqual(predicted, actual)
-            self.assertNotEqual(predicted, Path(app.cleanup_output_for(
-                "input/film.mp4", dict(settings["cleanup"], deflicker_method="ffmpeg_median")
-            )).name)
+            self.assertNotEqual(predicted, deflicker_video.output_for(Path("input/film.mp4"), dict(settings["deflicker"], method="ffmpeg_median")).name)
         finally:
             app.APP.settings = prior
 
     def test_cleanup_gui_command_identity_and_commercial_guard(self):
         settings = base_settings()
-        settings["global"].update({"source": "input/film.mp4", "cleanup": "true",
+        settings["global"].update({"source": "input/film.mp4", "deflicker": "true",
                                    "commercial_model_guard": "true"})
-        settings["cleanup"].update({
-            "light_deflicker": "true", "deflicker_strength": "0.65",
-            "deflicker_max_correction": "0.08",
-            "dearchive": "false", "ai_descratch": "false",
-        })
+        settings["deflicker"].update({"method": "arp", "strength": "0.65", "max_correction": "0.08"})
         old_settings = app.APP.settings
         try:
             app.APP.settings = settings
-            command = app.APP.command_for("cleanup")
-            self.assertIn("--light-deflicker", command)
-            self.assertIn("--no-dearchive", command)
-            self.assertEqual(command[command.index("--deflicker-strength")+1], "0.65")
-            self.assertEqual(command[command.index("--deflicker-max-correction")+1], "0.08")
+            command = app.APP.command_for("deflicker")
+            self.assertEqual(command[command.index("--strength")+1], "0.65")
+            self.assertEqual(command[command.index("--max-correction")+1], "0.08")
             from ai_remaster_gui.commercial_policy import stage_issue
-            self.assertEqual(stage_issue(settings, "cleanup"), "")
-            args = cleanup_video.build_parser().parse_args(command[3:])
-            self.assertTrue(args.light_deflicker)
-            self.assertFalse(args.dearchive)
-            expected = Path(app.cleanup_output_for("input/film.mp4", settings["cleanup"])).name
-            self.assertEqual(expected, cleanup_video.default_output(Path(args.source), args).name)
+            self.assertEqual(stage_issue(settings, "deflicker"), "")
+            args = deflicker_video.build_parser().parse_args(command[3:])
+            expected = Path(app.APP.deflicker_output()).name
+            self.assertEqual(expected, deflicker_video.output_for(Path(args.source), vars(args)).name)
         finally:
             app.APP.settings = old_settings
 
