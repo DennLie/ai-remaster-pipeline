@@ -8,13 +8,39 @@ from ai_remaster_gui.denoise_review import comparison_source
 
 
 class PreprocessingOrderTests(unittest.TestCase):
+    def test_phase_progress_reuses_one_snapshot_without_rechecking_outputs(self):
+        from ai_remaster_gui.models import STAGES
+        stages = [item for item in STAGES if item.key in ('denoise', 'deflicker', 'enhancement')]
+        app = server.APP
+        rows = [{'stage': item.title, 'latest': 'ready.mkv' if index == 0 else ''} for index, item in enumerate(stages)]
+        with patch.object(app, 'active_stages', return_value=stages), patch.object(app, 'estimate_running_progress', return_value={}), \
+             patch.object(app, 'running_stage_key', ''), patch.object(app, 'progress', return_value=rows) as progress:
+            direct = app.phase_progress()
+            progress.assert_called_once_with()
+            progress.reset_mock()
+            self.assertEqual(app.phase_progress(rows), direct)
+            progress.assert_not_called()
+            self.assertEqual(app.phase_progress([])['global']['percent'], 0)
+
+    def test_progress_does_not_call_an_existing_but_invalid_result_ready(self):
+        from ai_remaster_gui.models import STAGES
+        stage=next(item for item in STAGES if item.key=='denoise')
+        app=server.APP
+        with patch.object(app,'active_stages',return_value=(stage,)), \
+             patch.object(app,'expected_outputs',return_value=['stale.mkv']), \
+             patch.object(server,'resolve') as resolve, \
+             patch.object(server,'comparison_output_ready',return_value=False):
+            resolve.return_value.exists.return_value=True
+            self.assertEqual(app.progress()[0]['status'],'Waiting')
+            self.assertEqual(app.phase_progress()['stages'][0]['percent'],0)
+
     def test_all_orders_and_enabled_subsets_share_the_same_input_chain(self):
         settings = base_settings()
         settings['global']['source'] = 'input/order-test.mkv'
         settings['enhancement']['method'] = 'cas'
         functions = {'denoise': server.denoise_output_for, 'deflicker': server.deflicker_stage.output_for,
                      'enhancement': server.enhancement_stage.output_for}
-        with patch.object(server.APP, 'settings', settings):
+        with patch.object(server.APP, 'settings', settings), patch.object(server.APP, 'queue_running', True, create=True):
             for order in itertools.permutations(server.PREPROCESSING_STAGES):
                 settings['global']['preprocessing_order'] = ','.join(order)
                 for enabled in itertools.product(('false', 'true'), repeat=3):
@@ -63,13 +89,28 @@ class PreprocessingOrderTests(unittest.TestCase):
         settings = base_settings()
         settings['global'].update(denoise='true', deflicker='true', enhancement='true',
                                   preprocessing_order='enhancement,deflicker,denoise')
-        with patch.object(server.APP, 'settings', settings), patch.object(server, 'comparison_output_ready', return_value=False):
+        with patch.object(server.APP, 'settings', settings), patch.object(server.APP, 'queue_running', True, create=True), patch.object(server, 'comparison_output_ready', return_value=False):
             self.assertEqual(server.APP.preprocessing_problem('enhancement'), '')
             self.assertIn('Detail Enhancement / Deblur', server.APP.preprocessing_problem('deflicker'))
             self.assertEqual(server.APP.preprocessing_upstream('denoise'), ['enhancement', 'deflicker'])
             context = server.APP.processing_input_state('denoise')
             self.assertEqual(context['from_stage'], 'deflicker')
             self.assertEqual(context['label'], 'Light Deflicker')
+
+    def test_standalone_stage_uses_original_but_whole_queue_stays_strict(self):
+        settings=base_settings()
+        settings['global'].update(source='input/original.mkv',denoise='true',deflicker='true',enhancement='true')
+        with patch.object(server.APP,'settings',settings), patch.object(server.APP,'queue_running',False,create=True), \
+             patch.object(server,'comparison_output_ready',return_value=False):
+            self.assertEqual(server.APP.processing_input('enhancement'),'input/original.mkv')
+            self.assertEqual(server.APP.preprocessing_upstream('enhancement'),[])
+            self.assertEqual(server.APP.preprocessing_problem('enhancement'),'')
+            self.assertTrue(server.APP.processing_input_state('enhancement')['original_fallback'])
+            command=server.APP.command_for('enhancement')
+            self.assertEqual(command[command.index('--source')+1],'input/original.mkv')
+            server.APP.queue_running=True
+            self.assertTrue(server.APP.preprocessing_problem('enhancement'))
+            self.assertNotEqual(server.APP.processing_input('enhancement'),'input/original.mkv')
 
 
 if __name__ == '__main__':

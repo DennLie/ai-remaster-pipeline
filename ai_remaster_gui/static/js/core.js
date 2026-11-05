@@ -39,8 +39,14 @@ async function refresh(force = false) {
   if(tab!==active || epoch!==tabEpoch || request<refreshApplied) return;
   refreshApplied=request;
   state = nextState;
-  const orderControls=document.querySelector('.pipeline-order-controls');
-  if(orderControls) orderControls.disabled=Boolean(state.running || state.queue_running || pipelineOrderPending);
+  const runStatus=document.getElementById('workbenchRunStatus');
+  if(runStatus) {
+    runStatus.textContent=state.running ? state.running_stage : state.queue_running ? 'Queue running' : 'Idle';
+    runStatus.title=runStatus.textContent;
+  }
+  const stopButton=document.querySelector('.header-actions .warn');
+  if(stopButton) stopButton.disabled=!state.running && !state.queue_running;
+  syncWorkflowOrderControls();
   const navSignature=JSON.stringify([state.stages.map(item=>item.key),state.settings.global.preprocessing_order,Boolean(state.running || state.queue_running)]);
   if(navSignature!==pipelineNavSignature) { pipelineNavSignature=navSignature;drawTabs(); }
   pruneSelected();
@@ -66,6 +72,7 @@ async function refresh(force = false) {
   }
   // The section clip just finished: replace the loading shell with the real page.
   if (active === 'outpaint' && document.querySelector('#app > .outpaint-loading')) force = true;
+  if (document.querySelector('#app > .stage-loading')) force = true;
   if (!force && active === 'global' && document.getElementById('app')?.children.length) {
     updateOverviewDynamicStatus();
     updateRunLogs();
@@ -218,7 +225,10 @@ function statusDetail(item) {
 function updateStickyOffsets() {
   const header = document.querySelector('header');
   if (!header) return;
-  document.documentElement.style.setProperty('--header-height', `${Math.ceil(header.getBoundingClientRect().height)}px`);
+  const height=Math.ceil(header.getBoundingClientRect().height),tabs=document.getElementById('tabs');
+  const chromeHeight=height+(tabs && !header.contains(tabs) ? Math.ceil(tabs.getBoundingClientRect().height) : 0);
+  document.documentElement.style.setProperty('--header-height', `${height}px`);
+  document.documentElement.style.setProperty('--workbench-chrome-height', `${chromeHeight}px`);
 }
 
 window.addEventListener('resize', updateStickyOffsets);
@@ -253,6 +263,10 @@ function updateOverviewDynamicStatus() {
 
   const tableEl = document.getElementById('overviewProgressTable');
   if (tableEl) tableEl.innerHTML = overviewProgressTable();
+  for(const el of document.querySelectorAll('[data-workflow-stage-status]')) {
+    const input=document.getElementById(el.dataset.workflowStageStatus);
+    if(input) el.innerHTML=workflowStageProgressHtml(input.id,input.checked);
+  }
 }
 
 function updateOverviewSectionControlsFromState() {
@@ -411,7 +425,7 @@ function availableTabs() {
 }
 
 function drawTabs() {
-  const names = { global: 'Overview', cache: 'Cached Files', settings: 'Settings' };
+  const names = { global: 'Overview', cache: 'Cached Files', settings: 'Settings', detail: 'Detail Enhancement (legacy)' };
   const tabs = availableTabs().map(tabButton).join('');
   document.getElementById('tabs').innerHTML = tabs;
 
@@ -425,7 +439,7 @@ function drawTabs() {
       <button type="button" class="tab ${isActive ? 'active' : ''}" onclick="selectTab('${tab}')"${isActive ? ' aria-current="page"' : ''}>
         ${label}
       </button>
-      ${movable ? `<details class="pipeline-tab-menu" ontoggle="positionPipelineMenu(this)"><summary aria-label="Reorder ${esc(label)}" title="Change processing order">Move</summary><div>
+      ${movable ? `<details class="pipeline-tab-menu" ontoggle="positionPipelineMenu(this)"><summary aria-label="Reorder ${esc(label)}" title="Change processing order"><svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="4" cy="9" r="1"/><circle cx="10" cy="9" r="1"/><circle cx="4" cy="14" r="1"/><circle cx="10" cy="14" r="1"/></svg></summary><div>
         <button type="button" onclick="movePipelineStage('${tab}',-1)" ${busy || index===0 ? 'disabled' : ''}>Move earlier</button>
         <button type="button" onclick="movePipelineStage('${tab}',1)" ${busy || index===2 ? 'disabled' : ''}>Move later</button>
       </div></details>` : ''}</span>
@@ -433,17 +447,33 @@ function drawTabs() {
   }
 }
 
+let tabRequest=null;
+function showStageLoading(tab,error='') {
+  const title=state?.stages?.find(item=>item.key===tab)?.title || ({global:'Overview',cache:'Cached Files',settings:'Settings'})[tab] || tab;
+  document.getElementById('app').innerHTML=`<section class="card stage-loading" aria-busy="${!error}"><h1>${esc(title)}</h1>
+    <p role="${error ? 'alert' : 'status'}">${esc(error || 'Loading input and result status…')}</p>
+    ${error ? '<button type="button" onclick="selectTab(active)">Try again</button>' : '<output data-tab-loading>Waiting for the server. You can switch to another tab.</output>'}</section>`;
+}
 async function selectTab(tab) {
   const epoch=++tabEpoch;
+  tabRequest?.abort();const request=new AbortController();tabRequest=request;
   tabLoading=true;
   if (isRestorationComparison()) denoiseWorkspaceDeactivate();
   active = tab;
   drawTabs();
   if (tab === 'outpaint') showOutpaintLoadingShell();
   else if (['shots', 'references', 'colour'].includes(tab)) showShotLoadingShell(tab);
-  try {
-    const nextState = await api(stateUrl());
+  else showStageLoading(tab);
+  const started=Date.now();
+  const timer=setInterval(()=>{
     if(epoch!==tabEpoch) return;
+    const output=document.querySelector('[data-tab-loading]');
+    if(output) output.textContent=`Waiting for server response · ${Math.floor((Date.now()-started)/1000)} s. You can switch tabs.`;
+  },1000);
+  try {
+    const nextState = await api(stateUrl(),{signal:request.signal});
+    if(epoch!==tabEpoch) return;
+    if(!Array.isArray(nextState?.stages)) throw new Error(nextState?.error || 'Invalid server response.');
     state = nextState;
     pruneSelected();
     drawTabs();
@@ -451,7 +481,11 @@ async function selectTab(tab) {
     wireColourShotVideos();
     lastRenderSignature = renderSignature();
     lastOutpaintVisualSignature = outpaintVisualSignature();
+  } catch(error) {
+    if(epoch===tabEpoch && error?.name!=='AbortError') showStageLoading(tab,'Stage data could not be loaded. '+(error?.message || 'Check the local server.'));
   } finally {
+    clearInterval(timer);
+    if(tabRequest===request) tabRequest=null;
     if(epoch===tabEpoch) tabLoading=false;
   }
 }
@@ -473,8 +507,9 @@ function pipelineOrder() {
 function processingInputHtml(key) {
   const input=state.processing_input || {},parameters=Object.entries(input.parameters || {}).map(([name,value])=>`${name}: ${value}`).join(' · ');
   return `<p class="pipeline-chain">Source → ${(input.chain || []).map(item=>item.key===key ? `<strong aria-current="step">${esc(item.title)}</strong>` : esc(item.title)).join(' → ')}</p>
-    <p><strong>Stage input:</strong> ${esc(input.label || 'Selected processing input')}${parameters ? ' · '+esc(parameters) : ''}<br>
-    ${input.from_stage ? 'Selected for pipeline · ' : ''}<span class="pipeline-source-path">${esc(input.source || 'No source selected')}</span></p>
+    <p><strong>Stage input:</strong> ${esc(input.label || 'Selected processing input')}</p>
+    <details class="comparison-provenance"><summary>Input provenance${input.from_stage ? ' · Selected for pipeline' : ''}</summary>
+    <p>${esc(parameters)}</p><p class="pipeline-source-path">${esc(input.source || 'No source selected')}</p></details>
     ${input.problem ? `<p class="inline-warning" role="status">${esc(input.problem)} Previous results do not match this input; render the required upstream result first.</p>` : ''}`;
 }
 function pipelineDragStart(event,key) { event.dataTransfer.setData('text/plain',key); }
@@ -492,17 +527,25 @@ function movePipelineStage(key,direction) {
   [order[index],order[target]]=[order[target],order[index]];
   return savePipelineOrder(order,key);
 }
+function syncWorkflowOrderControls() {
+  const order=pipelineOrder(),busy=state.running || state.queue_running || pipelineOrderPending;
+  for(const button of document.querySelectorAll('[data-workflow-order-key]')) {
+    const target=order.indexOf(button.dataset.workflowOrderKey)+Number(button.dataset.workflowOrderDirection);
+    button.disabled=Boolean(busy || target<0 || target>=order.length);
+  }
+}
 async function savePipelineOrder(order,key) {
   if(state.running || state.queue_running || pipelineOrderPending) return;
-  pipelineOrderPending=true;drawTabs();
+  const fromTile=document.activeElement?.hasAttribute('data-workflow-order-key');
+  pipelineOrderPending=true;drawTabs();syncWorkflowOrderControls();
   try {
     const response=await postJson('/api/settings',{stage:'global',values:{preprocessing_order:order.join(',')}});
     if(!response?.ok) throw new Error(response?.error || 'Could not change pipeline order.');
     await refresh(true);
   } catch(error) { alert(error.message); }
   finally {
-    pipelineOrderPending=false;drawTabs();
-    document.querySelector(`[data-order-tab="${key}"] summary`)?.focus();
+    pipelineOrderPending=false;drawTabs();syncWorkflowOrderControls();
+    document.querySelector(fromTile ? `[data-workflow-order-key="${key}"]:not(:disabled)` : `[data-order-tab="${key}"] summary`)?.focus();
   }
 }
 

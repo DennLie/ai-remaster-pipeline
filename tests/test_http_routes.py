@@ -141,7 +141,7 @@ class HelperBehaviourTests(unittest.TestCase):
         handler = _Handler('/api/denoise-playback', {'variant': 'ready.mkv', 'frame': 11400, 'mode': 'rgb', 'contrast': 64})
         with mock.patch.object(denoise_playback, 'playback_segment', return_value={'url': 'cached.mp4'}) as render:
             handler.do_POST()
-        render.assert_called_once_with(state.APP, 'ready.mkv', 11400, 'rgb', 64, 'denoise')
+        render.assert_called_once_with(state.APP, 'ready.mkv', 11400, 'rgb', 64, 'denoise', 'input')
         self.assertEqual(handler.responses['json'], {'ok': True, 'url': 'cached.mp4'})
 
     def test_denoise_playback_video_rejects_unknown_tokens(self) -> None:
@@ -151,14 +151,14 @@ class HelperBehaviourTests(unittest.TestCase):
 
     def test_shared_inspector_chart_and_playback_forward_deflicker_stage(self) -> None:
         from ai_remaster_gui import denoise_playback
-        for route, symbol, args in (("/api/denoise-inspector?variant=ready.mkv&frame=7&stage=deflicker", "inspect_denoise", (state.APP, "ready.mkv", 7, "deflicker")),
+        for route, symbol, args in (("/api/denoise-inspector?variant=ready.mkv&frame=7&stage=deflicker", "inspect_denoise", (state.APP, "ready.mkv", 7, "deflicker", 'input')),
                                     ("/api/denoise-frame-differences?variant=ready.mkv&stage=deflicker", "denoise_frame_differences", (state.APP, "ready.mkv", "deflicker"))):
             with self.subTest(route=route), mock.patch.object(http_handler, symbol, return_value={}) as call:
                 _Handler(route).do_GET()
                 call.assert_called_once_with(*args)
         with mock.patch.object(denoise_playback, "playback_segment", return_value={}) as call:
             _Handler('/api/denoise-playback', {'variant':'ready.mkv','frame':7,'stage':'deflicker'}).do_POST()
-            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'deflicker')
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'deflicker', 'input')
         state.APP.run_deflicker_batch = mock.Mock(return_value=(True, "started"))
         rows = [{"method":"ffmpeg_median", "preset":"settings"}]
         handler = _Handler('/api/deflicker-batch', {'variants':rows})
@@ -176,10 +176,10 @@ class HelperBehaviourTests(unittest.TestCase):
         self.assertEqual(handler.responses['json']['state'], {'_view': 'enhancement'})
         with mock.patch.object(denoise_playback, 'playback_segment', return_value={}) as call:
             _Handler('/api/denoise-playback', {'variant': 'ready.mkv', 'frame': 7, 'stage': 'enhancement'}).do_POST()
-            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'enhancement')
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'enhancement', 'input')
         with mock.patch.object(http_handler, 'inspect_denoise', return_value={}) as call:
             _Handler('/api/denoise-inspector?variant=ready.mkv&frame=7&stage=enhancement').do_GET()
-            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'enhancement')
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'enhancement', 'input')
 
     def test_send_result_success_merges_dict_and_state(self) -> None:
         with mock.patch.object(http_handler, "merge_manifest_shots", return_value={"merged": 2}):
@@ -325,7 +325,7 @@ class StateLockTests(unittest.TestCase):
         app.files_for = MethodType(lambda self, stage: [], app)
         app.active_stages = MethodType(lambda self: (), app)
         app.progress = MethodType(lambda self: [], app)
-        app.phase_progress = MethodType(lambda self: {"global": {"percent": 0, "label": "Waiting"}, "stages": []}, app)
+        app.phase_progress = MethodType(lambda self, progress_rows=None: {"global": {"percent": 0, "label": "Waiting"}, "stages": []}, app)
         app.expected_outputs = MethodType(lambda self, key: [], app)
         app.existing_outputs = MethodType(lambda self, key: [], app)
         app.upscale_preview_state = MethodType(lambda self: {}, app)

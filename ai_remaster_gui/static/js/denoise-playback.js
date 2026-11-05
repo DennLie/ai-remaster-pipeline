@@ -127,6 +127,7 @@ function createDenoisePlayback(host, options) {
   async function manifestFor(slot,frame,signal) {
     const body={variant:options.path(slot), frame, mode:options.diffMode(), contrast:options.contrast()};
     if(options.stage) body.stage=options.stage();
+    if(options.reference) body.reference=options.reference();
     const cacheKey=JSON.stringify([options.identity(slot),body.variant,body.mode,body.contrast]);
     const cached=[...manifests.values()].find(v=>v.key===cacheKey && frame>=v.data.first_frame && frame<v.data.end_frame);
     if(cached) return cached.data;

@@ -200,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 candidate = query.get("variant", [""])[0]
                 frame = int(query.get("frame", ["0"])[0])
-                self.send_json({"ok": True, **inspect_denoise(state.APP, candidate, frame, query.get("stage", ["denoise"])[0])})
+                self.send_json({"ok": True, **inspect_denoise(state.APP, candidate, frame, query.get("stage", ["denoise"])[0], query.get('reference', ['input'])[0])})
             except (ValueError, IndexError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
@@ -459,7 +459,7 @@ class Handler(BaseHTTPRequestHandler):
             from .denoise_playback import playback_segment
             self._send_result("Remove Noise playback", lambda: playback_segment(
                 state.APP, data.get("variant", ""), data.get("frame", 0),
-                data.get("mode", "direction"), data.get("contrast", 32), data.get("stage", "denoise")))
+                data.get("mode", "direction"), data.get("contrast", 32), data.get("stage", "denoise"), data.get('reference', 'input')))
         elif parsed.path == "/api/denoise-grid":
             self._send_action("Remove Noise grid",
                               lambda: state.APP.run_denoise_grid(str(data.get("frames", ""))), view="denoise")

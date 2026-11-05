@@ -25,7 +25,7 @@ function reviewZoomControlsHtml(id, setter, fit, exact = false) {
   return `<div class="review-zoom-controls" id="${id}" role="group" aria-label="Comparison display zoom">
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>
     <input data-zoom-range type="range" min="-1000" max="1000" step="1" value="0" aria-label="Comparison zoom" oninput="${setter}(Math.pow(32,Number(this.value)/1000))">
-    <label><input data-zoom-percent type="number" min="3.125" max="3200" step="0.1" value="100" aria-label="Zoom percent relative to fit" title="100% fits the complete image; use 1:1 for native display pixels" onchange="${setter}(Number(this.value)/100)"><span>%</span></label>
+    <label><input data-zoom-percent type="number" min="3.125" max="3200" step="0.1" value="100" aria-label="Zoom percent relative to fit" title="100% fits the complete image; use 1:1 for native display pixels" onchange="${setter}(Number(this.value)/100)"><span>% of Fit</span></label>
     <button type="button" onclick="${fit}()" title="Reset zoom and pan">Fit</button>
     <button type="button" data-zoom-native aria-pressed="false" title="One decoded source pixel per physical display pixel">1:1</button>
     ${exact ? '<label class="review-grid-toggle"><input data-zoom-grid type="checkbox">Pixel grid</label>' : ''}
@@ -91,8 +91,9 @@ function createReviewZoom(host, selector, controls, state, changed) {
       wrap.classList.toggle('is-zoomed', zoom > 1);
       wrap.classList.toggle('is-pixel-zoom', state.native || size.width * zoom / iw >= 4);
       wrap.tabIndex = 0;
-      wrap.setAttribute('aria-label', 'Image viewport. Scroll to zoom; drag or use arrow keys to pan when zoomed.');
-      wrap.title = state.zoom > 1 ? 'Drag image to pan · Scroll to zoom · Double-click to fit' : 'Scroll to zoom';
+      const wheelHint=host.closest?.('.comparison-workbench') ? 'Alt + scroll to zoom' : 'Scroll to zoom';
+      wrap.setAttribute('aria-label', `Image viewport. ${wheelHint}; drag or use arrow keys to pan when zoomed.`);
+      wrap.title = state.zoom > 1 ? `Drag image to pan · ${wheelHint} · Double-click to fit` : wheelHint;
       const grid = plane.lastElementChild;
       grid.hidden = !state.grid || size.width * zoom / iw < 8;
       grid.style.backgroundSize = `${size.width / iw}px ${size.height / ih}px`;
@@ -130,6 +131,7 @@ function createReviewZoom(host, selector, controls, state, changed) {
   }
   host.addEventListener('wheel', event => {
     if (event.ctrlKey || event.metaKey) return; // Preserve browser accessibility zoom.
+    if (host.closest?.('.comparison-workbench') && !event.altKey) return;
     const wrap = event.target.closest(selector);
     const window = wrap?.querySelector('.review-zoom-window');
     if (!window) return;

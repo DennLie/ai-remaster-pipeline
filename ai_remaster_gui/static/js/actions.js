@@ -1773,17 +1773,24 @@ async function submitGuideFrameGenerate() {
 
 async function saveStage(key, redraw = false) {
   const snap = captureScrollState();
-  await postJson('/api/settings', { stage: key, values: formValues() });
+  const origin=active,url=stateUrl();
+  const result=await postJson('/api/settings', { stage: key, values: formValues() });
+  if(!result?.ok) { alert(result?.error || 'Settings could not be saved.');return false; }
 
-  state = await api(stateUrl());
+  const next=await api(url);
+  if(active!==origin) return false;
+  state = next;
   pruneSelected();
 
-  if (redraw) {
+  if (redraw && ['denoise','deflicker','enhancement'].includes(key)) {
+    denoiseWorkspaceRefresh();
+  } else if (redraw) {
     draw(false);
     restoreScrollState(snap);
   }
 
   showCommand(key);
+  return true;
 }
 
 function formValues() {
@@ -2057,7 +2064,7 @@ async function confirmOverwrite(key) {
 async function runStage(key) {
   if (key === 'recomp') releaseFinalOutputVideos();
   if (key === 'upscale') releaseFinalOutputVideos();
-  await saveStage(key);
+  if(!await saveStage(key)) return;
   if (key === 'references' && (settings('references').method || 'qwen') === 'openai' && !((settings('references').openai_api_key || '').trim())) {
     alert('Add your OpenAI API key in Settings before running OpenAI Reference Generation.');
     active = 'settings';

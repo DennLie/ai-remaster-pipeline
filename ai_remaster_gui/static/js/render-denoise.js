@@ -327,7 +327,7 @@ function drawDenoise(st, settings, expected, progress) {
         ${shared ? denoiseCompareDisplayHtml() : ''}
         ${shared ? '<label class="denoise-time-jump">Position (s) <input data-dp-jump type="number" min="0" step="0.001" value="0" onchange="denoiseCompareSeek(this.value)"></label>' : ''}
         </details>
-        <p class="review-zoom-hint">Drag image to pan · Scroll to zoom · 1:1 maps source pixels to display pixels · Percent is relative to Fit.</p>
+        <p class="review-zoom-hint">Drag image to pan · ${shared ? 'Alt + scroll' : 'Scroll'} to zoom · 1:1 maps source pixels to display pixels · Percent is relative to Fit.</p>
         ${shared ? `<div class="denoise-compact-rail">
           <div class="denoise-compact-rail-heading"><strong>Frame changes</strong>
             <span data-dc-chart-variant>Choose a result to inspect.</span>
@@ -344,6 +344,7 @@ function drawDenoise(st, settings, expected, progress) {
       </section>
     </div>
   `;
+  if(shared) mountComparisonLayout(st.title);
   bindStageFields(st.key);
   showCommand(st.key);
   renderDenoiseComparePlayers(candidates);
@@ -526,7 +527,7 @@ function denoiseMatrixUpdateUi() {
       action.textContent = 'Selected for pipeline';
       action.disabled = true;
     } else {
-      action.textContent = 'Use for pipeline';
+      action.textContent = denoiseWorkspaceSnapshot().adoptionPending ? 'Adopting…' : 'Use for pipeline';
       action.disabled = busy || denoiseWorkspaceSnapshot().adoptionPending;
     }
   }
@@ -542,9 +543,10 @@ function denoiseMatrixUpdateUi() {
     cell.classList.toggle('is-missing', !ready);
     cell.setAttribute('aria-checked', String(isSelected));
     cell.setAttribute('aria-label', `${denoiseVariantLabelFor(cell.dataset.method,cell.dataset.preset)}, ${ready ? 'ready' : 'not rendered'}${pipeline ? ', selected for pipeline' : ''}`);
-    const status = cell.querySelector('.denoise-variant-cell-state');
-    if (status) status.textContent = ready ? 'Ready' : 'Not rendered';
-    const badge = cell.querySelector('.denoise-variant-pipeline');
+    const row=cell.closest('.comparison-method-row') || cell;
+    const status = row.querySelector('.denoise-variant-cell-state');
+    if (status) status.textContent = ready ? 'Rendered' : 'Not rendered';
+    const badge = row.querySelector('.denoise-variant-pipeline');
     if (badge) badge.hidden = !pipeline;
   });
   denoiseWorkspaceUpdateSelectionUi();
@@ -593,9 +595,9 @@ async function denoiseMatrixCopySelected() {
   const notice = document.querySelector('[data-dm-notice]');
   try {
     await navigator.clipboard.writeText(text);
-    if (notice) notice.textContent = 'Settings copied.';
+    if (notice) {notice.dataset.state='success';notice.textContent = 'Settings copied.';}
   } catch (_) {
-    if (notice) notice.textContent = 'Copy failed; select the output path manually.';
+    if (notice) {notice.dataset.state='error';notice.textContent = 'Copy failed; select the output path manually.';}
   }
 }
 
@@ -1112,7 +1114,7 @@ function denoiseCompareApplyTransform() {
 }
 
 function denoiseCompareSetZoom(value) {
-  if(isRestorationComparison()) return denoiseWorkspaceFor().setViewport({zoom:value});
+  if(isRestorationComparison()) return denoiseWorkspaceFor().setViewport({zoom:value,native:false});
   denoiseCompareZoom = reviewZoomClamp(value, 1/32, 32);
   denoiseCompareZoomView?.setZoom(denoiseCompareZoom);
 }

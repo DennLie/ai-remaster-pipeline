@@ -76,7 +76,7 @@ test('selection never adopts or generates; missing Deflicker outputs require an 
 
 test('a late render error belongs to its initiating tab, including after returning to it',async()=>{
   const {context,state,initialize}=setup();
-  const status={textContent:''};
+  const status={textContent:'',dataset:{}};
   context.document.querySelector=selector=>selector==='[data-dm-generation-status]'?status:null;
   state.denoise_matrix.variants=[];
   initialize('denoise');context.denoiseWorkspaceSelectAll();
@@ -151,7 +151,7 @@ test('pipeline adoption changes only the Deflicker method, without resetting its
 });
 
 test('late pipeline-adoption failures cannot write into a different comparison tab',async()=>{
-  const {context,initialize}=setup();const notice={textContent:''};
+  const {context,initialize}=setup();const notice={textContent:'',dataset:{}};
   context.document.querySelector=selector=>selector==='[data-dm-notice]'?notice:null;
   initialize('denoise');context.denoiseWorkspaceSelectAll();context.denoiseWorkspaceFocus(2);
   let finish;context.postJson=()=>new Promise(resolve=>{finish=resolve});

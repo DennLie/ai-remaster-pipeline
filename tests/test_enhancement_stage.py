@@ -112,7 +112,7 @@ class EnhancementTests(unittest.TestCase):
             cleanup='false', stabilize='false', detail='false')
         settings['enhancement'].update(method='cas', preset='gentle', mix='50')
         legacy = dict(settings['detail'])
-        with patch.object(server.APP, 'settings', settings):
+        with patch.object(server.APP, 'settings', settings), patch.object(server.APP, 'queue_running', True, create=True):
             active = [stage.key for stage in server.APP.active_stages()]
             self.assertEqual(active[:3], ['denoise', 'deflicker', 'enhancement'])
             expected = server.APP.enhancement_output()

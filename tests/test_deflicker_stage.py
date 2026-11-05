@@ -93,7 +93,7 @@ class DeflickerMigrationTests(unittest.TestCase):
                                   stabilize="true", detail="true", expand_outpaint="false", colorize="false")
         settings["deflicker"].update(method="ffmpeg_am", window="7")
         settings["cleanup"].update(light_deflicker="true", deflicker_method="arp", dearchive="false", devignette="true")
-        with patch.object(server.APP, "settings", settings):
+        with patch.object(server.APP, "settings", settings), patch.object(server.APP, 'queue_running', True, create=True):
             app = server.APP
             self.assertEqual([item.key for item in app.active_stages()], ["denoise", "deflicker", "cleanup", "stabilize", "detail"])
             flicker, cleanup = app.command_for("deflicker"), app.command_for("cleanup")
@@ -155,7 +155,7 @@ class DeflickerMediaTests(unittest.TestCase):
         self.settings['global'].update(denoise='true', deflicker='false', cleanup='false',
             stabilize='false', detail='false', upscale='false', add_soundtrack='false')
         self.settings['denoise'].update(method='hqdn3d', preset='gentle')
-        with patch.object(server.APP, 'settings', self.settings), patch.object(server.APP, 'denoise_output', return_value=str(output)):
+        with patch.object(server.APP, 'settings', self.settings), patch.object(server.APP, 'queue_running', True, create=True), patch.object(server.APP, 'denoise_output', return_value=str(output)):
             self.assertEqual(server.APP.existing_outputs('denoise'), [])
             self.assertNotEqual(server.APP.output_selection_state().get('kind'), 'denoised')
             with patch.object(server.APP, 'save'):

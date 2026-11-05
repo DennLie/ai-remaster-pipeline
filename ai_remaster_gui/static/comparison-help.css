@@ -1,0 +1,68 @@
+@font-face {
+  font-family: 'Source Sans 3';
+  src: url('./fonts/source-sans-3/SourceSans3-variable.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+body, button, input, select, textarea {
+  font-family: 'Source Sans 3', 'Segoe UI', sans-serif;
+  font-weight: 400;
+}
+button, summary, label { font-weight: 500; }
+h1, h2, h3, h4, strong, b { font-weight: 600; }
+code, pre, kbd, samp, .command {
+  font-family: Consolas, 'Cascadia Code', monospace;
+}
+
+.comparison-help-method-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+button.comparison-help-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 5px;
+  margin: 2px;
+  border: 1px solid var(--line, #505050);
+  border-radius: 4px;
+  background: var(--panel, #181818);
+  color: var(--text, #f1f1f1);
+  cursor: help;
+}
+.comparison-help-info svg { width: 16px; height: 16px; pointer-events: none; }
+button.comparison-help-info:hover,
+button.comparison-help-info[aria-expanded="true"] { background: #363636; color: #fff; }
+button.comparison-help-info:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.comparison-help-tooltip {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(34ch, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  border: 1px solid #777;
+  border-radius: 4px;
+  background: #242424;
+  color: #f5f5f5;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  font: 400 14px/1.45 'Source Sans 3', 'Segoe UI', sans-serif;
+  text-align: left;
+}
+.comparison-help-tooltip[hidden] { display: none; }
+@media (pointer: coarse) {
+  button.comparison-help-info { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+}

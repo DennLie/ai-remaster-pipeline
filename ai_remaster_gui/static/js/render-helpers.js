@@ -37,13 +37,13 @@ function sourceInfoHtml(info) {
     .filter(key => info[key])
     .map(key => `
       <div>
-        <span>${SOURCE_INFO_LABELS[key] || key}</span>
-        <strong>${esc(info[key])}</strong>
+        <dt>${esc(SOURCE_INFO_LABELS[key] || key)}</dt>
+        <dd>${esc(info[key])}</dd>
       </div>
     `)
     .join('');
 
-  return items ? `<div class="source-info">${items}</div>` : '';
+  return items ? `<div class="source-metadata"><h3>Source clip info</h3><p>Metadata of the selected source clip.</p><dl>${items}</dl></div>` : '';
 }
 
 // Help text shown under stage fields. Keys are "<stage>.<field>" with a bare

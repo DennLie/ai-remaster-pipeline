@@ -153,7 +153,7 @@ function createDenoiseStillReview(host,options) {
       handle.style.left=left+'px';
       handle.hidden=left<0 || left>bounds.width;
       handle.setAttribute('aria-valuenow',String(percent));
-      handle.setAttribute('aria-valuetext',comparisonWipeVisibleState(percent,'RESULT','en'));
+      handle.setAttribute('aria-valuetext',comparisonWipeVisibleState(percent,'RESULT','en').replaceAll('ORIGINAL',options.reference?.()==='original' ? 'ORIGINAL SOURCE' : 'STAGE INPUT'));
       const grip=handle.firstElementChild;
       if(grip) grip.style.opacity=String(comparisonWipeGripOpacity(rect.width,grip.offsetWidth||120,percent));
     });
@@ -207,7 +207,7 @@ function createDenoiseStillReview(host,options) {
             throw new Error('The exact comparison variants have different frame mappings.');
           pairs.set(slot,cached);reference=cached.info;continue;
         }
-        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(path)+'&frame='+request.frame+'&stage='+encodeURIComponent(options.stage?.() || 'denoise'),{cache:'no-store',signal:loadAbort.signal});
+        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(path)+'&frame='+request.frame+'&stage='+encodeURIComponent(options.stage?.() || 'denoise')+'&reference='+encodeURIComponent(options.reference?.() || 'input'),{cache:'no-store',signal:loadAbort.signal});
         if(!response.ok) throw new Error('The inspection endpoint answered with HTTP '+response.status+'.');
         const data=await response.json();
         if(!data?.ok) throw new Error(data?.error || 'The exact frame is unavailable.');

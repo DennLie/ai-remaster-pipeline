@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-05T00:00:00Z",
+  "title": "Design System: ARP comparison workbench",
+  "extensions": {
+    "breakpoints": [
+      {"name": "inspector-dialog", "value": "1100px"},
+      {"name": "stacked-images", "value": "600px"}
+    ]
+  },
+  "narrative": {
+    "northStar": "Typographic Workbench",
+    "overview": "Operate-mode comparison interface. Typography and combinable colour roles support explicit restoration decisions; neutral surrounds protect the film image.",
+    "keyCharacteristics": ["Source Sans 3", "Open method list", "Independent comparison/rendered/pipeline states", "One contextual help disclosure"],
+    "rules": [
+      {"name": "Green follows confirmation", "body": "Pipeline selection is a green method row and text label after server confirmation, never optimistic success.", "section": "colors"},
+      {"name": "No decorative film changes", "body": "Never tint or crossfade film pixels as interface feedback.", "section": "elevation"}
+    ],
+    "dos": ["Keep the Alt+wheel instruction visible", "Check combined states and contrast"],
+    "donts": ["Duplicate method help on hover and info buttons", "Use colour as the only state identifier"]
+  }
+}

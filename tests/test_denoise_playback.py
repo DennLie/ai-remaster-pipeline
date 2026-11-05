@@ -91,6 +91,28 @@ class PlaybackTests(unittest.TestCase):
         self.assertIsNone(playback.segment_video_path("../../escape"))
         self.assertIsNone(playback.segment_video_path("0" * 64))
 
+    def test_original_reference_uses_raw_pixels_and_section_frame_offset(self):
+        original = self.root / 'original.mkv'
+        writer = cv2.VideoWriter(str(original), cv2.VideoWriter_fourcc(*'FFV1'), 24, (64, 48))
+        self.assertTrue(writer.isOpened())
+        for frame in range(744):
+            writer.write(np.full((48, 64, 3), (frame + 20) % 240, dtype=np.uint8))
+        writer.release()
+        self.app.processing_input = lambda stage: str(self.source)
+        self.app.settings['global']['source'] = str(original)
+        seen = []
+        real = playback._diff_frame
+        def inspect(before, after, mode, contrast):
+            if not seen:
+                seen.append((int(before[0, 0, 0]), int(after[0, 0, 0])))
+            return real(before, after, mode, contrast)
+        with patch('ai_remaster_gui.media.source_section_state', return_value={'enabled': True, 'start': 1}), \
+             patch.object(playback, '_diff_frame', side_effect=inspect):
+            result = playback.playback_segment(self.app, str(self.result), 5, reference='original')
+        self.assertEqual(seen[0], (44, 2))  # original frame 24 against result frame 0
+        self.assertEqual(result['frames'], 720)
+        self.assertEqual(result['difference_basis'], 'decoded_original_source_and_result')
+
     def test_twenty_minute_input_can_seek_to_minute_nineteen(self):
         source = self.root / "twenty_minutes.mkv"
         subprocess.run([playback.local_tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i",

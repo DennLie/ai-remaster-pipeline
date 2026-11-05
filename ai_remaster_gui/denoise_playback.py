@@ -19,9 +19,8 @@ import numpy as np
 
 from .config import ROOT
 from .denoise_diff_video import _diff_frame, _DIFF_MODES, _CONTRASTS
-from .denoise_review import review_pair, comparison_source
-from .frame_differences import _validate_pair
-from .frame_inspector import _metadata, _video_path
+from .denoise_review import comparison_pair
+from .frame_inspector import _metadata
 from .media import local_tool
 
 _CACHE = ROOT / ".cache" / "denoise_playback"
@@ -71,7 +70,7 @@ def _seek(capture, frame: int) -> None:
 
 def _render(source: Path, output: Path | None, target: Path, first: int, count: int,
             metadata: dict, atlas_width: int, atlas_height: int, regions: dict,
-            mode: str, contrast: int) -> None:
+            mode: str, contrast: int, source_offset: int = 0) -> None:
     ffmpeg = local_tool("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("FFmpeg is required for comparison playback.")
@@ -80,10 +79,10 @@ def _render(source: Path, output: Path | None, target: Path, first: int, count: 
     process = None
     partial = target.with_suffix(".partial.mp4")
     try:
-        for capture in captures:
+        for slot, capture in enumerate(captures):
             if not capture.isOpened():
                 raise ValueError("Could not decode the processing input or result.")
-            _seek(capture, first)
+            _seek(capture, first + (source_offset if slot == 0 else 0))
         target.parent.mkdir(parents=True, exist_ok=True)
         command = [ffmpeg, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
                    "-s", f"{atlas_width}x{atlas_height}", "-r", metadata["fps_fraction"], "-i", "-",
@@ -95,11 +94,11 @@ def _render(source: Path, output: Path | None, target: Path, first: int, count: 
         atlas = np.zeros((atlas_height, atlas_width, 3), dtype=np.uint8)
         for index in range(count):
             images = []
-            for capture in captures:
+            for slot, capture in enumerate(captures):
                 ok, image = capture.read()
                 if not ok or image is None:
                     raise ValueError("Decode ended before the verified segment frame count.")
-                if abs(capture.get(cv2.CAP_PROP_POS_FRAMES) - (first + index + 1)) > .1:
+                if abs(capture.get(cv2.CAP_PROP_POS_FRAMES) - (first + index + 1 + (source_offset if slot == 0 else 0))) > .1:
                     raise ValueError("Decoder lost the verified source frame index.")
                 if image.shape != (metadata["height"], metadata["width"], 3):
                     raise ValueError("Decoded frame dimensions changed.")
@@ -137,17 +136,14 @@ def _render(source: Path, output: Path | None, target: Path, first: int, count: 
         partial.unlink(missing_ok=True)
 
 
-def playback_segment(app, candidate: str, frame: int, mode: str = "direction", contrast: int = 32, stage: str = "denoise") -> dict:
+def playback_segment(app, candidate: str, frame: int, mode: str = "direction", contrast: int = 32, stage: str = "denoise", reference: str = 'input') -> dict:
     if not isinstance(candidate, str):
         raise ValueError("Choose a finished Remove Noise variant.")
     if type(frame) is not int or frame < 0:
         raise ValueError("Choose a nonnegative source frame index.")
     if mode not in _DIFF_MODES or type(contrast) is not int or contrast not in _CONTRASTS:
         raise ValueError("Choose a supported difference mode and amplification.")
-    source_text = comparison_source(app, stage)
-    source, output = review_pair(app, candidate, stage) if candidate else (_video_path(source_text), None)
-    metadata = _metadata(source)
-    total = _validate_pair(source, output) if output is not None else metadata["frames"]
+    source, output, metadata, total, offset = comparison_pair(app, candidate, stage, reference)
     if frame >= total:
         raise ValueError("The requested frame is outside the processing input.")
     size = max(1, round(metadata["fps"] * _SECONDS))
@@ -155,7 +151,7 @@ def playback_segment(app, candidate: str, frame: int, mode: str = "direction", c
     end = min(total, first + size)
     width, height, regions = _layout(metadata["width"], metadata["height"], output is not None)
     identity = [_VERSION, _identity(source), _identity(output) if output else None,
-                first, end, metadata["fps_fraction"], mode, contrast]
+                first, end, metadata["fps_fraction"], mode, contrast, reference, offset]
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     target = _CACHE / f"{token}.mp4"
     cached = bool(segment_video_path(token))
@@ -163,10 +159,10 @@ def playback_segment(app, candidate: str, frame: int, mode: str = "direction", c
         with _RENDER_LOCK:
             cached = bool(segment_video_path(token))
             if not cached:
-                _render(source, output, target, first, end - first, metadata, width, height, regions, mode, contrast)
+                _render(source, output, target, first, end - first, metadata, width, height, regions, mode, contrast, offset)
     return {"url": f"/api/denoise-playback-video?token={token}", "cached": cached,
             "first_frame": first, "end_frame": end, "frames": total,
             "fps": metadata["fps"], "fps_fraction": metadata["fps_fraction"],
             "width": metadata["width"], "height": metadata["height"],
             "atlas_width": width, "atlas_height": height, "regions": regions,
-            "difference_basis": "decoded_processing_input_and_result", "compressed": True}
+            "difference_basis": "decoded_original_source_and_result" if reference == 'original' else "decoded_processing_input_and_result", "reference": reference, "compressed": True}

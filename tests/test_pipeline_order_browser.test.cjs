@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 function setup() {
   const elements={tabs:{innerHTML:''}},calls=[];
-  const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:id=>elements[id],querySelector:()=>null},esc:String,alert:message=>{throw Error(message)}});
+  const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:id=>elements[id],querySelector:()=>null,querySelectorAll:()=>[]},esc:String,alert:message=>{throw Error(message)}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../ai_remaster_gui/static/js/core.js'),'utf8'),context);
   vm.runInContext(`state={running:false,settings:{global:{}},stages:[{key:'denoise',title:'Remove Noise'},{key:'deflicker',title:'Light Deflicker'},{key:'enhancement',title:'Detail Enhancement / Deblur'},{key:'cleanup',title:'Clean Up'}]};active='deflicker'`,context);
   context.stage=key=>vm.runInContext(`state.stages.find(item=>item.key==='${key}')`,context);

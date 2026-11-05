@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from contextvars import ContextVar
+from functools import wraps
 from pathlib import Path
 
 from .config import ROOT
@@ -21,6 +23,19 @@ from .paths import is_unfinished_media_artifact, resolve
 _CACHE = ROOT / ".cache" / "denoise_review_differences"
 _OUTPUTS = ROOT / "intermediate" / "denoised"
 _REPORT_VERSION = 1
+_READINESS_SNAPSHOT = ContextVar('comparison_readiness_snapshot', default=None)
+
+
+def readiness_snapshot(function):
+    """Reuse signed readiness only within one state response, never across requests."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        token = _READINESS_SNAPSHOT.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _READINESS_SNAPSHOT.reset(token)
+    return wrapped
 
 
 def comparison_source(app, stage: str = "denoise") -> str:
@@ -119,34 +134,63 @@ def selected_output(app, stage: str) -> Path:
 
 
 def output_ready(app, stage: str) -> bool:
+    snapshot = _READINESS_SNAPSHOT.get()
+    key = (id(app), stage)
+    if snapshot is not None and key in snapshot:
+        return snapshot[key]
     try:
         selected_output(app, stage)
-        return True
+        ready = True
     except (OSError, ValueError, TypeError):
-        return False
+        ready = False
+    if snapshot is not None:
+        snapshot[key] = ready
+    return ready
 
 
-def inspect_denoise(app, candidate: str, frame: int, stage: str = "denoise") -> dict:
+def comparison_pair(app, candidate: str, stage: str, reference: str = 'input') -> tuple[Path, Path | None, dict, int, int]:
+    """Validate processing provenance first; reference choice never changes lineage."""
+    if reference not in ('input', 'original'):
+        raise ValueError('Choose stage input or original source as the comparison reference.')
+    source, output = review_pair(app, candidate, stage) if candidate else (_video_path(comparison_source(app, stage)), None)
+    metadata = _metadata(source)
+    count = _validate_pair(source, output) if output is not None else metadata['frames']
+    offset = 0
+    if reference == 'original':
+        from .media import source_section_state
+        original = _video_path(app.settings.get('global', {}).get('source', ''))
+        original_metadata = _metadata(original)
+        if any(metadata[key] != original_metadata[key] for key in ('width', 'height', 'fps_fraction')):
+            raise ValueError('Original comparison unavailable: geometry or frame rate differs from the stage input.')
+        section = source_section_state(app.settings)
+        start = section['start'] * metadata['fps'] if section['enabled'] else 0
+        if abs(start - round(start)) > 0.001:
+            raise ValueError('Original comparison requires a section start aligned to a source frame. Stage input comparison remains available.')
+        offset = round(start)
+        if original_metadata['frames'] < offset + count:
+            raise ValueError('Original source does not cover the verified comparison timeline.')
+        source = original
+    return source, output, metadata, count, offset
+
+
+def inspect_denoise(app, candidate: str, frame: int, stage: str = "denoise", reference: str = 'input') -> dict:
     if type(frame) is not int or frame < 0:
         raise ValueError("Frame must be a nonnegative integer.")
     if not isinstance(candidate, str):
         raise ValueError("Choose a finished comparison-stage output.")
-    source_text = comparison_source(app, stage)
-    source, output = review_pair(app, candidate, stage) if candidate else (_video_path(source_text), None)
-    metadata = _metadata(source)
-    count = _validate_pair(source, output) if output is not None else metadata["frames"]
+    source, output, metadata, count, offset = comparison_pair(app, candidate, stage, reference)
     if frame >= count:
         raise IndexError(f"Frame {frame} exceeds total {count}.")
-    before = _decode(source, frame)
+    before = _decode(source, frame + offset)
     after = _decode(output, frame) if output is not None else before
     _prune()
     return {
-        "stage": stage, "frame": frame, "frames": count,
+        "stage": stage, "reference": reference, "source_frame": frame + offset, "frame": frame, "frames": count,
         "fps": metadata["fps"], "width": metadata["width"],
         "height": metadata["height"], "before": before, "after": after,
         "exact": True,
         "method": json.loads(output.with_suffix(output.suffix + ".sig.json").read_text(encoding="utf-8"))["method"] if output is not None else "off",
-        "note": "Matched decoded frame indices of the actual processing input and the selected signed output." if output is not None else "Decoded frame of the actual processing input.",
+        "note": f"Frame-aligned {reference} reference; processing provenance is validated independently.",
     }
 
 

@@ -50,8 +50,10 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
             "detect_defects": "false",
         })
         before = app.APP.settings
+        before_queue = getattr(app.APP, 'queue_running', False)
         try:
             app.APP.settings = settings
+            app.APP.queue_running = True
             self.assertEqual(
                 [stage.key for stage in app.APP.active_stages()][:5],
                 ["denoise", "deflicker", "cleanup", "stabilize", "detail"],
@@ -102,6 +104,7 @@ class IntegratedNoiseDeflickerTests(unittest.TestCase):
             self.assertEqual(direct[direct.index("--source") + 1], source)
         finally:
             app.APP.settings = before
+            app.APP.queue_running = before_queue
 
     def test_real_ffv1_audio_denoise_then_localized_stream(self):
         ffmpeg = shutil.which("ffmpeg")

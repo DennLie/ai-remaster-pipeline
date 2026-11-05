@@ -8,15 +8,30 @@
 <link rel="apple-touch-icon" href="/media?path=assets/branding/arp-app-icon-192.png">
 <link rel="manifest" href="/site.webmanifest">
 <link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/comparison-workbench.css">
+<link rel="stylesheet" href="/static/comparison-help.css">
 </head>
 <body>
-<header><div class="brand"><img src="/media?path=assets/branding/arp-app-icon-192.png" alt=""><div><div class="brand-title">ARP</div><div class="brand-subtitle">AI Remaster Pipeline <span id="version"></span></div><div id="root" class="root"></div></div></div><div class="header-tools"><div id="systemStatus" class="system-status"></div><div class="row header-actions"><a class="support-link" href="https://buymeacoffee.com/davidaddis" target="_blank" rel="noreferrer" aria-label="Buy me a coffee"><img src="/media?path=assets/branding/bmc-brand-logo.png" alt="Buy me a coffee"></a><button onclick="refresh(true)">Refresh</button><button class="warn" onclick="stopRun()">Stop</button><button class="danger" onclick="quitArp()">Quit</button></div></div></header>
-<nav id="tabs" class="tabs"></nav>
+<header class="workbench-navigation">
+  <div class="brand"><img src="/media?path=assets/branding/arp-app-icon-192.png" alt=""><div class="brand-title">ARP</div><span id="workbenchRunStatus" class="workbench-run-status" role="status">Idle</span></div>
+  <nav id="tabs" class="tabs" aria-label="Pipeline stages" onfocusin="event.target.closest('.pipeline-tab')?.scrollIntoView({block:'nearest',inline:'nearest'})"></nav>
+  <div class="header-actions">
+    <button type="button" class="warn" onclick="stopRun()" disabled>Stop</button>
+    <details class="workbench-system"><summary>System & info</summary><div>
+      <strong>AI Remaster Pipeline <span id="version"></span></strong>
+      <div id="root" class="root"></div><div id="systemStatus" class="system-status"></div>
+      <div class="system-actions"><button type="button" onclick="refresh(true)">Refresh status</button><button type="button" class="danger" onclick="quitArp()">Quit</button></div>
+      <a class="support-link" href="https://buymeacoffee.com/davidaddis" target="_blank" rel="noreferrer" aria-label="Buy me a coffee"><img src="/media?path=assets/branding/bmc-brand-logo.png" alt="Buy me a coffee"></a>
+    </div></details>
+  </div>
+</header>
 <main id="app"></main>
 <script src="/static/js/core.js"></script>
 <script src="/static/js/render-helpers.js"></script>
 <script src="/static/js/review-zoom.js"></script>
 <script src="/static/js/render-denoise.js"></script>
+<script src="/static/js/comparison-layout.js"></script>
+<script src="/static/js/comparison-help.js"></script>
 <script src="/static/js/render-deflicker.js"></script>
 <script src="/static/js/render-enhancement.js"></script>
 <script src="/static/js/denoise-playback.js"></script>

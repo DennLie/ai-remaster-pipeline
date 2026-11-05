@@ -53,6 +53,7 @@ from .models import CLEANUP_NEGATIVE_PROMPT, CLEANUP_PROMPT, COLORIZE_STAGE_KEYS
 from .denoise_matrix import VARIANTS as DENOISE_MATRIX_VARIANTS, parse_frames as denoise_matrix_parse_frames, export_identity as denoise_matrix_identity, output_path as denoise_matrix_output, validate_variants as denoise_matrix_validate_variants
 from .denoise_review import review_pair as denoise_review_pair
 from .denoise_review import output_ready as comparison_output_ready
+from .denoise_review import readiness_snapshot
 from .denoise_diff_video import render_diff_preview as render_denoise_diff_preview
 from .frame_inspector import _metadata as denoise_frame_metadata
 from . import deflicker as deflicker_stage
@@ -815,9 +816,11 @@ class PipelineApp:
         return self.processing_input()
 
     def processing_input(self, stage_key=None) -> str:
+        if self.preprocessing_uses_original(stage_key):
+            return pipeline_source_text(self.settings)
         return preprocessing_input_for(self.settings, stage_key)
 
-    def preprocessing_upstream(self, stage_key=None):
+    def configured_preprocessing_upstream(self, stage_key=None):
         result = []
         for key in preprocessing_order(self.settings):
             if key == stage_key:
@@ -825,6 +828,15 @@ class PipelineApp:
             if is_true(self.settings.get('global', {}), key):
                 result.append(key)
         return result
+
+    def preprocessing_uses_original(self, stage_key=None):
+        # Standalone previews may start from source; whole-remaster jobs stay strict.
+        return (stage_key in PREPROCESSING_STAGES and not getattr(self, 'queue_running', False)
+                and any(not comparison_output_ready(self, key)
+                        for key in self.configured_preprocessing_upstream(stage_key)))
+
+    def preprocessing_upstream(self, stage_key=None):
+        return [] if self.preprocessing_uses_original(stage_key) else self.configured_preprocessing_upstream(stage_key)
 
     def preprocessing_problem(self, stage_key=None):
         titles = {stage.key: stage.title for stage in STAGES}
@@ -843,7 +855,8 @@ class PipelineApp:
         elif previous == 'enhancement':
             values = enhancement_stage.backend.options(values)
         return {'source': self.processing_input(stage_key), 'from_stage': previous,
-                'label': titles[previous] if previous else 'Original source · selected processing input',
+                'label': titles[previous] if previous else ('Original source · upstream result unavailable' if self.preprocessing_uses_original(stage_key) else 'Original source · selected processing input'),
+                'original_fallback': self.preprocessing_uses_original(stage_key),
                 'parameters': {key: values[key] for key in ('method', 'preset', 'mix', 'strength', 'max_correction', 'window') if key in values},
                 'problem': self.preprocessing_problem(stage_key),
                 'chain': [{'key': key, 'title': titles[key]} for key in
@@ -1036,20 +1049,23 @@ class PipelineApp:
         for stage in self.active_stages():
             expected = [resolve(path) for path in self.expected_outputs(stage.key) if path]
             existing = [path for path in expected if path.exists()]
+            if stage.key in PREPROCESSING_STAGES and not comparison_output_ready(self, stage.key):
+                existing = []
             ready = bool(expected) and len(existing) == len(expected)
             latest = max(existing, key=lambda path: path.stat().st_mtime_ns) if existing else None
             rows.append({"stage": stage.title, "status": "Ready" if ready else "Waiting", "latest": rel(latest) if latest else ""})
         return rows
 
-    def phase_progress(self) -> dict:
+    def phase_progress(self, progress_rows=None) -> dict:
         current = self.estimate_running_progress()
         stages = []
         completed = 0.0
         active_label = ""
         active = self.active_stages()
+        progress_rows = self.progress() if progress_rows is None else progress_rows
         for stage in active:
             title = stage.title
-            latest = next((item["latest"] for item in self.progress() if item["stage"] == title), "")
+            latest = next((item["latest"] for item in progress_rows if item["stage"] == title), "")
             if self.running_stage_key == stage.key and current:
                 percent = current["percent"]
                 label = current["label"]
@@ -1408,6 +1424,7 @@ class PipelineApp:
                 label = "Finishing: " + label
         return {"key": self.running_stage_key, "stage": self.running_stage, "percent": percent, "label": label}
 
+    @readiness_snapshot
     def state(self, view: str = "", retry_section: bool = False) -> dict:
         with self.lock:
             running = self.process is not None and self.process.poll() is None
@@ -1422,6 +1439,7 @@ class PipelineApp:
             aspect_preview, aspect_preview_frame = aspect_preview_frame_for_settings(settings_snapshot) if outpaint_ready else (source_media["aspect_preview"], 0)
             outpaint_chunks = outpaint_chunks_state(settings_snapshot) if outpaint_ready else {"manifest": "", "rows": []}
             cache = cache_state() if view == "cache" else {}
+            progress_rows = self.progress()
             payload = {
                 "root": str(ROOT),
                 "version": APP_VERSION,
@@ -1432,8 +1450,8 @@ class PipelineApp:
                     for stage in (*self.active_stages(), output_stage())
                 ],
                 "settings": settings_snapshot,
-                "progress": self.progress(),
-                "phase_progress": self.phase_progress(),
+                "progress": progress_rows,
+                "phase_progress": self.phase_progress(progress_rows),
                 "expected_outputs": {stage.key: self.expected_outputs(stage.key) for stage in (*self.active_stages(), output_stage())},
                 "existing_outputs": {stage.key: self.existing_outputs(stage.key) for stage in (*self.active_stages(), output_stage())},
                 "cleanup_comparison": self.cleanup_comparison_state(),

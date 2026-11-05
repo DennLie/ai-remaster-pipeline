@@ -161,14 +161,14 @@ test('live diff requests are deduplicated and late responses cannot resurrect a 
   assert.equal(evaluate('denoiseCompareDiffState[1].loading'),false);
 });
 
-function fakeWorkspace(context) {
+function fakeWorkspace(context,reference=null) {
   const classes=()=>({toggle(){},add(){},remove(){}});
   const column=()=>({children:[],appendChild(p){p.parent=this;this.children.push(p)},
     insertBefore(p,before){p.remove();p.parent=this;const i=this.children.indexOf(before);this.children.splice(i<0?this.children.length:i,0,p)},
-    querySelector(){return null},classList:classes()});
+    querySelector(selector){return selector==='.denoise-result-heading'?this.children[0]?.heading:null},classList:classes()});
   const original=column(),results=column();
   const panels=()=>[...original.children,...results.children];
-  const host={isConnected:true,classList:classes(),setAttribute(){},querySelector(selector){
+  const host={isConnected:true,classList:classes(),closest(){return reference?{querySelector:()=>reference}:null},setAttribute(){},querySelector(selector){
     if(selector==='.denoise-workspace')return{classList:classes()};
     if(selector==='.denoise-original-column')return original;
     if(selector==='.denoise-results-grid')return results;
@@ -180,6 +180,9 @@ function fakeWorkspace(context) {
     querySelector(selector){return host.querySelector(selector)},querySelectorAll:()=>[],
     createElement(){return{dataset:{},classList:classes(),parent:null,canvas:null,
       set innerHTML(html){
+        if(this.heading?.contains(reference)) reference.parent=null;
+        this.heading={children:[],contains(node){return this.children.includes(node)},querySelectorAll(){return[]},
+          append(node){this.children.push(node);node.parent=this}};
         const id=html.match(/data-dp-canvas="(\d+)"/);
         this.canvas=id?{dataset:{dpCanvas:id[1]},width:0,height:0}:null;
       },
@@ -224,6 +227,22 @@ test('polling, additions and same-count replacements preserve unaffected canvase
   context.denoiseMatrixSelect('hqdn3d','strong');
   assert.equal(panels().length,9);
   assert.equal(panels()[0].canvas,master);
+});
+
+test('reference controls stay in the source heading across polling and source-panel replacement',()=>{
+  const {context,state}=setup(),reference={parent:null};
+  const {panels}=fakeWorkspace(context,reference);
+  const render=()=>context.denoiseWorkspaceRender(context.denoiseCompareCandidates(state.stages[0]));
+  render();
+  const heading=panels()[0].heading,canvas=panels()[0].canvas;
+  assert.equal(reference.parent,heading);assert.equal(heading.children.length,1);
+  render();
+  assert.equal(reference.parent,heading);assert.equal(heading.children.length,1);
+  assert.equal(panels()[0].canvas,canvas);
+  state.denoise_matrix.source_revision='s2';render();
+  assert.notEqual(panels()[0].heading,heading);
+  assert.equal(reference.parent,panels()[0].heading);
+  assert.equal(panels()[0].heading.children[0],reference);
 });
 
 test('leaving a mounted workspace disposes its display adapters and rejects their late callbacks',()=>{
