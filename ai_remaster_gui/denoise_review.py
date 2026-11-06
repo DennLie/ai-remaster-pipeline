@@ -39,6 +39,10 @@ def readiness_snapshot(function):
 
 
 def comparison_source(app, stage: str = "denoise") -> str:
+    if stage == 'dust':
+        return app.stabilized_source_for_downstream()
+    if stage == 'stabilize':
+        return app.cleaned_source_for_downstream()
     if stage not in ("denoise", "deflicker", 'enhancement'):
         raise ValueError("Choose a supported restoration comparison stage.")
     if hasattr(app, 'processing_input'):
@@ -53,6 +57,12 @@ def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | No
     """Enforce stage-bound candidate and signed source lineage before decoding."""
     if not isinstance(candidate, str) or not candidate or len(candidate) > 2048:
         raise ValueError("Choose a finished comparison-stage output.")
+    if stage == 'dust':
+        from .dust import review_pair as dust_pair
+        return dust_pair(app,candidate)
+    if stage == 'stabilize':
+        from .stabilization import review_pair as stabilization_pair
+        return stabilization_pair(app, candidate)
     source_text = comparison_source(app, stage)
     if not source_text:
         raise FileNotFoundError("Choose the original film source.")
@@ -124,6 +134,43 @@ def review_pair(app, candidate: str, stage: str = "denoise", *, method: str | No
 
 def selected_output(app, stage: str) -> Path:
     """The selected pipeline result, using the same rules as comparison variants."""
+    from . import pipeline_order, video_order
+    if pipeline_order.configured(app.settings) and stage not in video_order.STAGES:
+        if not app.stage_is_current(stage):raise ValueError('Artifact phase is not current: '+stage)
+        return resolve(app.pipeline_plan()['nodes'][stage]['output'])
+    if stage == 'dust':
+        app.validate_dust_adoption()
+        return review_pair(app,app.dust_output(),'dust')[1]
+    if stage == 'stabilize':
+        return review_pair(app,app.stabilization_output(),'stabilize')[1]
+    if stage in ('cleanup','detail'):
+        source = resolve(app.processing_input(stage))
+        output = resolve(app.cleanup_output() if stage == 'cleanup' else app.detail_output())
+        provenance = json.loads(output.with_suffix(output.suffix+'.sig.json').read_text(encoding='utf-8'))
+        stat = source.stat()
+        fingerprint = provenance.get('source_fingerprint',{})
+        if provenance.get('tool') != ('cleanup_video.py' if stage == 'cleanup' else 'detail_enhance_video.py') or resolve(provenance.get('source','')).resolve() != source.resolve() or fingerprint.get('size') != stat.st_size or fingerprint.get('mtime_ns') != stat.st_mtime_ns:
+            raise ValueError('Video stage output has stale input provenance.')
+        values = app.settings.get(stage,{})
+        profile = app.settings.get('cloud',{}).get('intermediate_format','high')
+        if stage == 'detail':
+            import detail_enhance_video as detail
+            if provenance != detail.signature(source,values.get('method','off'),values.get('preset','gentle'),int(values.get('mix','100')),profile):
+                raise ValueError('Detail output has stale settings or format.')
+        else:
+            import artifact_ids as aid
+            from intermediate_video import canonical_profile
+            if output.name != aid.artifact_name(aid.source_word(source.name),'cleanup',provenance.get('identity',{}),'mkv') or provenance.get('intermediate_profile') != canonical_profile(profile):
+                raise ValueError('Clean Up output has stale settings or format.')
+            if any(key in values and float(provenance.get(key,-1)) != float(values[key]) for key in ('chunk_seconds','overlap_frames')):
+                raise ValueError('Clean Up output has stale chunk settings.')
+        if stage == 'cleanup':
+            before, after = _metadata(source), _metadata(output)
+            if any(before[k] != after[k] for k in ('frames','fps_fraction')):
+                raise ValueError('Clean Up output has a different timeline.')
+        else:
+            _validate_pair(source,output)
+        return output
     values = app.settings.get(stage, {})
     getter = {'denoise': 'denoise_output', 'deflicker': 'deflicker_output', 'enhancement': 'enhancement_output'}.get(stage)
     if getter is None:
@@ -141,7 +188,7 @@ def output_ready(app, stage: str) -> bool:
     try:
         selected_output(app, stage)
         ready = True
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         ready = False
     if snapshot is not None:
         snapshot[key] = ready
@@ -189,7 +236,7 @@ def inspect_denoise(app, candidate: str, frame: int, stage: str = "denoise", ref
         "fps": metadata["fps"], "width": metadata["width"],
         "height": metadata["height"], "before": before, "after": after,
         "exact": True,
-        "method": json.loads(output.with_suffix(output.suffix + ".sig.json").read_text(encoding="utf-8"))["method"] if output is not None else "off",
+        "method": ('mask-gated dust' if stage == 'dust' else json.loads(output.with_suffix(output.suffix + ".sig.json").read_text(encoding="utf-8")).get("method", 'libvidstab')) if output is not None else "off",
         "note": f"Frame-aligned {reference} reference; processing provenance is validated independently.",
     }
 

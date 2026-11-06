@@ -153,6 +153,7 @@ def base_settings() -> dict[str, dict[str, str]]:
         "cleanup": "false",
         "commercial_model_guard": "false",
         "stabilize": "false",
+        "dust": "false",
         "detail": "false",
         "expand_outpaint": "true",
         "colorize": "true",

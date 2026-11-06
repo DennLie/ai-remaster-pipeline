@@ -38,6 +38,7 @@ EXPECTED_GET_ROUTES = {
     "/api/outpaint-chunk-preview",
     "/api/outpaint-guide-preview",
     "/api/denoise-inspector",
+    "/api/stabilization-footprint",
     "/api/denoise-frame-differences",
     "/api/denoise-grid-download",
     "/api/denoise-diff-video",
@@ -68,6 +69,8 @@ EXPECTED_POST_ROUTES = {
     "/api/denoise-playback",
     "/api/deflicker-batch",
     "/api/enhancement-batch",
+    "/api/stabilize-batch", "/api/stabilize-adopt",
+    "/api/dust-status", "/api/dust-inspect", "/api/dust-run", "/api/dust-adopt",
 }
 
 
@@ -111,6 +114,20 @@ class _Handler(http_handler.Handler):
 
 
 class HelperBehaviourTests(unittest.TestCase):
+    def test_stabilization_routes_pass_explicit_selection_and_candidate(self):
+        rows = [{'method': 'zoom0', 'preset': 'settings'}]
+        state.APP.run_stabilization_batch = mock.Mock(return_value=(True, 'started'))
+        handler = _Handler('/api/stabilize-batch', {'variants': rows})
+        handler.do_POST()
+        state.APP.run_stabilization_batch.assert_called_once_with(rows)
+        self.assertTrue(handler.responses['json']['ok'])
+        state.APP.adopt_stabilization = mock.Mock(side_effect=ValueError('stale result'))
+        handler = _Handler('/api/stabilize-adopt', {'method': 'zoom0', 'variant': 'old.mkv'})
+        handler.do_POST()
+        state.APP.adopt_stabilization.assert_called_once_with('zoom0', 'old.mkv')
+        self.assertFalse(handler.responses['json']['ok'])
+        self.assertIn('stale result', handler.responses['json']['error'])
+
     def test_settings_validation_returns_json_error(self) -> None:
         state.APP.update_settings = mock.Mock(side_effect=ValueError('Stop processing before changing the pipeline order.'))
         handler = _Handler('/api/settings', {'stage': 'global', 'values': {'preprocessing_order': 'deflicker,denoise,enhancement'}})
@@ -148,6 +165,14 @@ class HelperBehaviourTests(unittest.TestCase):
         handler = _Handler('/api/denoise-playback-video?token=../../unrelated.mp4')
         handler.do_GET()
         self.assertEqual(handler.responses['error'], 404)
+
+    def test_dust_mask_playback_forwards_saved_options_without_a_repair(self):
+        from ai_remaster_gui import denoise_playback
+        values={'detector':'temporal','repair':'telea'}
+        handler=_Handler('/api/denoise-playback',{'stage':'dust','frame':7,'mask_values':values})
+        with mock.patch.object(denoise_playback,'playback_segment',return_value={}) as call:
+            handler.do_POST()
+        call.assert_called_once_with(state.APP,'',7,'direction',32,'dust','input',mask_values=values)
 
     def test_shared_inspector_chart_and_playback_forward_deflicker_stage(self) -> None:
         from ai_remaster_gui import denoise_playback

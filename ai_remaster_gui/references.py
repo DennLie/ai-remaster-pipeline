@@ -81,6 +81,9 @@ def shot_views(settings: dict[str, dict[str, str]], view: str) -> dict[str, obje
                 shots_manifest = configured_manifest
                 break
     upscale_manifest = colour_manifest or references_manifest or shots_manifest
+    if 'pipeline_order' in settings.get('global', {}):
+        shots_manifest = shots_settings.get('manifest', '')
+        upscale_manifest = settings.get('upscale', {}).get('manifest', '')
     return {
         "shots_manifest": shots_manifest,
         # The browser paints shot thumbnails from whole-video sheets (scrub_sheets.py); state

@@ -58,6 +58,10 @@ from .denoise_diff_video import render_diff_preview as render_denoise_diff_previ
 from .frame_inspector import _metadata as denoise_frame_metadata
 from . import deflicker as deflicker_stage
 from . import enhancement as enhancement_stage
+from . import stabilization as stabilization_stage
+from . import dust as dust_stage
+from . import video_order
+from . import pipeline_order
 from .paths import even_int, format_timecode, is_unfinished_media_artifact, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
 from .power import keep_awake, release_keep_awake
 from .naming import manifest_for_outpainted
@@ -532,15 +536,11 @@ class PipelineApp:
 
     def active_stages(self) -> tuple[Stage, ...]:
         by_key = {stage.key: stage for stage in STAGES}
+        if pipeline_order.configured(self.settings):
+            return tuple(by_key[key] for key in pipeline_order.order(self.settings,()) if pipeline_order.enabled(self.settings,key))
         stages: list[Stage] = []
-        stages.extend(by_key[key] for key in preprocessing_order(self.settings)
+        stages.extend(by_key[key] for key in video_order.order(self.settings, preprocessing_order(self.settings))
                       if is_true(self.settings.get('global', {}), key))
-        if self.cleanup_enabled():
-            stages.append(by_key["cleanup"])
-        if self.stabilize_enabled():
-            stages.append(by_key["stabilize"])
-        if self.detail_enabled():
-            stages.append(by_key["detail"])
         if self.outpaint_enabled():
             stages.append(by_key["outpaint"])
         if self.colorize_enabled() or self.upscale_enabled():
@@ -558,6 +558,8 @@ class PipelineApp:
     def soundtrack_source_for(self) -> str:
         """The video the soundtrack phase attaches sound to: the recomposed render when
         earlier processing is enabled, otherwise the selected source section."""
+        if pipeline_order.configured(self.settings):
+            return self.pipeline_plan()['nodes'].get('audio',{}).get('input','')
         if self.outpaint_enabled() or self.colorize_enabled():
             recomp = self.settings.get("recomp", {})
             return recomp.get("output") or recomposition_output_for(self.recomposition_base_input(), recomp.get("encoder", "h264"))
@@ -718,8 +720,10 @@ class PipelineApp:
         destination = (ROOT / "output" / "denoise_comparisons").resolve()
         return path if path.parent == destination and path.suffix.lower() == ".zip" else None
 
-    def _start_denoise_matrix(self, title: str, command: list[str], stage_key: str = "denoise") -> tuple[bool, str]:
+    def _start_denoise_matrix(self, title: str, command: list[str], stage_key: str = "denoise", expected_project=None) -> tuple[bool, str]:
         with self.lock:
+            if stage_key == 'dust' and (command[command.index('--source')+1] != self.stabilized_source_for_downstream() or expected_project is not None and expected_project != str(self.project_path or '')):
+                return False, 'Dust project/input changed before launch. Reload and retry.'
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
             self.running_stage = title
@@ -813,16 +817,29 @@ class PipelineApp:
             self.settings.get('cloud', {}).get('intermediate_format', 'high'))
 
     def enhanced_source_for_downstream(self) -> str:
+        if video_order.configured(self.settings) or pipeline_order.configured(self.settings):
+            return self.processing_input('cleanup')
         return self.processing_input()
 
     def processing_input(self, stage_key=None) -> str:
+        if pipeline_order.configured(self.settings):
+            plan=self.pipeline_plan()
+            if stage_key=='dust' and 'dust' not in plan['nodes']:
+                plan=complete_pipeline_plan({**self.settings,'global':{**self.settings.get('global',{}),'dust':'true'}})
+            return plan['nodes'].get(stage_key,{}).get('input','') if stage_key else plan['output']
         if self.preprocessing_uses_original(stage_key):
             return pipeline_source_text(self.settings)
         return preprocessing_input_for(self.settings, stage_key)
 
     def configured_preprocessing_upstream(self, stage_key=None):
+        if pipeline_order.configured(self.settings):
+            plan=self.pipeline_plan()
+            if stage_key=='dust' and 'dust' not in plan['nodes']:
+                plan=complete_pipeline_plan({**self.settings,'global':{**self.settings.get('global',{}),'dust':'true'}})
+            keys=list(plan['nodes'])
+            return keys[:keys.index(stage_key)] if stage_key in keys else keys
         result = []
-        for key in preprocessing_order(self.settings):
+        for key in video_order.order(self.settings, preprocessing_order(self.settings)) if video_order.configured(self.settings) else preprocessing_order(self.settings):
             if key == stage_key:
                 break
             if is_true(self.settings.get('global', {}), key):
@@ -830,6 +847,9 @@ class PipelineApp:
         return result
 
     def preprocessing_uses_original(self, stage_key=None):
+        if pipeline_order.configured(self.settings):return False
+        if video_order.configured(self.settings):
+            return False
         # Standalone previews may start from source; whole-remaster jobs stay strict.
         return (stage_key in PREPROCESSING_STAGES and not getattr(self, 'queue_running', False)
                 and any(not comparison_output_ready(self, key)
@@ -839,6 +859,36 @@ class PipelineApp:
         return [] if self.preprocessing_uses_original(stage_key) else self.configured_preprocessing_upstream(stage_key)
 
     def preprocessing_problem(self, stage_key=None):
+        if pipeline_order.configured(self.settings):
+            plan=self.pipeline_plan()
+            if stage_key=='dust' and 'dust' not in plan['nodes']:
+                plan=complete_pipeline_plan({**self.settings,'global':{**self.settings.get('global',{}),'dust':'true'}})
+            for key,row in plan['nodes'].items():
+                if row['problem']:return key+': '+row['problem']
+                bindings=row['bindings']
+                manifest=bindings.get('manifest','')
+                if key in ('references','colour') and manifest and resolve(manifest).is_file():
+                    try:actual=manifest_source_video(resolve(manifest))
+                    except (OSError,ValueError,KeyError,TypeError):return key+': the shot manifest source could not be validated.'
+                    if not actual or resolve(actual).resolve()!=resolve(bindings.get('source','')).resolve():
+                        return key+': the saved shot manifest belongs to another video. Review/regenerate Shot Detection; old references are not substituted.'
+                if key=='recomp':
+                    from .frame_inspector import _metadata
+                    paths=[bindings.get(name,'') for name in ('source','outpainted_video','colorized_video')]
+                    paths=[resolve(path) for path in paths if path]
+                    if paths and all(path.is_file() for path in paths):
+                        try:
+                            metadata=[_metadata(path) for path in paths]
+                            if any(any(value[name]!=metadata[0][name] for name in ('frames','fps_fraction')) for value in metadata[1:]):
+                                return 'Recomposition branch frame counts/cadence do not match; regenerate matching branches.'
+                        except (OSError,ValueError,KeyError):return 'Recomposition branch metadata could not be validated.'
+                if key==stage_key:break
+                if key in video_order.STAGES:
+                    ready=comparison_output_ready(self,key)
+                else:
+                    ready=self.stage_is_current(key)
+                if not ready:return f'Run {key} first for the current pipeline bindings; old artifacts are not substituted.'
+            return ''
         titles = {stage.key: stage.title for stage in STAGES}
         for key in self.preprocessing_upstream(stage_key):
             if not comparison_output_ready(self, key):
@@ -846,6 +896,29 @@ class PipelineApp:
         return ''
 
     def processing_input_state(self, stage_key):
+        if pipeline_order.configured(self.settings):
+            plan=self.pipeline_plan();keys=list(plan['nodes']);upstream=self.preprocessing_upstream(stage_key)
+            previous=upstream[-1] if upstream else None
+            return {'source':self.processing_input(stage_key),'from_stage':previous,'label':previous or 'Original source',
+                'original_fallback':False,'parameters':{},'problem':self.preprocessing_problem(stage_key),
+                'chain':[{'key':key,'title':next(s.title for s in STAGES if s.key==key)} for key in keys]}
+        if not video_order.configured(self.settings) and stage_key in ('cleanup','dust','detail'):
+            result = self.processing_input_state(None)
+            getters = {'cleanup':self.enhanced_source_for_downstream,'dust':self.stabilized_source_for_downstream,'detail':self.dust_source_for_downstream}
+            ordered = video_order.order(self.settings,preprocessing_order(self.settings))
+            previous = [key for key in ordered[:ordered.index(stage_key)] if is_true(self.settings.get('global',{}),key)]
+            key = previous[-1] if previous else None
+            result.update(source=getters[stage_key](),from_stage=key,original_fallback=False,
+                label=next((stage.title for stage in STAGES if stage.key==key),'Original source · selected processing input'),
+                parameters={name:value for name,value in self.settings.get(key,{}).items() if name in ('method','preset','mix','zoom','smoothing','detector','repair')})
+            return result
+        if stage_key == 'stabilize' and not video_order.configured(self.settings):
+            result = self.processing_input_state(None)
+            result.update(source=self.cleaned_source_for_downstream(), original_fallback=False)
+            if self.cleanup_enabled():
+                result.update(from_stage='cleanup', label='Clean Up output', parameters={},
+                    problem=result['problem'] or ('' if resolve(result['source']).is_file() else 'Run Clean Up first.'))
+            return result
         upstream = self.preprocessing_upstream(stage_key)
         previous = upstream[-1] if upstream else None
         titles = {stage.key: stage.title for stage in STAGES}
@@ -857,10 +930,10 @@ class PipelineApp:
         return {'source': self.processing_input(stage_key), 'from_stage': previous,
                 'label': titles[previous] if previous else ('Original source · upstream result unavailable' if self.preprocessing_uses_original(stage_key) else 'Original source · selected processing input'),
                 'original_fallback': self.preprocessing_uses_original(stage_key),
-                'parameters': {key: values[key] for key in ('method', 'preset', 'mix', 'strength', 'max_correction', 'window') if key in values},
+                'parameters': {key: values[key] for key in ('method', 'preset', 'mix', 'strength', 'max_correction', 'window', 'zoom', 'smoothing', 'detector', 'repair') if key in values},
                 'problem': self.preprocessing_problem(stage_key),
                 'chain': [{'key': key, 'title': titles[key]} for key in
-                          preprocessing_order(self.settings) if is_true(self.settings.get('global', {}), key)]}
+                          video_order.order(self.settings, preprocessing_order(self.settings)) if is_true(self.settings.get('global', {}), key)]}
 
     def enhancement_matrix_state(self) -> dict:
         source, ready, revision = self.processing_input('enhancement'), [], ''
@@ -918,7 +991,7 @@ class PipelineApp:
 
     def cleaned_source_for_downstream(self) -> str:
         """Expected immediate output of Clean Up, or the selected source when it is disabled."""
-        return self.cleanup_output() if self.cleanup_enabled() else self.enhanced_source_for_downstream()
+        return self.processing_input('stabilize') if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else self.cleanup_output() if self.cleanup_enabled() else self.enhanced_source_for_downstream()
 
     def stabilization_output(self) -> str:
         source = self.cleaned_source_for_downstream()
@@ -928,22 +1001,184 @@ class PipelineApp:
             self.settings.get("cloud", {}).get("intermediate_format", "high"),
         ) if source else ""
 
+    def stabilization_matrix_state(self):
+        source, ready, revision = self.cleaned_source_for_downstream(), [], ''
+        values = self.settings.get('stabilize', {})
+        profile = canonical_intermediate_profile(self.settings.get('cloud', {}).get('intermediate_format'))
+        try:
+            stat = resolve_video_source(source).stat()
+            revision = f'{stat.st_mtime_ns}-{stat.st_size}'
+        except OSError:
+            pass
+        for method in stabilization_stage.METHODS:
+            try:
+                output = stabilization_stage.output_for(source, stabilization_stage.variant_values(values, method), profile)
+                _, path = denoise_review_pair(self, output, 'stabilize')
+                stat = path.stat()
+                ready.append({'method': method, 'preset': 'settings', 'output': output,
+                    'revision': f'{stat.st_mtime_ns}-{stat.st_size}', 'scenes': stabilization_stage.scene_report(path)})
+            except (OSError, ValueError, TypeError, KeyError):
+                continue
+        return {'source': source, 'source_revision': revision, 'variants': ready, 'ready': len(ready),
+            'total': len(stabilization_stage.METHODS), 'running': self.running_stage_key == 'stabilize'}
+
+    def run_stabilization_batch(self, variants=None):
+        if getattr(self, 'queue_running', False):
+            return False, 'A pipeline job is already running.'
+        if self.settings.get('stabilize', {}).get('compute', 'local') != 'local':
+            return False, 'Comparison batches run locally. Choose This computer, or use Render pipeline selection for RunPod.'
+        if not self.stabilize_enabled():
+            return False, 'Enable Stabilization on Overview first.'
+        if self.quitting:
+            return False, 'ARP is shutting down.'
+        rows = variants if variants is not None else [{'method': method, 'preset': 'settings'} for method in ('zoom0', 'zoom3')]
+        try:
+            stabilization_stage.validate_variants(rows)
+            self.ensure_pipeline_source()
+            problem = self.processing_input_state('stabilize')['problem']
+            if problem:
+                raise ValueError(problem)
+            source = resolve_video_source(self.cleaned_source_for_downstream())
+            if not source.is_file():
+                raise ValueError('Choose a valid stabilization input first.')
+            values = self.settings.get('stabilize', {})
+            profile = canonical_intermediate_profile(self.settings.get('cloud', {}).get('intermediate_format'))
+            for row in rows:
+                stabilization_stage.arguments(source, stabilization_stage.variant_values(values, row['method']), profile)
+        except (OSError, ValueError, TypeError) as exc:
+            return False, str(exc)
+        command = [sys.executable, '-u', '-m', 'ai_remaster_gui.stabilization', '--source', str(source),
+            '--settings', json.dumps(values), '--variants', json.dumps(rows), '--profile', profile]
+        return self._start_denoise_matrix('Stabilization Batch', command, 'stabilize')
+
+    def adopt_stabilization(self, method, candidate):
+        from .frame_differences import _validate_pair
+        with self.lock:
+            if self.quitting or (self.process and self.process.poll() is None) or getattr(self, 'queue_running', False):
+                raise ValueError('Stop processing before adopting a stabilization result.')
+            values = stabilization_stage.variant_values(self.settings.get('stabilize', {}), method)
+            expected = stabilization_stage.output_for(self.cleaned_source_for_downstream(), values,
+                canonical_intermediate_profile(self.settings.get('cloud', {}).get('intermediate_format')))
+            if not isinstance(candidate, str) or candidate != expected:
+                raise ValueError('The inspected stabilization result is no longer current. Reload and inspect it again.')
+            source, output = denoise_review_pair(self, candidate, 'stabilize')
+            _validate_pair(source, output)
+            self.update_settings('stabilize', {'zoom': str(values.get('zoom', '3.0')), 'force': 'false'})
+        return {}
+
     def stabilized_source_for_downstream(self) -> str:
         """Expected stabilized output, or the cleaned/selected source when stabilization is off."""
-        return self.stabilization_output() if self.stabilize_enabled() else self.cleaned_source_for_downstream()
+        return self.processing_input('dust') if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else self.stabilization_output() if self.stabilize_enabled() else self.cleaned_source_for_downstream()
 
     def detail_output(self) -> str:
-        source = self.stabilized_source_for_downstream()
+        source = self.dust_source_for_downstream()
         return detail_output_for(source, self.settings.get("detail", {}),
                                  self.settings.get("cloud", {}).get("intermediate_format", "high")) if source else ""
 
     def detailed_source_for_downstream(self) -> str:
-        return self.detail_output() if self.detail_enabled() else self.stabilized_source_for_downstream()
+        if video_order.configured(self.settings) or pipeline_order.configured(self.settings):
+            return self.processing_input()
+        return self.detail_output() if self.detail_enabled() else self.dust_source_for_downstream()
+
+    def dust_output(self):
+        return dust_stage.output_for(self.stabilized_source_for_downstream(), self.settings.get('dust', {}))
+
+    def dust_source_for_downstream(self):
+        if video_order.configured(self.settings) or pipeline_order.configured(self.settings):
+            return self.processing_input('detail')
+        return self.dust_output() if is_true(self.settings.get('global', {}), 'dust') else self.stabilized_source_for_downstream()
+
+    def run_dust(self, values, kind, source_expected=None, project_expected=None):
+        if source_expected is not None and source_expected != self.stabilized_source_for_downstream() or project_expected is not None and project_expected != str(self.project_path or ''):
+            raise ValueError('Dust project/input changed; reload before starting work.')
+        if kind not in ('mask', 'repair'):
+            raise ValueError('Choose mask analysis or repair.')
+        if kind == 'repair' and not is_true(self.settings.get('global', {}), 'dust'):
+            return False, 'Enable Dust & Scratches on Overview first.'
+        if self.quitting or getattr(self, 'queue_running', False):
+            return False, 'Stop the pipeline before comparing candidates.'
+        opts = dust_stage.authorize(values, is_true(self.settings.get('global', {}), 'commercial_model_guard'), kind)
+        if opts['detector'] == 'dart' and kind == 'mask':
+            from .dart_runtime import require_installation
+            require_installation(opts, ROOT)
+        if kind == 'repair' and self.cleanup_enabled() and is_true(self.settings.get('cleanup', {}), 'ai_descratch'):
+            raise ValueError('Disable legacy Clean Up AI DeScratch before running a second scratch repair.')
+        self.ensure_pipeline_source()
+        problem = self.preprocessing_problem('dust' if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else None)
+        if problem:
+            raise ValueError(problem)
+        if self.stabilize_enabled() and ('stabilize' in self.preprocessing_upstream('dust') or not (video_order.configured(self.settings) or pipeline_order.configured(self.settings))):
+            stabilization_stage.review_pair(self, self.stabilization_output())
+        source = self.stabilized_source_for_downstream()
+        if not resolve(source).is_file():
+            raise ValueError('Run the configured upstream stages first; original-source substitution is not allowed.')
+        if kind == 'repair':
+            dust_stage.saved_mask(source, opts)
+        cmd = self._dust_command(current_config(), opts, kind)
+        return self._start_denoise_matrix('Dust & Scratches ' + kind, cmd, 'dust', expected_project=project_expected)
+
+    def _dust_command(self, config, values, kind='repair'):
+        import uuid
+        cancel = ROOT / '.cache' / 'dust-jobs' / (uuid.uuid4().hex + '.cancel')
+        cmd = [sys.executable, '-u', '-m', 'ai_remaster_gui.dust', '--source', self.stabilized_source_for_downstream(),
+               '--settings', json.dumps(values), '--kind', kind, '--comfy-url', comfy_url_for(config),
+               '--comfy-output', comfy_output_root_for(config), '--comfy-dir', comfy_dir_for(config), '--cancel-file', str(cancel)]
+        if is_true(self.settings.get('global', {}), 'commercial_model_guard'):
+            cmd.append('--guard')
+        return cmd
+
+    def adopt_dust(self, values, source_expected=None, project_expected=None, report_expected=None):
+        with self.lock:
+            if self.quitting or getattr(self, 'queue_running', False) or self.process and self.process.poll() is None:
+                raise ValueError('Stop processing before adoption.')
+            opts = dust_stage.authorize(values, is_true(self.settings.get('global', {}), 'commercial_model_guard'))
+            source = self.stabilized_source_for_downstream()
+            if source_expected is not None and source_expected != source or project_expected is not None and project_expected != str(self.project_path or ''):
+                raise ValueError('Dust input changed; reload the candidate before adoption.')
+            dust_stage.manifest(dust_stage.folder_for(source, opts), source, opts, 'repair')
+            report_path = dust_stage.folder_for(source, opts) / 'report.json'
+            if report_expected is not None and report_expected != dust_stage.digest(report_path):
+                raise ValueError('Dust candidate changed; inspect the current report before adoption.')
+            self.update_settings('dust', {**{key: str(value) for key, value in opts.items()}, 'adopted_report': dust_stage.digest(report_path)})
+        return {}
+
+    def validate_dust_adoption(self):
+        values = dust_stage.authorize(self.settings.get('dust', {}), is_true(self.settings.get('global', {}), 'commercial_model_guard'))
+        source = self.stabilized_source_for_downstream()
+        folder = dust_stage.folder_for(source, values)
+        dust_stage.manifest(folder, source, values, 'repair')
+        if self.settings.get('dust', {}).get('adopted_report') != dust_stage.digest(folder / 'report.json'):
+            raise ValueError('Inspect and explicitly adopt the current Dust & Scratches repair first.')
+
+    def pipeline_plan(self):
+        return complete_pipeline_plan(self.settings)
+
+    def hydrate_pipeline_bindings(self):
+        plan=self.pipeline_plan()
+        if plan['nodes'].get('upscale',{}).get('input'):
+            self.apply_auto_upscale_target(plan['nodes']['upscale']['input'])
+            plan=self.pipeline_plan()
+        for key,row in plan['nodes'].items():
+            values=self.settings.setdefault(key,{})
+            if key=='shots':
+                values['outpainted_video']=row['input']
+                values['manifest']=row['bindings'].get('manifest','')
+            if key=='upscale':values['manifest']=row['bindings'].get('manifest','')
+            if key in ('references','colour'):values['manifest']=row['bindings'].get('manifest','')
+            if key=='recomp':values.update(row['bindings'])
+            if key in ('audio','upscale','stabilize'):values['input_video']=row['input']
+            if key not in ('shots','references'):values['output']=row['output']
+        return plan
 
     def outpaint_source_for(self) -> str:
+        if pipeline_order.configured(self.settings):return self.processing_input('outpaint')
         return outpaint_source_for_settings(self.settings)
 
     def recomposition_base_input(self) -> str:
+        if pipeline_order.configured(self.settings):
+            row=self.pipeline_plan()['nodes'].get('recomp',{})
+            bindings=row.get('bindings',{})
+            return bindings.get('outpainted_video') or bindings.get('source','')
         values = self.settings.get("recomp", {})
         return values.get("outpainted_video", "") or values.get("source", "") or self.detailed_source_for_downstream()
 
@@ -1049,7 +1284,9 @@ class PipelineApp:
         for stage in self.active_stages():
             expected = [resolve(path) for path in self.expected_outputs(stage.key) if path]
             existing = [path for path in expected if path.exists()]
-            if stage.key in PREPROCESSING_STAGES and not comparison_output_ready(self, stage.key):
+            if pipeline_order.configured(self.settings) and not (comparison_output_ready(self,stage.key) if stage.key in video_order.STAGES else self.stage_is_current(stage.key)):
+                existing=[]
+            if stage.key in (video_order.STAGES if video_order.configured(self.settings) else PREPROCESSING_STAGES) and not comparison_output_ready(self, stage.key):
                 existing = []
             ready = bool(expected) and len(existing) == len(expected)
             latest = max(existing, key=lambda path: path.stat().st_mtime_ns) if existing else None
@@ -1427,6 +1664,7 @@ class PipelineApp:
     @readiness_snapshot
     def state(self, view: str = "", retry_section: bool = False) -> dict:
         with self.lock:
+            if pipeline_order.configured(self.settings):self.hydrate_pipeline_bindings()
             running = self.process is not None and self.process.poll() is None
             settings_snapshot = json.loads(json.dumps(self.settings))
             source_text = settings_snapshot.get("global", {}).get("source", "")
@@ -1461,7 +1699,10 @@ class PipelineApp:
                 "denoise_matrix": self.denoise_matrix_state() if view == "denoise" else {},
                 "deflicker_matrix": self.deflicker_matrix_state() if view == "deflicker" else {},
                 "enhancement_matrix": self.enhancement_matrix_state() if view == 'enhancement' else {},
-                'processing_input': self.processing_input_state(view) if view in PREPROCESSING_STAGES else {},
+                'stabilize_matrix': self.stabilization_matrix_state() if view == 'stabilize' else {},
+                'dust_matrix': dust_stage.matrix_state(self) if view == 'dust' else {},
+                'processing_input': self.processing_input_state(view) if view in pipeline_order.STAGES else {},
+                'pipeline_plan': self.pipeline_plan() if pipeline_order.configured(self.settings) else {},
                 'queue_running': getattr(self, 'queue_running', False),
                 "reference_luminance": {"enabled": False, "plan": [], "matched_shots": 0},
                 "upscale_preview": self.upscale_preview_state(),
@@ -1518,15 +1759,32 @@ class PipelineApp:
             }
         return payload
 
-    def update_settings(self, stage: str, values: dict[str, str]) -> None:
-        if stage == 'global' and 'preprocessing_order' in values:
+    def update_settings(self, stage: str, values: dict[str, str], project_expected=None) -> None:
+        if stage == 'dust':
+            dust_stage.options({**self.settings.get(stage, {}), **values})
+        if stage == 'stabilize':
+            stabilization_stage.arguments('', {**self.settings.get(stage, {}), **values},
+                canonical_intermediate_profile(self.settings.get('cloud', {}).get('intermediate_format')))
+        if stage == 'global' and any(key in values for key in ('preprocessing_order','video_order','pipeline_order')):
             with self.lock:
+                if project_expected is not None and project_expected != str(self.project_path or ''):
+                    raise ValueError('Project changed before reordering. Reload and retry.')
                 if (self.process and self.process.poll() is None) or getattr(self, 'queue_running', False):
                     raise ValueError('Stop processing before changing the pipeline order.')
-                preprocessing_order({'global': values}, strict=True)
-                if set(values) != {'preprocessing_order'}:
+                field = 'pipeline_order' if 'pipeline_order' in values else 'video_order' if 'video_order' in values else 'preprocessing_order'
+                if field == 'pipeline_order':
+                    pipeline_order.order({'global':values},(),strict=True)
+                elif pipeline_order.configured(self.settings):
+                    raise ValueError('Use pipeline_order once the complete order is configured.')
+                elif field == 'video_order':
+                    video_order.order({'global':values}, (), strict=True)
+                else:
+                    if video_order.configured(self.settings):
+                        raise ValueError('Use video_order once the full video order is configured.')
+                    preprocessing_order({'global': values}, strict=True)
+                if set(values) != {field}:
                     raise ValueError('Change pipeline order separately from other settings.')
-                self.settings.setdefault('global', {})['preprocessing_order'] = values['preprocessing_order']
+                self.settings.setdefault('global', {})[field] = values[field]
                 self.hydrate_stage_inputs('global')
                 self.save()
                 return
@@ -1587,9 +1845,9 @@ class PipelineApp:
             self.log.append(f"Loading source material: {values.get('source')}")
             self.clear_derived_stage_inputs()
             self.hydrate_stage_inputs("global")
-        elif stage == "global" and ({"preprocessing_order", "denoise", "deflicker", "enhancement", "cleanup", "stabilize", "detail", "colorize", "expand_outpaint", "upscale"} & set(values)):
+        elif stage == "global" and ({"preprocessing_order", "denoise", "deflicker", "enhancement", "cleanup", "stabilize", "dust", "detail", "colorize", "expand_outpaint", "upscale"} & set(values)):
             self.hydrate_stage_inputs("global")
-        elif stage in {"denoise", "deflicker", 'enhancement'}:
+        elif stage in {"denoise", "deflicker", 'enhancement', 'stabilize', 'dust'}:
             self.hydrate_stage_inputs(stage)
         elif stage == "colour" and "method" in values:
             if values.get("method") in {"deepexemplar", "colormnet", "cmnet2", "ltx", "openai"}:
@@ -1956,6 +2214,10 @@ class PipelineApp:
                 stage_settings[key] = ""
 
     def hydrate_stage_inputs(self, completed_stage: str = "") -> None:
+        if pipeline_order.configured(self.settings):
+            self.hydrate_pipeline_bindings()
+            self.save()
+            return
         denoise_expected_text = self.denoise_output()
         self.settings.setdefault('denoise', {})['output'] = denoise_expected_text
         clean_expected_text = self.cleanup_output()
@@ -1983,6 +2245,9 @@ class PipelineApp:
             else "" if self.stabilize_enabled()
             else cleaned_text
         )
+        if is_true(self.settings.get('global', {}), 'dust'):
+            output = self.dust_output()
+            upstream_text = output if output and resolve(output).is_file() else ''
 
         detail_expected_text = self.detail_output()
         detail_expected = resolve(detail_expected_text) if detail_expected_text else None
@@ -1993,6 +2258,10 @@ class PipelineApp:
             else "" if self.detail_enabled()
             else upstream_text
         )
+
+        if video_order.configured(self.settings):
+            stabilize_settings['input_video'] = self.processing_input('stabilize')
+            upstream_text = self.processing_input() if not self.preprocessing_problem() else ''
 
         if not self.outpaint_enabled():
             outpainted_text = upstream_text
@@ -2083,7 +2352,17 @@ class PipelineApp:
         self.save()
 
     def expected_outputs(self, stage_key: str) -> list[str]:
+        if pipeline_order.configured(self.settings) and stage_key in pipeline_order.STAGES and stage_key not in video_order.STAGES:
+            row=self.pipeline_plan()['nodes'].get(stage_key)
+            if not row:return []
+            manifest=row['bindings'].get('manifest','')
+            if stage_key=='shots':return [manifest] if manifest else []
+            if stage_key=='references':return color_reference_outputs(manifest)
+            if stage_key=='colour':return colorized_outputs_for_manifest(manifest,self.settings.get('colour',{}).get('method','deepexemplar'))
+            return [row['output']] if row['output'] else []
         values = self.settings.get(stage_key, {})
+        if stage_key == 'dust':
+            return [self.dust_output()] if is_true(self.settings.get('global', {}), 'dust') else []
         if stage_key == 'enhancement':
             output = self.enhancement_output() if self.enhancement_enabled() else ''
             return [output] if output else []
@@ -2154,6 +2433,14 @@ class PipelineApp:
     def existing_shot_list(self) -> str:
         """The shot list Run Whole Remaster would work from, even before Outpainting has rendered
         the clip it is named after (a new outpaint model carries the other model's list over)."""
+        if pipeline_order.configured(self.settings):
+            row=self.pipeline_plan()['nodes'].get('shots',{})
+            manifest=row.get('bindings',{}).get('manifest','')
+            if manifest and resolve(manifest).is_file():
+                try:actual=manifest_source_video(resolve(manifest))
+                except (OSError,ValueError,KeyError,TypeError):return ''
+                if actual and resolve(actual).resolve()==resolve(row['input']).resolve():return manifest
+            return ''
         existing = self.existing_outputs("shots")
         if existing or not self.outpaint_enabled():
             return existing[0] if existing else ""
@@ -2183,9 +2470,11 @@ class PipelineApp:
 
         Run Whole Remaster skips such a stage. Regenerate and Dry run always run."""
         values = self.settings.get(stage_key, {})
+        if pipeline_order.configured(self.settings) and stage_key=='dust':
+            return comparison_output_ready(self,'dust')
         if is_true(values, "force") or is_true(values, "dry_run"):
             return False
-        if stage_key in {"audio", "upscale"}:
+        if stage_key in {"audio", "upscale"} and not pipeline_order.configured(self.settings):
             self.hydrate_stage_inputs(stage_key)  # run_stage does the same before building these
         outputs = [path for path in self.expected_outputs(stage_key) if path]
         if not outputs or len(self.existing_outputs(stage_key)) != len(outputs):
@@ -2211,6 +2500,7 @@ class PipelineApp:
             'enhancement': self._enhancement_command,
             "cleanup": self._cleanup_command,
             "stabilize": self._stabilize_command,
+            'dust': self._dust_command,
             "detail": self._detail_command,
             "outpaint": self._outpaint_command,
             "shots": self._shots_command,
@@ -2226,6 +2516,7 @@ class PipelineApp:
 
         run_flags=False leaves out --force/--dry-run, which change how a run behaves but not
         what its inputs are."""
+        if pipeline_order.configured(self.settings):self.hydrate_pipeline_bindings()
         values = self.settings[stage_key]
         config = current_config()
         builder = self._stage_command_builders().get(stage_key)
@@ -2336,7 +2627,7 @@ class PipelineApp:
         return cmd
 
     def _detail_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
-        source = self.stabilized_source_for_downstream()
+        source = self.dust_source_for_downstream()
         profile = canonical_intermediate_profile(self.settings.get("cloud", {}).get("intermediate_format"))
         output = detail_output_for(source, values, profile) if source else ""
         return [sys.executable, "-u", str(SCRIPTS / "detail_enhance_video.py"),
@@ -2442,6 +2733,7 @@ class PipelineApp:
         add = cmd.extend
         add(["--source-video", values.get("outpainted_video", "")])
         manifest = manifest_for_outpainted(values.get("outpainted_video", ""))
+        if pipeline_order.configured(self.settings):manifest=self.pipeline_plan()['nodes'].get('shots',{}).get('bindings',{}).get('manifest','')
         if manifest:
             add(["--output-manifest", manifest])
         add_value_args(cmd, values, ("sample_seconds", "shot_threshold", "min_shot_seconds"))
@@ -2450,7 +2742,7 @@ class PipelineApp:
         # Extract reference frames at model-safe dimensions (matching the prepared canvas)
         # so thumbnails are consistent with what LTX works with.
         source_text = values.get("outpainted_video", "")
-        if self.outpaint_enabled():
+        if self.outpaint_enabled() and not pipeline_order.configured(self.settings):
             outpaint_values = self.settings.get("outpaint", {})
             aspect = outpaint_values.get("target_aspect", "16:9")
             height_text = outpaint_values.get("target_height", "720")
@@ -2561,6 +2853,7 @@ class PipelineApp:
         add(["--saturation", values.get("saturation", "82"), "--temperature", values.get("temperature", "6500"), "--color-opacity", values.get("color_opacity", "100"), "--encoder", values.get("encoder", "h264")])
         outpaint_values = self.settings.get("outpaint", {})
         crop, _black = _outpaint_crop_black(outpaint_values)
+        if pipeline_order.configured(self.settings) and not outpainted:crop=[0,0,0,0]
         for flag, amount in zip(("--crop-left", "--crop-right", "--crop-top", "--crop-bottom"), crop):
             add([flag, str(amount)])
         custom_mask = custom_outpaint_mask_for(self.outpaint_source_for(), outpaint_values)
@@ -2577,7 +2870,7 @@ class PipelineApp:
             add(["--source-black-threshold", outpaint_values.get("black_mask_threshold", "12")])
         # Pass delivery dimensions so final_composite upscales from the model-safe LTX output
         # (e.g. 704p) back to the user's intended resolution (e.g. 720p).
-        source_text = pipeline_source_text(self.settings)
+        source_text = self.outpaint_source_for() if pipeline_order.configured(self.settings) and outpainted else pipeline_source_text(self.settings)
         aspect = outpaint_values.get("target_aspect", "16:9")
         height_text = outpaint_values.get("target_height", "720")
         delivery_w, delivery_h = outpaint_size_for_source(source_text, aspect, height_text)
@@ -2590,7 +2883,7 @@ class PipelineApp:
     def _audio_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
         cmd = [sys.executable, "-u", str(SCRIPTS / "create_audio_track.py")]
         add = cmd.extend
-        source = self.soundtrack_source_for() or values.get("input_video", "")
+        source = self.soundtrack_source_for() if pipeline_order.configured(self.settings) else self.soundtrack_source_for() or values.get("input_video", "")
         output = soundtrack_output_for(source, values)
         add(["--input", source, "--output", output])
         add(["--comfy-dir", comfy_dir_for(config)])
@@ -2622,13 +2915,23 @@ class PipelineApp:
         return cmd
 
     def _upscale_stage_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
-        source = self.upscale_input_for() or values.get("input_video")
+        source = self.upscale_input_for() if pipeline_order.configured(self.settings) else self.upscale_input_for() or values.get("input_video")
         output = upscale_output_for(source, values) or values.get("output")
         if not source or not output:
             return []
         return self.upscale_command(values, source, output)
 
     def run_stage(self, stage_key: str) -> tuple[bool, str]:
+        if pipeline_order.configured(self.settings):
+            plan=self.pipeline_plan()
+            if plan['problems']:return False,'Invalid pipeline bindings: '+plan['problems'][0]
+            if stage_key not in plan['nodes']:return False,'This phase is disabled in the configured pipeline.'
+            self.hydrate_pipeline_bindings()
+        if stage_key == 'dust':
+            try:
+                self.validate_dust_adoption()
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                return False, 'Calculate, inspect and adopt a matching Dust & Scratches repair first: ' + str(exc)
         problem = stage_issue(self.settings, stage_key)
         if problem:
             return False, problem
@@ -2659,18 +2962,23 @@ class PipelineApp:
         if stage_key == "upscale" and not self.upscale_enabled():
             return False, "Upscale is disabled on the Overview tab."
         stage = next(item for item in STAGES if item.key == stage_key)
+        if is_true(self.settings.get('global', {}), 'dust') and (('dust' in self.preprocessing_upstream(stage_key)) if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else stage_key not in {'denoise','deflicker','enhancement','cleanup','stabilize','dust'}):
+            try:
+                self.validate_dust_adoption()
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                return False, str(exc)
         problem = self.preprocessing_problem(stage_key)
         if problem:
             return False, problem
-        if stage_key not in {'denoise', 'deflicker', 'enhancement', 'cleanup'} and self.cleanup_enabled():
+        if not (video_order.configured(self.settings) or pipeline_order.configured(self.settings)) and stage_key not in {'denoise', 'deflicker', 'enhancement', 'cleanup'} and self.cleanup_enabled():
             clean_output = self.cleanup_output()
             if not clean_output or not resolve(clean_output).exists():
                 return False, "Run Clean Up first so this phase has its upstream video."
-        if stage_key not in {'denoise', 'deflicker', 'enhancement', "cleanup", "stabilize"} and self.stabilize_enabled():
+        if not (video_order.configured(self.settings) or pipeline_order.configured(self.settings)) and stage_key not in {'denoise', 'deflicker', 'enhancement', "cleanup", "stabilize"} and self.stabilize_enabled():
             stabilized_output = self.stabilization_output()
             if not stabilized_output or not resolve(stabilized_output).exists():
                 return False, "Run Stabilization first so this phase has its upstream video."
-        if stage_key not in {"denoise", "deflicker", 'enhancement', "cleanup", "stabilize", "detail"} and self.detail_enabled():
+        if not (video_order.configured(self.settings) or pipeline_order.configured(self.settings)) and stage_key not in {"denoise", "deflicker", 'enhancement', "cleanup", "stabilize", "dust", "detail"} and self.detail_enabled():
             detailed_output = self.detail_output()
             if not detailed_output or not resolve(detailed_output).exists():
                 return False, "Run Detail Enhancement first so this stage has its upstream video."
@@ -2793,7 +3101,19 @@ class PipelineApp:
             threading.Thread(target=self._collect_output, args=(stage_key, launch_stamp), daemon=True).start()
         return True, "Started " + stage.title
 
+    def pipeline_action_problem(self, stage, manifest=None):
+        if not pipeline_order.configured(self.settings):return ''
+        plan=self.pipeline_plan()
+        if plan['problems']:return plan['problems'][0]
+        row=plan['nodes'].get(stage)
+        if row is None:return 'This phase is disabled in the configured pipeline.'
+        if manifest is not None and resolve(str(manifest)).resolve()!=resolve(row['bindings'].get('manifest','')).resolve():
+            return 'The requested manifest does not belong to the current pipeline bindings.'
+        return self.preprocessing_problem(stage)
+
     def run_outpaint_chunk(self, index: int) -> tuple[bool, str]:
+        problem=self.pipeline_action_problem('outpaint')
+        if problem:return False,problem
         problem = stage_issue(self.settings, "outpaint")
         if problem:
             return False, problem
@@ -2824,6 +3144,8 @@ class PipelineApp:
         return True, f"Started outpaint chunk {index + 1}"
 
     def run_reference_regeneration(self, manifest_text: str, index: int, provider: str = "qwen", reference_index: int = 0) -> tuple[bool, str]:
+        problem=self.pipeline_action_problem('references',manifest_text)
+        if problem:return False,problem
         method = self.settings.get("references", {}).get("method")
         provider = "openai" if (provider == "openai" or method == "openai") else "qwen21" if method == "qwen21" else "qwen"
         problem = stage_issue(self.settings, "references", model_override=provider)
@@ -2868,6 +3190,8 @@ class PipelineApp:
         return True, f"Started {provider} reference regeneration for shot {index + 1}."
 
     def run_reference_edit_preview(self, manifest_text: str, index: int, instruction: str, mask_data: str = "", sampled_color: str = "", reference_index: int = 0) -> tuple[bool, str, str]:
+        problem=self.pipeline_action_problem('references',manifest_text)
+        if problem:return False,problem,''
         problem = stage_issue(self.settings, "references", model_override="qwen")
         if problem:
             return False, problem, ""
@@ -2904,6 +3228,8 @@ class PipelineApp:
         return True, f"Started reference edit preview for shot {index + 1}.", output
 
     def run_outpaint_end_guide_generation(self, index: int, prompt: str) -> tuple[bool, str]:
+        problem=self.pipeline_action_problem('outpaint')
+        if problem:return False,problem
         problem = stage_issue(self.settings, "references", model_override="qwen")
         if problem:
             return False, problem
@@ -2941,6 +3267,8 @@ class PipelineApp:
         return True, f"Started Qwen end guide frame generation for chunk {index + 1}."
 
     def run_outpaint_guide_generation(self, index: int, prompt: str) -> tuple[bool, str]:
+        problem=self.pipeline_action_problem('outpaint')
+        if problem:return False,problem
         problem = stage_issue(self.settings, "references", model_override="qwen")
         if problem:
             return False, problem
@@ -2978,6 +3306,8 @@ class PipelineApp:
         return True, f"Started Qwen guide frame generation for chunk {index + 1}."
 
     def run_guide_frame_generation(self, chunk_index: int, guide_index: int, frame_idx: int, prompt: str) -> tuple[bool, str]:
+        problem=self.pipeline_action_problem('outpaint')
+        if problem:return False,problem
         problem = stage_issue(self.settings, "references", model_override="qwen")
         if problem:
             return False, problem
@@ -3015,6 +3345,7 @@ class PipelineApp:
         return True, f"Started Qwen guide frame generation for chunk {chunk_index + 1}, guide {guide_index}."
 
     def upscale_input_for(self) -> str:
+        if pipeline_order.configured(self.settings):return self.processing_input('upscale')
         if self.soundtrack_enabled():
             soundtrack_source = self.soundtrack_source_for()
             soundtrack_output = soundtrack_output_for(soundtrack_source, self.settings.get("audio", {})) if soundtrack_source else ""
@@ -3024,7 +3355,7 @@ class PipelineApp:
             recomp = self.settings.get("recomp", {})
             recomposed = recomp.get("output") or recomposition_output_for(self.recomposition_base_input(), recomp.get("encoder", "h264"))
             return recomposed
-        return self.stabilized_source_for_downstream()
+        return self.detailed_source_for_downstream() if video_order.configured(self.settings) or is_true(self.settings.get('global', {}), 'dust') else self.stabilized_source_for_downstream()
 
     def apply_auto_upscale_target(self, source_text: str = "") -> None:
         """Fill Target width/height from the FlashVSR input when Auto target size is on, or CQ's size with no finisher."""
@@ -3092,11 +3423,7 @@ class PipelineApp:
             if values.get("cq_prompt", "").strip():
                 add(["--cq-prompt", values["cq_prompt"]])
         add(["--blend-strength", values.get("blend_strength", "100")])
-        shot_manifest = (
-            self.settings.get("colour", {}).get("manifest", "")
-            or self.settings.get("references", {}).get("manifest", "")
-            or manifest_for_outpainted(self.settings.get("shots", {}).get("outpainted_video", ""))
-        )
+        shot_manifest = self.upscale_shot_manifest()
         if shot_manifest:
             add(["--shot-manifest", shot_manifest])
         add(["--chunk-seconds", values.get("chunk_seconds", "6")])
@@ -3108,6 +3435,13 @@ class PipelineApp:
         if is_true(values, "flashvsr_unload_dit"):
             add(["--flashvsr-unload-dit"])
         return [part for part in cmd if part != ""]
+
+    def upscale_shot_manifest(self):
+        if pipeline_order.configured(self.settings):
+            return self.pipeline_plan()['nodes'].get('upscale',{}).get('bindings',{}).get('manifest','')
+        return (self.settings.get('colour',{}).get('manifest','')
+            or self.settings.get('references',{}).get('manifest','')
+            or manifest_for_outpainted(self.settings.get('shots',{}).get('outpainted_video','')))
 
     def upscale_preview_state(self) -> dict[str, str]:
         """The upscale viewer's videos. With the CQ Enhancer, "cq" is its render of the same input,
@@ -3152,11 +3486,7 @@ class PipelineApp:
             return {"before": before, "after": "", "stale": "false"}
 
         after = extract_video_frame_at(output, target_dir, suffix, shot_seconds)
-        manifest_text = (
-            self.settings.get("colour", {}).get("manifest", "")
-            or self.settings.get("references", {}).get("manifest", "")
-            or manifest_for_outpainted(self.settings.get("shots", {}).get("outpainted_video", ""))
-        )
+        manifest_text = self.upscale_shot_manifest()
         manifest = resolve(manifest_text) if manifest_text else None
         stale = bool(manifest and manifest.is_file() and output.stat().st_mtime_ns < manifest.stat().st_mtime_ns)
         return {"before": before, "after": after, "stale": "true" if stale else "false"}
@@ -3222,13 +3552,21 @@ class PipelineApp:
         }
 
     def detail_comparison_state(self) -> dict[str, str]:
-        source = self.stabilized_source_for_downstream()
+        source = self.dust_source_for_downstream()
         output = self.detail_output() if source else ""
         return {"source": source, "output": output,
                 "source_exists": "true" if source and resolve(source).is_file() else "false",
                 "exists": "true" if output and resolve(output).is_file() else "false"}
 
     def output_selection_state(self) -> dict[str, str]:
+        if pipeline_order.configured(self.settings):
+            plan=self.pipeline_plan();problem=self.preprocessing_problem()
+            return {'path':plan['output'],'kind':'pipeline_pending' if problem else 'pipeline','label':problem or 'Configured pipeline output'}
+        if video_order.configured(self.settings) and self.preprocessing_problem():
+            upstream = self.preprocessing_upstream()
+            last = upstream[-1] if upstream else None
+            return {'path':self.processing_input(),'kind':(last+'_pending') if last else '',
+                'label':'Pending reordered video pipeline output'}
         upscale = self.settings.get("upscale", {})
         upscale_output = upscale_output_for(self.upscale_input_for() or upscale.get("input_video"), upscale) or upscale.get("output")
         recomp = self.settings.get("recomp", {})
@@ -3245,14 +3583,22 @@ class PipelineApp:
         cleanup_output = self.cleanup_output() if self.cleanup_enabled() else ""
         stabilization_output = self.stabilization_output() if self.stabilize_enabled() else ""
         detail_output = self.detail_output() if self.detail_enabled() else ""
+        dust_output = self.dust_output() if is_true(self.settings.get('global', {}), 'dust') else ''
         if upscale_output and resolve(upscale_output).exists():
             return {"path": upscale_output, "kind": "upscaled", "label": "Upscaled output"}
         if soundtrack_output and resolve(soundtrack_output).exists():
             return {"path": soundtrack_output, "kind": "soundtrack", "label": "Soundtrack output"}
         if recomposed and resolve(recomposed).exists():
             return {"path": recomposed, "kind": "recomposed", "label": "Recomposed output"}
+        if video_order.configured(self.settings):
+            ready = bool(preprocessing_output and not self.preprocessing_problem())
+            kind = {'denoise':'denoised','deflicker':'deflickered','enhancement':'enhanced','stabilize':'stabilized'}.get(last,last or '')
+            return {'path':preprocessing_output,'kind':kind if ready else kind+'_pending' if kind else '',
+                'label':('' if ready else 'Pending ') + preprocessing_label + ' output' if last else ''}
         if detail_output and resolve(detail_output).exists():
             return {"path": detail_output, "kind": "detail", "label": "Detail Enhancement output"}
+        if dust_output and resolve(dust_output).exists():
+            return {'path': dust_output, 'kind': 'dust', 'label': 'Dust & Scratches output'}
         if stabilization_output and resolve(stabilization_output).exists():
             return {"path": stabilization_output, "kind": "stabilized", "label": "Stabilized output"}
         if cleanup_output and resolve(cleanup_output).exists():
@@ -3267,6 +3613,8 @@ class PipelineApp:
             return {"path": recomposed, "kind": "recomposed_pending", "label": "Pending recomposed output"}
         if detail_output:
             return {"path": detail_output, "kind": "detail_pending", "label": "Pending Detail Enhancement output"}
+        if dust_output:
+            return {'path': dust_output, 'kind': 'dust_pending', 'label': 'Pending Dust & Scratches output'}
         if stabilization_output:
             return {"path": stabilization_output, "kind": "stabilized_pending", "label": "Pending stabilized output"}
         if cleanup_output:
@@ -3276,6 +3624,8 @@ class PipelineApp:
         return {"path": "", "kind": "", "label": ""}
 
     def run_upscale_preview(self) -> tuple[bool, str]:
+        problem=self.pipeline_action_problem('upscale')
+        if problem:return False,problem
         problem = stage_issue(self.settings, "upscale")
         if problem:
             return False, problem
@@ -3337,6 +3687,8 @@ class PipelineApp:
         return resolve(source_text), 0.0, preview_seconds, f"upscale_preview_{preview_seconds:.3f}"
 
     def run_guide_edit_preview(self, chunk_index: int, guide_index: int, instruction: str, mask_data: str = "", sampled_color: str = "", engine: str = "") -> tuple[bool, str, str]:
+        problem=self.pipeline_action_problem('outpaint')
+        if problem:return False,problem,''
         engine = guide_edit_engine(engine)
         problem = stage_issue(self.settings, "references", model_override="qwen21" if engine == "qwen21" else "openai" if engine == "openai" else "qwen")
         if problem:
@@ -3451,6 +3803,13 @@ class PipelineApp:
                 self.hydrate_stage_inputs("outpaint")
 
     def run_all(self, keep_shots: bool = False) -> tuple[bool, str]:
+        if pipeline_order.configured(self.settings):
+            plan=self.pipeline_plan()
+            if plan['problems']:return False,'Invalid pipeline bindings: '+plan['problems'][0]
+            if keep_shots:
+                for key in ('shots','references'):
+                    if key in plan['nodes'] and self.existing_outputs(key) and not self.stage_is_current(key):
+                        return False,'Cannot keep stale '+key+' after reordering. Review the new bindings and explicitly regenerate those artifacts.'
         problems = pipeline_issues(self.settings, (stage.key for stage in self.active_stages()))
         if problems:
             return False, "Whole remaster blocked by commercial model guard: " + " | ".join(problems)
@@ -3472,6 +3831,7 @@ class PipelineApp:
         or missing reference images still run (the reference scripts fill in just those)."""
         if stage_key not in {"shots", "references"}:
             return False
+        if pipeline_order.configured(self.settings):return self.stage_is_current(stage_key)
         outputs = [path for path in self.expected_outputs(stage_key) if path]
         return bool(outputs) and len(self.existing_outputs(stage_key)) == len(outputs)
 
@@ -3560,6 +3920,13 @@ class PipelineApp:
     def stop(self) -> None:
         with self.lock:
             if self.process and self.process.poll() is None:
+                command = getattr(self.process, 'args', [])
+                if self.running_stage_key == 'dust' and isinstance(command, list) and '--cancel-file' in command:
+                    cancel = Path(command[command.index('--cancel-file') + 1])
+                    cancel.parent.mkdir(parents=True, exist_ok=True)
+                    cancel.touch()
+                    self.log.append('Dust stop requested; waiting for the current model operation. No further sections will start.')
+                    return
                 stage_values = self.settings.get(self.running_stage_key, {})
                 cloud = self.settings.get("cloud", {})
                 stop_cloud = (
@@ -3928,16 +4295,67 @@ def preprocessing_order(settings, *, strict=False):
 
 
 def preprocessing_input_for(settings, stage_key=None):
+    if pipeline_order.configured(settings):
+        plan=complete_pipeline_plan(settings)
+        return plan['nodes'].get(stage_key,{}).get('input','') if stage_key else plan['output']
     source = pipeline_source_text(settings)
     profile = settings.get('cloud', {}).get('intermediate_format', 'high')
     outputs = {'denoise': denoise_output_for, 'deflicker': deflicker_stage.output_for,
                'enhancement': enhancement_stage.output_for}
+    if video_order.configured(settings):
+        outputs.update(stabilize=stabilize_output_for,detail=detail_output_for)
+        def output(key, current):
+            values = settings.get(key,{})
+            if key == 'cleanup':
+                return cleanup_output_for(current,values)
+            if key == 'dust':
+                return dust_stage.output_for(current,values)
+            return outputs[key](current,values,profile)
+        return video_order.input_for(settings,stage_key,source,video_order.order(settings,()),output)
     for key in preprocessing_order(settings):
         if key == stage_key:
             break
         if source and is_true(settings.get('global', {}), key):
             source = outputs[key](source, settings.get(key, {}), profile)
     return source
+
+
+def ordered_video_output(settings,key,source):
+    if not source:return ''
+    values=settings.get(key,{})
+    profile=settings.get('cloud',{}).get('intermediate_format','high')
+    if key=='cleanup':return cleanup_output_for(source,values)
+    if key=='dust':return dust_stage.output_for(source,values)
+    functions={'denoise':denoise_output_for,'deflicker':deflicker_stage.output_for,'enhancement':enhancement_stage.output_for,
+        'stabilize':stabilize_output_for,'detail':detail_output_for}
+    return functions[key](source,values,profile)
+
+
+def complete_pipeline_plan(settings):
+    def output(key,source,bindings):
+        values=settings.get(key,{})
+        if key in video_order.STAGES:return ordered_video_output(settings,key,source)
+        if key=='outpaint':return outpaint_output_for(source,values.get('target_aspect','16:9'),values.get('target_height','720'),values=values)
+        if key=='shots':
+            base=manifest_for_outpainted(source)
+            if not base:return ''
+            path=resolve(source).resolve()
+            stat=path.stat() if path.is_file() else None
+            identity=[str(path),stat.st_size if stat else None,stat.st_mtime_ns if stat else None,
+                {name:values.get(name) for name in ('sample_seconds','shot_threshold','min_shot_seconds','limit')}]
+            import hashlib
+            token=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()[:16]
+            target=resolve(base)
+            return rel(target.with_name(target.stem+'_pipeline_'+token+target.suffix))
+        if key=='colour':
+            method=values.get('method','deepexemplar')
+            if method=='both':method=settings.get('recomp',{}).get('colorization_method','deepexemplar')
+            return colorized_output_for_manifest(bindings.get('manifest',''),method)
+        if key=='recomp':return recomposition_output_for(bindings.get('outpainted_video') or bindings.get('source',''),values.get('encoder','h264'))
+        if key=='audio':return soundtrack_output_for(source,values)
+        if key=='upscale':return upscale_output_for(source,values)
+        raise ValueError('Unknown pipeline producer: '+key)
+    return pipeline_order.build(settings,pipeline_source_text(settings),pipeline_order.order(settings,()),output)
 
 
 def outpaint_source_for_settings(settings: dict) -> str:
@@ -3948,7 +4366,10 @@ def outpaint_source_for_settings(settings: dict) -> str:
     original source, so previewing the original source's cache makes completed
     chunks appear to be missing.
     """
+    if pipeline_order.configured(settings):return complete_pipeline_plan(settings)['nodes'].get('outpaint',{}).get('input','')
     source_text = preprocessing_input_for(settings)
+    if video_order.configured(settings):
+        return source_text
     global_values = settings.get("global", {})
     if source_text and is_true(global_values, "cleanup"):
         source_text = cleanup_output_for(source_text, settings.get("cleanup", {}))
@@ -3958,6 +4379,8 @@ def outpaint_source_for_settings(settings: dict) -> str:
             settings.get("stabilize", {}),
             settings.get("cloud", {}).get("intermediate_format", "high"),
         )
+    if source_text and is_true(global_values, 'dust'):
+        source_text = dust_stage.output_for(source_text, settings.get('dust', {}))
     if source_text and is_true(global_values, "detail"):
         source_text = detail_output_for(
             source_text, settings.get("detail", {}),
@@ -4038,14 +4461,14 @@ def other_model_outpaints(outpainted_text: str) -> list[str]:
     return [rel(path.with_name(stem + path.suffix)) for stem in stems if stem != path.stem]
 
 
-def outpaint_output_for(source_text: str, aspect: str, target_height_text: str = "720") -> str:
+def outpaint_output_for(source_text: str, aspect: str, target_height_text: str = "720", *, values=None) -> str:
     if not source_text:
         return ""
     source = resolve_video_source(source_text)
     # Name via the shared identity (scripts/artifact_ids.py), the same call the producer
     # (outpaint_video.default_output) makes, so the GUI and the script can never drift apart.
     width, height = outpaint_work_size_for_source(source_text, aspect, target_height_text)
-    values = APP.settings.get("outpaint", {}) if "APP" in globals() else {}
+    if values is None:values = APP.settings.get("outpaint", {}) if "APP" in globals() else {}
     crop, black = _outpaint_crop_black(values)
     tag = f"outpaint{outpaint_model_tag_suffix(values)}"
     return rel(ROOT / "intermediate" / "outpainted" / aid.outpaint_name(source.name, aspect, width, height, crop, black, tag, "mkv"))

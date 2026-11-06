@@ -204,6 +204,13 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, IndexError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/stabilization-footprint":
+            from .stabilization import footprint
+            query = parse_qs(parsed.query)
+            try:
+                self.send_json({'ok': True, **footprint(state.APP, query.get('variant', [''])[0], int(query.get('frame', ['0'])[0]))})
+            except (ValueError, IndexError, KeyError, TypeError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                self.send_json({'ok': False, 'error': str(exc)})
         elif parsed.path == "/api/denoise-frame-differences":
             query = parse_qs(parsed.query)
             try:
@@ -442,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         data = self.read_json()
         if parsed.path == "/api/settings":
-            self._send_result('Settings', lambda: state.APP.update_settings(str(data.get('stage', '')), data.get('values', {})) or {})
+            self._send_result('Settings', lambda: state.APP.update_settings(str(data.get('stage', '')), data.get('values', {}), project_expected=data.get('project')) or {})
         elif parsed.path == "/api/run":
             ok, message = state.APP.run_all(keep_shots=bool(data.get("keep_shots"))) if data.get("all") else state.APP.run_stage(str(data.get("stage", "")))
             self.send_json({"ok": ok, "message": message})
@@ -451,7 +458,23 @@ class Handler(BaseHTTPRequestHandler):
                               lambda: state.APP.run_denoise_batch(data.get("variants")), view="denoise")
         elif parsed.path == "/api/enhancement-batch":
             self._send_action('Detail Enhancement / Deblur batch',
-                              lambda: state.APP.run_enhancement_batch(data.get('variants')), view='enhancement')
+                               lambda: state.APP.run_enhancement_batch(data.get('variants')), view='enhancement')
+        elif parsed.path == "/api/dust-status":
+            from .dust import status
+            self._send_result('Dust & Scratches status', lambda: status(state.APP, data.get('values', {})))
+        elif parsed.path == "/api/dust-inspect":
+            from .dust import inspect
+            self._send_result('Dust & Scratches frame', lambda: inspect(state.APP, data.get('values', {}), data.get('frame', 0)))
+        elif parsed.path == "/api/dust-run":
+            self._send_action('Dust & Scratches', lambda: state.APP.run_dust(data.get('values', {}), data.get('kind'), data.get('source'), data.get('project')), view='dust')
+        elif parsed.path == "/api/dust-adopt":
+            self._send_result('Dust & Scratches adoption', lambda: state.APP.adopt_dust(data.get('values', {}), data.get('source'), data.get('project'), data.get('report')))
+        elif parsed.path == "/api/stabilize-batch":
+            self._send_action('Stabilization batch',
+                              lambda: state.APP.run_stabilization_batch(data.get('variants')), view='stabilize')
+        elif parsed.path == "/api/stabilize-adopt":
+            self._send_result('Stabilization adoption',
+                              lambda: state.APP.adopt_stabilization(data.get('method'), data.get('variant')))
         elif parsed.path == "/api/deflicker-batch":
             self._send_action("Light Deflicker batch",
                               lambda: state.APP.run_deflicker_batch(data.get("variants")), view="deflicker")
@@ -459,7 +482,8 @@ class Handler(BaseHTTPRequestHandler):
             from .denoise_playback import playback_segment
             self._send_result("Remove Noise playback", lambda: playback_segment(
                 state.APP, data.get("variant", ""), data.get("frame", 0),
-                data.get("mode", "direction"), data.get("contrast", 32), data.get("stage", "denoise"), data.get('reference', 'input')))
+                data.get("mode", "direction"), data.get("contrast", 32), data.get("stage", "denoise"), data.get('reference', 'input'),
+                **({'mask_values': data['mask_values']} if 'mask_values' in data else {})))
         elif parsed.path == "/api/denoise-grid":
             self._send_action("Remove Noise grid",
                               lambda: state.APP.run_denoise_grid(str(data.get("frames", ""))), view="denoise")

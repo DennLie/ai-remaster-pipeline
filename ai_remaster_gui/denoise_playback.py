@@ -136,22 +136,36 @@ def _render(source: Path, output: Path | None, target: Path, first: int, count: 
         partial.unlink(missing_ok=True)
 
 
-def playback_segment(app, candidate: str, frame: int, mode: str = "direction", contrast: int = 32, stage: str = "denoise", reference: str = 'input') -> dict:
+def playback_segment(app, candidate: str, frame: int, mode: str = "direction", contrast: int = 32, stage: str = "denoise", reference: str = 'input', mask_values=None) -> dict:
     if not isinstance(candidate, str):
         raise ValueError("Choose a finished Remove Noise variant.")
     if type(frame) is not int or frame < 0:
         raise ValueError("Choose a nonnegative source frame index.")
     if mode not in _DIFF_MODES or type(contrast) is not int or contrast not in _CONTRASTS:
         raise ValueError("Choose a supported difference mode and amplification.")
-    source, output, metadata, total, offset = comparison_pair(app, candidate, stage, reference)
+    if mask_values is not None:
+        if stage != 'dust' or candidate or reference != 'input' or not isinstance(mask_values, dict):
+            raise ValueError('Mask playback requires Dust stage input and saved detector settings.')
+        from . import dust
+        folder, report = dust.saved_mask(app.stabilized_source_for_downstream(), mask_values)
+        source, output = folder/'input.mkv', folder/'effective_mask.mkv'
+        metadata = _metadata(source)
+        mask_meta = _metadata(output)
+        if any(mask_meta[key] != metadata[key] for key in ('frames','width','height','fps_fraction')):
+            raise ValueError('Saved mask does not match the stage-input timeline or dimensions.')
+        total, offset = metadata['frames'], 0
+    else:
+        source, output, metadata, total, offset = comparison_pair(app, candidate, stage, reference)
     if frame >= total:
         raise ValueError("The requested frame is outside the processing input.")
     size = max(1, round(metadata["fps"] * _SECONDS))
     first = frame // size * size
     end = min(total, first + size)
     width, height, regions = _layout(metadata["width"], metadata["height"], output is not None)
+    if mask_values is not None:
+        regions['mask'] = regions['result']
     identity = [_VERSION, _identity(source), _identity(output) if output else None,
-                first, end, metadata["fps_fraction"], mode, contrast, reference, offset]
+                first, end, metadata["fps_fraction"], mode, contrast, reference, offset, mask_values is not None]
     token = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     target = _CACHE / f"{token}.mp4"
     cached = bool(segment_video_path(token))

@@ -36,6 +36,14 @@ def stage_issue(
             reasons.append(f'{method} checkpoint and dependencies await commercial-use audit')
         elif method not in {'off', 'unsharp', 'cas', 'multiscale', 'richardson_lucy'}:
             reasons.append(f'unknown enhancement method {method!r} has not been reviewed')
+    elif stage == 'dust':
+        method = model_override or values.get('repair', 'telea')
+        if method == 'propainter':
+            reasons.append('ProPainter is non-commercial (NTU S-Lab License 1.0)')
+        elif method == 'dart' or values.get('detector') == 'dart':
+            reasons.append('DART adapted RTN code rights remain unresolved')
+        elif method != 'telea':
+            reasons.append('unknown Dust & Scratches repair method')
     elif stage == "cleanup":
         if _on(values, "ai_descratch"):
             reasons.append("ProPainter / AI DeScratch is non-commercial (NTU S-Lab License 1.0)")

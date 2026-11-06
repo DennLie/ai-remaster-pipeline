@@ -979,7 +979,10 @@ def run_propainter_chunk(
     output_prefix: str,
 ) -> Path:
     prompt = propainter_prompt(video, mask, width, height, fps, output_prefix, args)
-    prompt_id = queue_prompt(comfy_url, prompt)
+    prompt_id = getattr(args, 'propainter_prompt_id', None) or queue_prompt(comfy_url, prompt)
+    on_queued = getattr(args, 'propainter_queued', None)
+    if on_queued:
+        on_queued(prompt_id)
     print(f"Queued AI DeScratch ProPainter job {prompt_id}.", flush=True)
     history = wait_for_prompt(comfy_url, prompt_id, args.poll_seconds)
     candidates = [

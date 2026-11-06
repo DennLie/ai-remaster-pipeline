@@ -12,12 +12,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from assess_dart_exports import evaluate
-
-
 # Primary source: DART v1.0.0 tag and scripts/download_weights.py (2026-11-01).
 DART_COMMIT = "fc6f3e722c74a3b0e3a43ef40bb1d5303fa5e332"
 DART_WEIGHTS_SHA256 = "d78a388c76ffb2d71cd0fee55f44e3dde695112a40c540a7b67cc0590cfa73d3"
+
+
+def validate_geometry(width: int, height: int) -> None:
+    # Four RAFT correlation levels at 1/8 resolution must not reach a
+    # singleton axis: bilinear coordinate normalization divides by size-1.
+    if width < 128 or height < 128:
+        raise ValueError('DART requires at least 128x128 for safe RAFT geometry; no automatic upscaling.')
 
 
 def sha256(path: Path) -> str:
@@ -53,7 +57,8 @@ def build_command(
     if not 0 < stride <= chunk_size <= 15:
         raise ValueError("Choose 1 <= stride <= chunk_size <= 15")
     return [
-        str(dart_python), str(dart_repo / "scripts" / "inference.py"),
+        str(dart_python), '-W', 'error:invalid value encountered in cast:RuntimeWarning',
+        str(dart_repo / "scripts" / "inference.py"),
         "--input", str(source), "--output", str(output),
         "--weights", str(weights), "--save-masks", "--save-video",
         "--max-frames", str(max_frames), "--chunk-size", str(chunk_size),
@@ -87,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
     if output.exists() and any(output.iterdir()):
         parser.error("Output directory must be empty to prevent stale DART frames")
     validate_checkout(repo, weights)
+    from assess_dart_exports import evaluate, source_frames
+    _, first = next(source_frames(source, max_frames=2))
+    validate_geometry(first.shape[1], first.shape[0])
     command = build_command(
         args.dart_python.resolve(), repo, weights, source, output,
         args.max_frames, args.device, args.chunk_size, args.stride
