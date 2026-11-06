@@ -47,7 +47,7 @@ async function refresh(force = false) {
   const stopButton=document.querySelector('.header-actions .warn');
   if(stopButton) stopButton.disabled=!state.running && !state.queue_running;
   syncWorkflowOrderControls();
-  const navSignature=JSON.stringify([state.stages.map(item=>item.key),state.settings.global.preprocessing_order,Boolean(state.running || state.queue_running)]);
+  const navSignature=JSON.stringify([state.stages.map(item=>item.key),state.settings.global.pipeline_order,state.settings.global.video_order,state.settings.global.preprocessing_order,Boolean(state.running || state.queue_running)]);
   if(navSignature!==pipelineNavSignature) { pipelineNavSignature=navSignature;drawTabs(); }
   pruneSelected();
   if (!availableTabs().includes(active)) active = 'global';
@@ -438,7 +438,7 @@ function drawTabs() {
     const label = names[tab] || stage(tab).title;
     const isActive = active === tab;
 
-    const movable=['denoise','deflicker','enhancement'].includes(tab);
+    const movable=pipelineOrder().includes(tab);
     const order=pipelineOrder(),index=order.indexOf(tab),busy=state.running || state.queue_running || pipelineOrderPending;
     return `<span class="pipeline-tab" ${movable ? `data-order-tab="${tab}" draggable="${!busy}" ondragstart="pipelineDragStart(event,'${tab}')" ondragover="event.preventDefault()" ondrop="pipelineDrop(event,'${tab}')"` : 'title="Fixed pipeline position"'}>
       <button type="button" class="tab ${isActive ? 'active' : ''}" onclick="selectTab('${tab}')"${isActive ? ' aria-current="page"' : ''}>
@@ -446,7 +446,7 @@ function drawTabs() {
       </button>
       ${movable ? `<details class="pipeline-tab-menu" ontoggle="positionPipelineMenu(this)"><summary aria-label="Reorder ${esc(label)}" title="Change processing order"><svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="4" cy="9" r="1"/><circle cx="10" cy="9" r="1"/><circle cx="4" cy="14" r="1"/><circle cx="10" cy="14" r="1"/></svg></summary><div>
         <button type="button" onclick="movePipelineStage('${tab}',-1)" ${busy || index===0 ? 'disabled' : ''}>Move earlier</button>
-        <button type="button" onclick="movePipelineStage('${tab}',1)" ${busy || index===2 ? 'disabled' : ''}>Move later</button>
+        <button type="button" onclick="movePipelineStage('${tab}',1)" ${busy || index===order.length-1 ? 'disabled' : ''}>Move later</button>
       </div></details>` : ''}</span>
     `;
   }
@@ -505,9 +505,15 @@ function positionPipelineMenu(menu) {
 }
 window.addEventListener('resize',()=>document.querySelectorAll('.pipeline-tab-menu[open]').forEach(positionPipelineMenu));
 function pipelineOrder() {
-  const defaults=['denoise','deflicker','enhancement'],stored=state.settings.global.preprocessing_order;
-  const order=typeof stored==='string' ? stored.split(',') : defaults;
-  return order.length===3 && new Set(order).size===3 && order.every(key=>defaults.includes(key)) ? order : defaults;
+  const defaults=['denoise','deflicker','enhancement','cleanup','stabilize','dust','detail'];
+  const tail=['outpaint','shots','references','colour','recomp','audio','upscale'];
+  const complete=state.settings.global.pipeline_order;
+  if(complete) {const order=complete.split(','),all=[...defaults,...tail];return order.length===all.length && new Set(order).size===all.length && order.every(key=>all.includes(key)) ? order : all;}
+  const stored=state.settings.global.video_order;
+  if(stored) {const order=stored.split(',');return [...(order.length===defaults.length && new Set(order).size===defaults.length && order.every(key=>defaults.includes(key)) ? order : defaults),...tail];}
+  const legacy=state.settings.global.preprocessing_order;
+  const order=typeof legacy==='string' ? legacy.split(',') : defaults.slice(0,3);
+  return [...(order.length===3 && new Set(order).size===3 && order.every(key=>defaults.slice(0,3).includes(key)) ? [...order,...defaults.slice(3)] : defaults),...tail];
 }
 function processingInputHtml(key) {
   const input=state.processing_input || {},parameters=Object.entries(input.parameters || {}).map(([name,value])=>`${name}: ${value}`).join(' · ');
@@ -541,13 +547,15 @@ function syncWorkflowOrderControls() {
 }
 async function savePipelineOrder(order,key) {
   if(state.running || state.queue_running || pipelineOrderPending) return;
+  const project=String(state.project_path || '');
   const fromTile=document.activeElement?.hasAttribute('data-workflow-order-key');
   pipelineOrderPending=true;drawTabs();syncWorkflowOrderControls();
   try {
-    const response=await postJson('/api/settings',{stage:'global',values:{preprocessing_order:order.join(',')}});
+    const response=await postJson('/api/settings',{stage:'global',values:{pipeline_order:order.join(',')},project});
+    if(project!==String(state.project_path || '')) return;
     if(!response?.ok) throw new Error(response?.error || 'Could not change pipeline order.');
     await refresh(true);
-  } catch(error) { alert(error.message); }
+  } catch(error) { if(project===String(state.project_path || '')) alert(error.message); }
   finally {
     pipelineOrderPending=false;drawTabs();syncWorkflowOrderControls();
     document.querySelector(fromTile ? `[data-workflow-order-key="${key}"]:not(:disabled)` : `[data-order-tab="${key}"] summary`)?.focus();

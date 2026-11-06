@@ -9,22 +9,22 @@ function setup() {
   context.refresh=async force=>calls.push({force});
   return {context,elements,calls};
 }
-test('tab bar has draggable preprocessing stages, keyboard menu and fixed legacy tabs',()=>{
+test('tab bar has draggable video stages, keyboard menu and fixed artifact tabs',()=>{
   const {context,elements}=setup();context.drawTabs();
-  assert.equal((elements.tabs.innerHTML.match(/draggable="true"/g)||[]).length,3);
+  assert.equal((elements.tabs.innerHTML.match(/draggable="true"/g)||[]).length,4);
   assert.match(elements.tabs.innerHTML,/Reorder Light Deflicker/);
   assert.match(elements.tabs.innerHTML,/Move earlier/);assert.match(elements.tabs.innerHTML,/Fixed pipeline position/);
 });
 test('moving a tab saves actual global order and refreshes Overview as well as navigation',async()=>{
   const {context,calls}=setup();await context.movePipelineStage('deflicker',-1);
-  assert.equal(calls[0].body.values.preprocessing_order,'deflicker,denoise,enhancement');
+  assert.equal(calls[0].body.values.pipeline_order,'deflicker,denoise,enhancement,cleanup,stabilize,dust,detail,outpaint,shots,references,colour,recomp,audio,upscale');
   assert.equal(calls[0].body.stage,'global');assert.equal(calls[1].force,true);
 });
 test('drop saves the same order, foreign drags and busy changes cannot submit',async()=>{
   const {context,calls,elements}=setup();
   context.pipelineDrop({preventDefault(){},dataTransfer:{getData:()=> 'deflicker'}},'denoise');
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(calls[0].body.values.preprocessing_order,'deflicker,denoise,enhancement');
+  assert.equal(calls[0].body.values.pipeline_order,'deflicker,denoise,enhancement,cleanup,stabilize,dust,detail,outpaint,shots,references,colour,recomp,audio,upscale');
   vm.runInContext('state.running=true',context);await context.movePipelineStage('deflicker',-1);
   context.drawTabs();assert.doesNotMatch(elements.tabs.innerHTML,/draggable="true"/);
   assert.equal(calls.length,2);

@@ -63,8 +63,8 @@ function drawGlobal() {
   `;
 
   const workflow=document.querySelector('[data-preprocessing-stages]') || document.querySelector('.workflow-list');
-  const ids={denoise:'globalDenoise',deflicker:'globalDeflicker',enhancement:'globalEnhancement'};
-  for(const key of pipelineOrder().slice().reverse()) workflow.prepend(document.getElementById(ids[key]).closest('.workflow-stage-tile'));
+  const ids={denoise:'globalDenoise',deflicker:'globalDeflicker',enhancement:'globalEnhancement',cleanup:'globalCleanup',stabilize:'globalStabilize',dust:'globalDust',detail:'globalDetail',outpaint:'globalExpandOutpaint',colour:'globalColorize',audio:'globalSoundtrack',upscale:'globalUpscale'};
+  for(const key of pipelineOrder().slice().reverse()) {const tile=document.getElementById(ids[key])?.closest('.workflow-stage-tile');if(tile) workflow.prepend(tile);}
   document.getElementById('globalSource').addEventListener('change', saveGlobal);
   document.getElementById('globalCommercialModelGuard').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDenoise').addEventListener('change', saveGlobalPipelineOptions);
@@ -84,6 +84,8 @@ function drawGlobal() {
 function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint, colorize, upscale, soundtrack, sourceTone) {
   return `
     <div class="workflow-list workflow-tiles">
+      <p>Reorder phases using arrows or tab handles. Shot Detection, References and Recomposition have their own tab handles. This changes actual inputs; unmatched video/artifact bindings block processing rather than substituting old results.</p>
+      ${state.pipeline_plan?.problems?.length ? `<p class="inline-warning" role="alert">${esc(state.pipeline_plan.problems.join(' · '))}</p>` : ''}
       <ol class="workflow-sequence-list" data-preprocessing-stages>
       ${workflowOptionHtml({
         id: 'globalDenoise',
@@ -169,7 +171,7 @@ function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint,
 }
 
 function workflowOptionHtml(item) {
-  const orderKey=({globalDenoise:'denoise',globalDeflicker:'deflicker',globalEnhancement:'enhancement'})[item.id];
+  const orderKey=({globalDenoise:'denoise',globalDeflicker:'deflicker',globalEnhancement:'enhancement',globalCleanup:'cleanup',globalStabilize:'stabilize',globalDust:'dust',globalDetail:'detail',globalExpandOutpaint:'outpaint',globalColorize:'colour',globalSoundtrack:'audio',globalUpscale:'upscale'})[item.id];
   const summaries={
     globalDeflicker:'Reduce brightness fluctuations.',
     globalDenoise:'Reduce noise; protect grain.',

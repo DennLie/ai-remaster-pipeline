@@ -18,7 +18,7 @@ test('compact workflow retains eleven unique real inputs and a separate preproce
    assert.equal([...html.matchAll(/class="workflow-paired-row"/g)].length,11);
    assert.equal([...html.matchAll(/data-workflow-stage-status=/g)].length,11);
  assert.doesNotMatch(html,/pipeline-order-controls/);
-  assert.equal([...html.matchAll(/data-workflow-order-key=/g)].length,6);
+  assert.equal([...html.matchAll(/data-workflow-order-key=/g)].length,22);
  for(const label of html.matchAll(/<label\b[^>]*>[\s\S]*?<\/label>/g)) assert.doesNotMatch(label[0],/<button/);
 });
 test('tile ordering disables boundary arrows and all arrows during processing or pending save',()=>{
