@@ -66,6 +66,8 @@ function createDenoisePlayback(host, options) {
       canvas.dataset.dpQuality='preview';
     };
     paint(0,first,'original');
+    const sourceStream=streams.find(stream=>stream.slot===0);
+    if(sourceStream?.presented) options.sourcePainted?.(sourceStream.presented,sourceStream.manifest,state.frame);
     for(const stream of streams) if(stream.slot) {
       const mode=state.views.get(stream.slot) || 'result';
       paint(stream.slot,stream,mode==='wipe' ? 'result' : mode);
@@ -127,7 +129,8 @@ function createDenoisePlayback(host, options) {
   async function manifestFor(slot,frame,signal) {
     const body={variant:options.path(slot), frame, mode:options.diffMode(), contrast:options.contrast()};
     if(options.stage) body.stage=options.stage();
-    if(options.reference) body.reference=options.reference();
+    if(options.reference) body.reference=options.reference(slot);
+    Object.assign(body,options.request?.(slot) || {});
     const cacheKey=JSON.stringify([options.identity(slot),body.variant,body.mode,body.contrast]);
     const cached=[...manifests.values()].find(v=>v.key===cacheKey && frame>=v.data.first_frame && frame<v.data.end_frame);
     if(cached) return cached.data;
@@ -137,7 +140,8 @@ function createDenoisePlayback(host, options) {
     if(!result.ok) throw new Error(result.error || 'The comparison could not be prepared.');
     if(!(result.fps>0 && result.frames>0 && result.first_frame<=frame && result.end_frame>frame &&
          result.width>0 && result.height>0 && result.regions?.original &&
-         (!slot || result.regions.result && result.regions.difference))) throw new Error('Invalid comparison frame mapping.');
+          (!slot || result.regions.result && result.regions.difference))) throw new Error('Invalid comparison frame mapping.');
+    if(body.mask_values && !result.regions.mask) throw new Error('Saved mask playback region is missing.');
     manifests.set(cacheKey+'|'+result.first_frame,{key:cacheKey,data:result});
     if(manifests.size>32) manifests.delete(manifests.keys().next().value);
     return result;
@@ -241,7 +245,7 @@ function createDenoisePlayback(host, options) {
     if(!slots.length) {retireOld();state.loading=false;notify();return;}
     try {
       const prepared=await Promise.allSettled(slots.map(slot=>{
-        const reusable=old.find(stream=>stream.slot===slot && !stream.dead && stream.key===streamKey(slot) &&
+         const reusable=old.find(stream=>stream.slot===slot && !stream.dead && stream.key===streamKey(slot) &&
           target>=stream.manifest.first_frame && target<stream.manifest.end_frame);
         if(reusable) {
           reusable.version=version;

@@ -121,6 +121,7 @@ function updateComparisonInspector() {
     panel.hidden=hidden;
     if(hidden) panel.dataset.visible='false';
   });
+  if(comparisonStageKey()==='dust' && typeof dustUpdateInspectionContext==='function') dustUpdateInspectionContext();
 }
 function mountComparisonLayout(title) {
   const page=document.querySelector('.denoise-editor-page');
@@ -185,7 +186,7 @@ function mountComparisonLayout(title) {
       button.textContent=cell.querySelector('strong')?.textContent || cell.dataset.method;
       cell.querySelector('strong')?.remove();
       row.prepend(button);
-      row.append(comparisonEffortButton(cell.dataset.method));
+      if(comparisonStageKey()!=='dust') row.append(comparisonEffortButton(cell.dataset.method));
       const status=cell.querySelector('.denoise-variant-cell-state'),badge=cell.querySelector('.denoise-variant-pipeline');
       if(status) row.append(status);if(badge) row.append(badge);
     }
@@ -276,6 +277,15 @@ function mountComparisonLayout(title) {
   inputContext.innerHTML='<summary>Processing input &amp; provenance · <span data-processing-input-label></span></summary>';
   inputContext.append(page.querySelector('[data-processing-input]'));
   page.querySelector('#denoiseComparePlayers').after(inputContext);
+  if(comparisonStageKey()==='stabilize') {
+    const warning=document.createElement('p');warning.className='inline-warning';
+    warning.textContent='0% means no additional fixed zoom, not complete picture preservation. Translation, rotation and bicubic resampling still change pixels and can expose black borders or clip source content. 3% does not guarantee border-free output. Difference shows geometry changes, not restoration quality.';
+    page.querySelector('#denoiseComparePlayers').before(warning);
+    const report=document.createElement('details');report.className='comparison-input-context';
+    report.innerHTML='<summary data-stabilization-scene-summary>Stabilization scene report</summary><div data-stabilization-scenes role="status"></div>';
+    report.insertAdjacentHTML('beforeend','<section data-stabilization-footprint><h3>Geometric footprint</h3><p>Pixel-centre raster estimate, independent of film brightness. This is not bicubic kernel support or a restoration-quality score.</p><button type="button" onclick="inspectStabilizationFootprint()">Inspect footprint at current frame</button><output data-footprint-status role="status"></output><img data-footprint-image hidden alt="Geometric output footprint: white is source-supported, black is outside the source" style="max-width:480px;width:100%;height:auto"></section>');
+    inputContext.before(report);
+  }
   updateComparisonInputContext();
   const analysis=document.createElement('details');analysis.dataset.comparisonAnalysis='';analysis.className='comparison-analysis';
   const caption=document.createElement('summary');caption.textContent='Frame analysis & display options';

@@ -85,7 +85,9 @@ function setup() {
 test('content is factual, complete for current methods, and executable without a DOM', () => {
   const context = vm.createContext({}); vm.runInContext(source, context);
   const methods = vm.runInContext('comparisonHelpMethods', context);
-  assert.equal(Object.keys(methods).length, 14);
+  assert.equal(Object.keys(methods).length, 17);
+  assert.match(methods.zoom0, /clip source content/);
+  assert.match(methods.zoom3, /does not guarantee/);
   assert.match(methods.richardson_lucy, /not a measured/);
   assert.match(methods.nafnet, /GoPro-trained/);
   assert.match(methods.localized_stream, /detection can fail/);

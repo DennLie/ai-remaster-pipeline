@@ -5,20 +5,20 @@ function setup(){
  vm.runInContext(fs.readFileSync(path.join(__dirname,'../ai_remaster_gui/static/js/render-helpers.js'),'utf8'),context);
  vm.runInContext(source,context);return context;
 }
-test('compact workflow retains ten unique real inputs and a separate preprocessing order host',()=>{
+test('compact workflow retains eleven unique real inputs and a separate preprocessing order host',()=>{
  const context=setup(),html=context.workflowPickerHtml(true,false,true,true,true,false,false,false,'Black and white');
  const ids=[...html.matchAll(/<input id="([^"]+)"/g)].map(m=>m[1]);
- assert.equal(ids.length,10);assert.equal(new Set(ids).size,10);
+  assert.equal(ids.length,11);assert.equal(new Set(ids).size,11);assert.ok(ids.includes('globalDust'));
   assert.match(html,/data-preprocessing-stages/);assert.match(source,/<h2>Processing stages/);
  assert.match(html,/<ol class="workflow-sequence-list" data-preprocessing-stages>/);
- assert.equal([...html.matchAll(/<li class="workflow-stage-tile/g)].length,10);
+  assert.equal([...html.matchAll(/<li class="workflow-stage-tile/g)].length,11);
  assert.doesNotMatch(html,/workflow-stage-grid/);
  assert.match(html,/Detail Enhancement · legacy/);assert.match(html,/workflow-tiles/);
-  assert.equal([...html.matchAll(/class="workflow-thumb /g)].length,10);
-  assert.equal([...html.matchAll(/class="workflow-paired-row"/g)].length,10);
-  assert.equal([...html.matchAll(/data-workflow-stage-status=/g)].length,10);
+   assert.equal([...html.matchAll(/class="workflow-thumb /g)].length,11);
+   assert.equal([...html.matchAll(/class="workflow-paired-row"/g)].length,11);
+   assert.equal([...html.matchAll(/data-workflow-stage-status=/g)].length,11);
  assert.doesNotMatch(html,/pipeline-order-controls/);
- assert.equal([...html.matchAll(/data-workflow-order-key=/g)].length,6);
+  assert.equal([...html.matchAll(/data-workflow-order-key=/g)].length,6);
  for(const label of html.matchAll(/<label\b[^>]*>[\s\S]*?<\/label>/g)) assert.doesNotMatch(label[0],/<button/);
 });
 test('tile ordering disables boundary arrows and all arrows during processing or pending save',()=>{

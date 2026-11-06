@@ -426,8 +426,11 @@ class GuiSmokeTests(unittest.TestCase):
 
     def test_stabilization_page_preserves_its_video_during_polling(self) -> None:
         core = (app.ROOT / "ai_remaster_gui" / "static" / "js" / "core.js").read_text(encoding="utf-8")
-
-        self.assertEqual(core.count("['cleanup', 'stabilize', 'outpaint'"), 2)
+        renderer = (app.ROOT / 'ai_remaster_gui/static/js/render-denoise.js').read_text(encoding='utf-8')
+        helpers = (app.ROOT / 'ai_remaster_gui/static/js/render-helpers.js').read_text(encoding='utf-8')
+        self.assertIn("isRestorationComparison() && document.querySelector('.denoise-workspace')", core)
+        self.assertRegex(renderer, r"function isRestorationComparison\(\).*'stabilize'")
+        self.assertIn("if (st.key === 'stabilize') return drawDenoise(st, s, expected, sp);", helpers)
 
     def test_cleanup_page_wires_the_shared_before_after_player(self) -> None:
         helpers = (app.ROOT / "ai_remaster_gui" / "static" / "js" / "render-helpers.js").read_text(encoding="utf-8")

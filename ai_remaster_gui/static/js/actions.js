@@ -1782,7 +1782,7 @@ async function saveStage(key, redraw = false) {
   state = next;
   pruneSelected();
 
-  if (redraw && ['denoise','deflicker','enhancement'].includes(key)) {
+  if (redraw && ['denoise','deflicker','enhancement','stabilize'].includes(key)) {
     denoiseWorkspaceRefresh();
   } else if (redraw) {
     draw(false);
@@ -1827,6 +1827,7 @@ async function saveGlobalPipelineOptions() {
       enhancement: String(document.getElementById('globalEnhancement').checked),
       cleanup: String(document.getElementById('globalCleanup').checked),
       stabilize: String(document.getElementById('globalStabilize').checked),
+      dust: String(document.getElementById('globalDust').checked),
       detail: String(document.getElementById('globalDetail').checked),
       expand_outpaint: String(document.getElementById('globalExpandOutpaint').checked),
       colorize: String(document.getElementById('globalColorize').checked),

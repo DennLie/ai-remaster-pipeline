@@ -18,7 +18,7 @@ function browserFunctions() {
   return context;
 }
 
-test('Clean Up provides permanent three-up exact frame inspection; stabilization remains unchanged', () => {
+test('Clean Up provides permanent three-up exact frame inspection independently of stabilization', () => {
   const api = browserFunctions();
   const cleanup = api.frameInspectorHtml('cleanup');
   assert.match(cleanup, /data-fi-still-before/);

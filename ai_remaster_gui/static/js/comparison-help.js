@@ -1,5 +1,8 @@
 /* Read-only contextual help. Mount again after rendering; no processing state is read or written. */
 const comparisonHelpMethods = Object.freeze({
+  zoom0: 'FFmpeg/libvidstab with no additional fixed zoom. Motion correction can still expose borders and clip source content. Bicubic resampling changes pixels; inspect pans, grain and frame edges.',
+  zoom3: 'The same FFmpeg/libvidstab motion settings, with 3% additional fixed zoom to conceal transformed edges. Crops the field of view and does not guarantee border-free output.',
+  current: 'Uses the current pipeline stabilization parameters, including any custom zoom. This can match the 0% or 3% variant; matching renders are reused.',
   hqdn3d: 'HQDN3D reduces noise across space and time. Inspect moving edges for trails and fine grain for smoothing.',
   nlmeans: 'NLMeans averages similar image patches. Inspect fine texture and grain for loss of detail.',
   bm3d: 'BM3D groups similar patches for noise reduction. Inspect fine textures and edges against the input.',
@@ -17,6 +20,9 @@ const comparisonHelpMethods = Object.freeze({
 });
 // Qualitative cost of ARP's implementations, not measured runtimes or quality scores.
 const comparisonEffort = Object.freeze({
+  zoom0: ['medium','CPU','Two-pass motion analysis and transformation per scene; resolution, film length and scene count drive work.'],
+  zoom3: ['medium','CPU','The same two-pass analysis as 0%, with fixed zoom during transformation.'],
+  current: ['medium','CPU','Two-pass libvidstab at the current motion and zoom settings.'],
   hqdn3d: ['low','CPU','Simple spatial/temporal filtering; resolution and film length drive total work.'],
   nlmeans: ['high','CPU','Searching similar patches is expensive; resolution and the search region drive work.'],
   bm3d: ['high','CPU','Block matching and grouped filtering are expensive, even with the basic preset implementation.'],
@@ -37,6 +43,13 @@ function comparisonMethodHelp(method) {
   return (comparisonHelpMethods[method] || '')+(effort ? ` Effort: ${effort[0]} · ${effort[1]}. ${effort[2]} Qualitative estimate, not a benchmark or quality ranking. Total time also depends on hardware, settings and delivery encoding.` : '');
 }
 const comparisonHelpFields = Object.freeze({
+  smoothing: 'Motion smoothing radius in frames. Inspect intentional pans and transitions; stronger smoothing is not automatically more faithful.',
+  max_shift: 'Maximum correction in pixels. IMPORTANT: 0 means unlimited correction, not disabled translation.',
+  max_angle: 'Maximum rotation correction in degrees. IMPORTANT: 0 means unlimited correction, not disabled rotation.',
+  zoom: 'Additional fixed zoom for the current pipeline settings. The 0% and 3% comparison variants override only this value. No zoom does not guarantee no image loss.',
+  scene_aware: 'Restart motion analysis at detected hard cuts. Turn off only for a genuinely continuous shot; cut detection can fail.',
+  shot_threshold: 'Hard-cut detection threshold. Inspect the boundaries; image-content changes can be mistaken for cuts.',
+  min_shot_seconds: 'Minimum detected scene duration in seconds. Short cuts may be missed; each accepted boundary resets smoothing.',
   preset: 'Gentle, Balanced and Strong are method-specific strengths, not comparable measurements. Enhancement presets affect classical methods only.',
   window: 'Temporal window in frames for the FFmpeg deflicker methods. Inspect transitions and deliberate lighting changes.',
   strength: 'Correction strength for ARP Conservative. Higher values apply more of the estimated brightness correction.',

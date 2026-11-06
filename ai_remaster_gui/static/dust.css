@@ -1,0 +1,52 @@
+.dust-editor:not(.comparison-workbench) { display:grid; grid-template-columns:320px minmax(0,1fr); gap:16px; }
+.dust-editor:not(.comparison-workbench) aside { max-height:calc(100vh - 100px); overflow:hidden; display:flex; flex-direction:column; }
+.dust-settings-scroll { min-height:0; overflow:auto; }
+.dust-editor:not(.comparison-workbench) aside > :not(.dust-settings-scroll) { flex-shrink:0; }
+.dust-editor .denoise-variant-grid { display:flex; flex-direction:column; gap:8px; }
+.dust-editor .comparison-method-row { min-width:0; }
+.dust-editor .comparison-inspect-method { overflow-wrap:anywhere; }
+.dust-fields { display:grid; gap:16px; }
+.dust-parameter-group { margin-top:24px; }
+.dust-parameter-group h3 { margin:0 0 8px; }
+.dust-parameter-group p, [data-dust-draft] { color:var(--text-secondary,#c3c2bc); font-size:13px; margin:8px 0 16px; }
+.dust-next-action { display:grid; gap:8px; }
+.dust-next-action p { margin:0; font-size:13px; }
+.dust-view-switch { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 16px; }
+.dust-view-switch [aria-pressed=true] { background:#244c70; color:#f4f3ef; }
+.dust-mask-review .dust-image-viewport { height:clamp(200px,42vh,500px); position:relative; overflow:hidden; }
+.dust-mask-review .dust-image-layer { display:contents; }
+.dust-mask-review .dust-image-layer > canvas { position:static; }
+.dust-editor [data-dust-mask-view][hidden], .dust-editor #denoiseComparePlayers[hidden] { display:none; }
+.dust-mask-review .dust-images { grid-template-columns:minmax(0,1fr); }
+.dust-comparison-images { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
+.dust-input-mask.dust-has-repair .dust-comparison-images { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.dust-has-repair .dust-mask-review figcaption { margin:0; display:flex; align-items:flex-end; padding-bottom:8px; box-sizing:border-box; }
+.dust-has-repair .dust-mask-review .dust-image-viewport { height:auto; aspect-ratio:4/3; border:1px solid var(--line); border-radius:5px; }
+.dust-input-mask #denoiseComparePlayers .denoise-original-column { display:none; }
+.dust-input-mask #denoiseComparePlayers .denoise-workspace { display:block; }
+.dust-editor:not(.dust-has-repair) #denoiseComparePlayers .denoise-results-grid { display:none; }
+.dust-editor:not(.dust-has-repair) #denoiseComparePlayers .denoise-workspace { grid-template-columns:minmax(0,1fr); }
+.dust-view-switch [data-dust-opacity] { display:flex; gap:8px; align-items:center; font-size:13px; }
+.dust-view-switch [data-dust-opacity][hidden] { display:none; }
+.dust-view-switch [data-dust-opacity] input { width:100px; }
+@media(max-width:600px) { .dust-input-mask.dust-has-repair .dust-comparison-images { grid-template-columns:minmax(0,1fr); } }
+.dust-fields label { display:grid; gap:8px; }
+.dust-fields label:has(input[type=checkbox]) { display:block; }
+.dust-fields input:not([type=checkbox]), .dust-fields select { width:100%; min-width:0; }
+.dust-images { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.dust-images figure { margin:0; min-width:0; }
+.dust-images figcaption { margin:8px 0; }
+.dust-image-viewport { overflow:auto; background:#141414; }
+.dust-image-layer { width:var(--dust-zoom,100%); position:relative; }
+.dust-image-layer img { display:block; width:100%; }
+.dust-image-viewport canvas.is-awaiting-frame { visibility:hidden; }
+.dust-image-layer canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.dust-editor .actions { flex-wrap:wrap; }
+.dust-editor p { overflow-wrap:anywhere; }
+.dust-measurements { grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+.dust-measurements dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; }
+@media(max-width:1100px) { .dust-editor:not(.comparison-workbench) { grid-template-columns:1fr; } .dust-editor:not(.comparison-workbench) aside { max-height:none; } .dust-settings-scroll { overflow:visible; } }
+@media(max-width:600px) { .dust-images { grid-template-columns:1fr; } }
+@media(max-width:600px) {
+  .dust-editor .comparison-transport-strip .denoise-compare-position { order:-1; flex:0 0 176px; min-width:176px; flex-direction:column; gap:0; }
+}

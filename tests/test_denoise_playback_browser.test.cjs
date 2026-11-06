@@ -6,7 +6,7 @@ const path=require('node:path');
 const script=fs.readFileSync(path.join(__dirname,'../ai_remaster_gui/static/js/denoise-playback.js'),'utf8');
 const settle=async()=>{for(let i=0;i<5;i++)await new Promise(setImmediate)};
 
-function setup() {
+function setup(options={}) {
   const videos=[],canvases=new Map(),requests=[];
   let slots=[1,2];
   const element=()=>({children:[],className:'',setAttribute(){},appendChild(child){this.children.push(child)},remove(){}});
@@ -36,12 +36,12 @@ function setup() {
       const first=Math.floor(body.frame/240)*240;
       return{json:async()=>({ok:true,url:'video-'+body.variant+'-'+first,first_frame:first,end_frame:first+240,
         fps:30,fps_fraction:'30',frames:36000,width:320,height:240,atlas_width:960,atlas_height:240,
-        regions:{original:[0,0,320,240],result:[320,0,320,240],difference:[640,0,320,240]}})};
+         regions:{original:[0,0,320,240],result:[320,0,320,240],difference:[640,0,320,240],...(body.mask_values?{mask:[320,0,320,240]}:{})}})};
     },
   });
   vm.runInContext(script,context);
   const engine=context.createDenoisePlayback(host,{fps:30,count:36000,slots:()=>slots,path:slot=>'variant'+slot,
-    identity:slot=>'v1-'+slot,diffMode:()=>'direction',contrast:()=>32,changed(){},painted(){}});
+     identity:slot=>'v1-'+slot,diffMode:()=>'direction',contrast:()=>32,changed(){},painted(){},...options});
   return{context,engine,videos,canvases,requests,setSlots(value){slots=value;engine.reconcile()}};
 }
 
@@ -55,6 +55,21 @@ test('common-frame selection never pairs adjacent decoded frames',()=>{
   assert.equal(context.denoisePlaybackOrdinal({first_frame:300,end_frame:540,fps:30},8),null);
   assert.equal(context.denoisePlaybackOrdinal({first_frame:192,end_frame:240,fps:24000/1001},8*1001/24000),200);
   assert.equal(context.denoisePlaybackTime(1140.123),'19:00.123');
+});
+
+test('mask input and repair retain their own reference and publish only common frames',async()=>{
+  const painted=[];
+  const run=setup({stage:()=>'dust',path:slot=>slot?'repair.mkv':'',
+    reference:slot=>slot?'original':'input',request:slot=>slot?{}:{mask_values:{detector:'temporal'}},
+    sourcePainted:(_image,manifest,frame)=>{assert.ok(manifest.regions.mask);painted.push(frame);}});
+  try {
+    run.setSlots([0,1]);await settle();
+    assert.equal(run.requests.find(body=>body.mask_values).reference,'input');
+    assert.equal(run.requests.find(body=>body.variant==='repair.mkv').reference,'original');
+    run.engine.toggle();await settle();
+    const before=painted.length;run.videos[0].frame(1);assert.equal(painted.length,before);
+    run.videos[1].frame(1);assert.equal(painted.at(-1),1);
+  } finally {run.engine.destroy();}
 });
 
 test('mode switches reuse the very same decoded atlas without seeking or fetching',async()=>{

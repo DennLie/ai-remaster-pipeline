@@ -821,7 +821,8 @@ function drawStage(st) {
   if (st.key === 'enhancement') return drawDenoise(st, s, expected, sp);
   if (st.key === 'detail') return drawDenoise(st, s, expected, sp);
   if (st.key === 'cleanup') return drawCleanup(st, s, expected, sp);
-  if (st.key === 'stabilize') return drawStabilization(st, s, expected, sp);
+  if (st.key === 'stabilize') return drawDenoise(st, s, expected, sp);
+  if (st.key === 'dust') return drawDust(st);
   if (st.key === 'outpaint') return drawOutpaint(st, s, expected, sp);
 
   document.getElementById('app').innerHTML = `

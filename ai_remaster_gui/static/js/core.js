@@ -102,8 +102,12 @@ async function refresh(force = false) {
   }
 
   // The matrix owns membership; reconcile only changed tiles, even when no output exists yet.
+  if(active==='dust' && document.querySelector('[data-dust-catalog]')?.dataset.dustCatalog!==dustCatalog() && !editing) {
+    drawDust(state.stages.find(s=>s.key==='dust'));lastRenderSignature=sig;return;
+  }
   if (!force && isRestorationComparison() && document.querySelector('.denoise-workspace')) {
     updateDenoiseMatrixStatus();
+    if(active==='dust') dustUpdateStatus?.();
     updateRunLogs();
     lastRenderSignature = sig;
     return;
@@ -150,6 +154,7 @@ function renderSignature() {
     denoise_matrix: state.denoise_matrix,
     deflicker_matrix: state.deflicker_matrix,
     enhancement_matrix: state.enhancement_matrix,
+    stabilize_matrix: state.stabilize_matrix,
     stabilization_comparison: state.stabilization_comparison,
     detail_comparison: state.detail_comparison,
     reference_luminance: state.reference_luminance,

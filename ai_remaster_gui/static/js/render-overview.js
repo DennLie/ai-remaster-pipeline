@@ -1,6 +1,6 @@
 const OVERVIEW_WORKFLOW_STAGE_KEYS = {
   globalDeflicker:['deflicker'],globalEnhancement:['enhancement'],globalDenoise:['denoise'],
-  globalCleanup:['cleanup'],globalStabilize:['stabilize'],globalDetail:['detail'],
+  globalCleanup:['cleanup'],globalStabilize:['stabilize'],globalDust:['dust'],globalDetail:['detail'],
   globalExpandOutpaint:['outpaint'],globalColorize:['shots','references','colour'],
   globalSoundtrack:['audio'],globalUpscale:['upscale'],
 };
@@ -18,7 +18,7 @@ function drawGlobal() {
   const colorize = global.colorize !== 'false';
   const upscale = global.upscale === 'true';
   const soundtrack = global.add_soundtrack === 'true';
-  const noProcessing = !denoise && !deflicker && global.enhancement !== 'true' && !cleanup && !stabilize && !detail && !expandOutpaint && !colorize && !upscale && !soundtrack;
+  const noProcessing = !denoise && !deflicker && global.enhancement !== 'true' && !cleanup && !stabilize && global.dust !== 'true' && !detail && !expandOutpaint && !colorize && !upscale && !soundtrack;
   const analysis = state.source_analysis || {};
   const sourceTone = source && !analysis.ready
     ? (analysis.message || 'Analyzing source material')
@@ -72,6 +72,7 @@ function drawGlobal() {
   document.getElementById('globalEnhancement').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalCleanup').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalStabilize').addEventListener('change', saveGlobalPipelineOptions);
+  document.getElementById('globalDust').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDetail').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalExpandOutpaint').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalColorize').addEventListener('change', saveGlobalPipelineOptions);
@@ -89,14 +90,14 @@ function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint,
         checked: denoise,
         icon: 'cleanup',
         title: 'Remove Noise',
-        body: 'Optional independent denoising with Off, hqdn3d, NLMeans or BM3D before Clean Up. Choose separate presets and retain different versions for comparison.',
+        body: 'Optional independent denoising with Off, hqdn3d, NLMeans or BM3D at your chosen video-pipeline position. Retain different versions for comparison.',
       })}
       ${workflowOptionHtml({
         id: 'globalDeflicker',
         checked: state.settings.global.deflicker === 'true',
         icon: 'cleanup',
         title: 'Light Deflicker',
-        body: 'Optional model-free brightness correction after Remove Noise and before Clean Up. Compare ARP, FFmpeg and experimental Localized methods without changing the pipeline selection.',
+        body: 'Optional model-free brightness correction at your chosen video-pipeline position. Compare ARP, FFmpeg and experimental Localized methods without changing the pipeline selection.',
       })}
       ${workflowOptionHtml({
         id: 'globalEnhancement',
@@ -120,11 +121,18 @@ function workflowPickerHtml(denoise, cleanup, stabilize, detail, expandOutpaint,
         body: 'Remove gate weave, frame jitter, and unwanted rotation per shot before outpainting and colour propagation. Shot cuts reset motion tracking.',
       })}
       ${workflowOptionHtml({
+        id: 'globalDust',
+        checked: state.settings.global.dust === 'true',
+        icon: 'cleanup',
+        title: 'Dust & Scratches',
+        body: 'Inspect defect proposals at the chosen video-pipeline position, compare Telea, ProPainter or experimental DART, then explicitly adopt a mask-gated repair. Off by default.',
+      })}
+      ${workflowOptionHtml({
         id: 'globalDetail',
         checked: detail,
         icon: 'cleanup',
         title: 'Detail Enhancement',
-        body: 'Optional 1x image sharpening after Clean Up and Stabilization. Choose Off, Unsharp, CAS or Multiscale, preset strength and original-image mix; compare versions before Upscaling.',
+        body: 'Optional legacy 1x image sharpening at your chosen video-pipeline position. Choose Off, Unsharp, CAS or Multiscale, strength and original-image mix.',
       })}
       ${workflowOptionHtml({
         id: 'globalExpandOutpaint',

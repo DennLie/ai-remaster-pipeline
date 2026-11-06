@@ -321,3 +321,10 @@ html:has(.comparison-workbench) { scroll-padding-bottom:calc(75px + env(safe-are
   .comparison-workbench .comparison-method-row .comparison-inspect-method { min-height:22px; }
   .comparison-workbench .comparison-param-row select { min-height:32px; padding-block:4px; }
 }
+[data-stabilization-footprint] output {
+  display: block;
+  max-width: 75ch;
+  margin: 12px 0;
+  font-variant-numeric: tabular-nums;
+}
+[data-stabilization-footprint] img:not([hidden]) { display: block; }

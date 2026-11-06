@@ -9,7 +9,7 @@ function denoiseWorkspaceFor(key = comparisonStageKey()) {
 }
 
 function denoiseWorkspaceActivate(key) {
-  if (!['denoise','deflicker','enhancement'].includes(key)) return;
+  if (!['dust','denoise','deflicker','enhancement','stabilize'].includes(key)) return;
   const workspace = denoiseWorkspaceFor(key);
   if (workspace === denoiseWorkspaceActive) return;
   denoiseWorkspaceDeactivate();
@@ -96,7 +96,7 @@ function denoiseWorkspaceInitialize(candidates) {
   if (latest && Object.hasOwn(latest,'source')) matrix = latest;
   if(generationContext && generationContext!==renderContext(generationVariants)) denoiseWorkspaceGenerationError='';
   const source = candidates.find(v => v.kind === 'source')?.path || '';
-  const identity = [source, matrix.source_revision, state?.settings?.global?.source, denoiseCompareSectionKey()].join('|');
+  const identity = [state?.project_path, source, matrix.source_revision, state?.settings?.global?.source, denoiseCompareSectionKey()].join('|');
   if (denoiseWorkspaceSelection === null) {
     const stage = pipelineVariant();
     const ready = denoiseWorkspaceVariants.filter(v => variantReady(v.method,v.preset));
@@ -168,6 +168,7 @@ function denoiseWorkspaceRequestGeneration() {
 }
 
 async function denoiseWorkspaceGenerate() {
+   if(stageKey==='dust') { if(typeof dustRun==='function') await dustRun(); return; }
   if (state.running || denoiseWorkspaceStarting) return;
   if(state.processing_input?.problem) {
     denoiseWorkspaceGenerationError=state.processing_input.problem;
@@ -196,7 +197,9 @@ async function denoiseWorkspaceGenerate() {
 }
 
 function renderContext(variants) {
+  if(stageKey==='dust') return JSON.stringify([state.project_path,matrix.source_revision,state.settings.dust]);
   const settings=state?.settings || {},values=settings[stageKey] || {};
+  if(stageKey==='stabilize') return JSON.stringify([settings.global,settings.denoise,settings.deflicker,settings.enhancement,settings.cleanup,values,settings.cloud?.intermediate_format]);
   const parameters=variants.map(({method})=>stageKey==='enhancement' ? [method,values.mix,['nafnet','restormer'].includes(method) ? null : values.preset] : method==='arp' ? [method,values.strength,values.max_correction]
     : method.startsWith('ffmpeg_') ? [method,values.window]
     : [method,values.localized_confirm_single_shot,values.localized_confirm_film_experiment]);
@@ -291,7 +294,7 @@ function denoiseWorkspacePanelHtml(slot, path) {
     </div>` : '<div class="denoise-original-mode-spacer" aria-hidden="true"></div>'}
     <div class="denoise-compare-video-wrap">
       ${path ? `<canvas data-dp-canvas="${slot}" width="0" height="0" aria-label="${esc(label)} frame-locked preview"></canvas><span class="denoise-view-badge" data-dp-badge></span>` :
-        `<p class="shot-empty">${slot ? 'No matching output for the current input.' : 'Prepare the source material to preview it here.'}</p>`}
+        `<p class="shot-empty">${slot ? stageKey==='dust' ? 'Repair has not been calculated. Review the mask, then choose Repair masked areas.' : 'No matching output for the current input.' : 'Prepare the source material to preview it here.'}</p>`}
       ${slot && path ? `<div class="denoise-inline-wipe" data-ds-wipe="${slot}" role="slider" tabindex="0" aria-label="${esc(label)} exact wipe: stage input left, result right" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-orientation="horizontal" hidden><span>Stage input / Result</span></div>` : ''}
     </div>
     <output data-dp-status="${slot}" class="denoise-diff-status" role="status"></output>
@@ -316,6 +319,7 @@ function denoiseWorkspaceSetExact(enabled) {
 }
 
 function denoiseWorkspaceUpdateModes() {
+  if(stageKey==='dust' && typeof dustInvalidateInspection==='function') dustInvalidateInspection();
   const referenceLabel=comparisonReference==='original' ? 'Original source' : 'Stage input';
   const page=document.querySelector('.comparison-workbench');
   if(page) page.dataset.reference=comparisonReference;
@@ -361,6 +365,7 @@ function denoiseWorkspacePlaybackSlots(host) {
   const visible=[...host.querySelectorAll('[data-dc-slot]')].filter(panel=>
     !panel.hidden && panel.dataset.visible==='true' && denoiseComparePaths[Number(panel.dataset.dcSlot)]);
   const results=visible.map(panel=>Number(panel.dataset.dcSlot)).filter(Boolean);
+  if(stageKey==='dust' && typeof dustMaskPlaybackActive==='function' && dustMaskPlaybackActive()) return [0,...results];
   return results.length ? results : visible.some(panel=>panel.dataset.dcSlot==='0') ? [0] : [];
 }
 
@@ -372,10 +377,13 @@ function denoiseWorkspaceWirePlayback(host) {
   const epoch=mountEpoch;
   const current=()=>mounted && mountEpoch===epoch && denoiseWorkspaceActive===workspace && host.isConnected;
   const identity=slot=>[stageKey,comparisonReference,denoiseWorkspaceSource,denoiseMatrixState().source_revision,
-    slot ? denoiseMatrixState().variants?.find(v=>denoiseSameVariant(v,denoiseWorkspaceVariants[slot-1]))?.revision : ''].join('|');
+    slot ? denoiseMatrixState().variants?.find(v=>denoiseSameVariant(v,denoiseWorkspaceVariants[slot-1]))?.revision : '',
+    stageKey==='dust' && typeof dustPlaybackIdentity==='function' ? dustPlaybackIdentity() : ''].join('|');
   denoiseWorkspacePlayback=createDenoisePlayback(host,{
     stage:()=>stageKey,
-    reference:()=>comparisonReference,
+    reference:slot=>stageKey==='dust' && !slot && dustMaskPlaybackActive() ? 'input' : comparisonReference,
+    request:slot=>stageKey==='dust' && !slot && dustMaskPlaybackActive() ? {mask_values:{...dustDraft}} : {},
+    sourcePainted:(image,manifest,frame)=>{if(current() && stageKey==='dust' && dustMaskPlaybackActive()) dustPaintPlayback(image,manifest,frame);},
     fps:rate,count:Math.max(1,Math.round(length*rate)),frame:denoiseWorkspaceFrame,exact:denoiseWorkspaceExact,
     slots:()=>denoiseWorkspacePlaybackSlots(host),
     path:slot=>slot ? denoiseComparePaths[slot] || '' : '',
@@ -416,6 +424,7 @@ function denoiseWorkspaceUpdatePlayback(playback,message='') {
   const loading=exact ? Boolean(still?.loading) : playback.loading;
   const error=exact ? still?.error || '' : playback.error;
   denoiseWorkspaceFrame=playback.frame;
+  if(stageKey==='stabilize' && typeof invalidateStabilizationFootprint==='function') invalidateStabilizationFootprint();
   fps=playback.fps;count=playback.count;
   host.classList.toggle('is-buffering',loading);host.classList.toggle('has-playback-error',Boolean(error));
   host.setAttribute('aria-busy',String(loading));
@@ -441,7 +450,8 @@ function denoiseWorkspaceUpdatePlayback(playback,message='') {
     : message || 'Frame-locked views · compressed display. Differences are computed before display compression.';
   host.querySelectorAll('[data-dp-status]').forEach(output=>{output.textContent=loading || error ? status : '';});
   denoiseCompareSetPlaying(playback.playing);chart?.highlight(playback.frame);
-  denoiseWorkspaceUpdateModes();denoiseCompareNotice(status);
+  denoiseWorkspaceUpdateModes();denoiseCompareNotice(stageKey==='dust' && typeof dustView!=='undefined' && dustView==='mask'
+    ? (exact ? 'Exact mask still · press Play for frame-locked compressed mask playback.' : 'Frame-locked mask playback · compressed display. Use Exact still to inspect mask boundaries.') : status);
 }
 
 function denoiseWorkspaceFocus(slot) {
@@ -572,7 +582,7 @@ function denoiseWorkspaceRender(candidates) {
 function wireZoom(host) {
   denoiseCompareZoomView?.destroy();
   const epoch=mountEpoch;
-  denoiseCompareZoomView=createReviewZoom(host,'.denoise-compare-video-wrap',document.getElementById('denoiseCompareZoomControls'),
+  denoiseCompareZoomView=createReviewZoom(stageKey==='dust' ? host.closest('.denoise-compare-card') : host,stageKey==='dust' ? '.denoise-compare-video-wrap,.dust-image-viewport' : '.denoise-compare-video-wrap',document.getElementById('denoiseCompareZoomControls'),
     {zoom:denoiseCompareZoom,...denoiseComparePan,native:denoiseCompareNative,grid:denoiseCompareGrid},value=>{
       if(epoch!==mountEpoch || !mounted) return;
       denoiseCompareZoom=value.zoom;denoiseComparePan={x:value.x,y:value.y};
@@ -592,6 +602,7 @@ function setViewport(value) {
 }
 
 async function useSelected(selected=selectedVariant()) {
+   if(stageKey==='dust' && selected.method==='off') return;
   if(state.running || adoptionPending || selected.method!=='off' && !variantReady(selected.method,selected.preset)) return;
   adoptionPending=true;adoptionError='';
   const context=renderContext([]),epoch=inputEpoch;
@@ -601,7 +612,11 @@ async function useSelected(selected=selectedVariant()) {
   try {
     const values=stageKey!=='denoise' ? {method:selected.method,force:'false'}
       : {method:selected.method,preset:selected.preset || 'gentle',force:'false'};
-    const result=await postJson('/api/settings',{stage:stageKey,values});
+    const result=stageKey==='dust'
+      ? await postJson('/api/dust-adopt',{values:matrix.variants.find(v=>v.method===selected.method)?.values,source:matrix.source,project:state.project_path || '',report:matrix.variants.find(v=>v.method===selected.method)?.revision})
+      : stageKey==='stabilize'
+      ? await postJson('/api/stabilize-adopt',{method:selected.method,variant:variantPath(selected.method,selected.preset)})
+      : await postJson('/api/settings',{stage:stageKey,values});
     if(!result?.ok) throw new Error(result?.error || 'Settings could not be saved.');
     if(denoiseWorkspaceActive===workspace && epoch===inputEpoch && context===renderContext([])) {
       const force=document.querySelector('[data-field="force"]');
@@ -612,6 +627,14 @@ async function useSelected(selected=selectedVariant()) {
     if(epoch===inputEpoch && context===renderContext([])) adoptionError='The pipeline selection could not be changed: '+(error?.message || 'unknown error');
   }finally {
     adoptionPending=false;
+    if(stageKey==='stabilize' && denoiseWorkspaceActive===workspace) {
+      const zoom=document.querySelector('[data-field="zoom"]');
+      if(zoom) zoom.value=state.settings.stabilize.zoom ?? '3';
+      const readout=document.getElementById('zoomValue');
+      if(readout) readout.textContent=state.settings.stabilize.zoom ?? '3';
+      const label=document.querySelector('[data-stabilization-current-zoom]');
+      if(label) label.textContent=state.settings.stabilize.zoom ?? '3';
+    }
     if(denoiseWorkspaceActive===workspace) denoiseMatrixUpdateUi();
   }
 }
@@ -629,10 +652,15 @@ const workspace={initialize:denoiseWorkspaceInitialize,deactivate,snapshot,
     denoiseWorkspaceUpdateModes();
   },
   focus:denoiseWorkspaceFocus,slotVisible:denoiseWorkspaceSlotVisible,setViewport,useSelected,
+  restoreComparison:previous=>{
+    const valid=new Set(denoiseWorkspaceVariants.map(denoiseWorkspaceKey));
+    denoiseWorkspaceSelection=new Set(previous.selection.filter(key=>valid.has(key)));
+    if(previous.selected.method==='off' || valid.has(denoiseWorkspaceKey(previous.selected))) denoiseMatrixSelected={...previous.selected};
+  },
   retry:()=>denoiseWorkspaceStill?.reconcile(true),
   seek:seconds=>denoiseWorkspacePlayback?.seekSeconds(seconds),
   seekFrame:frame=>{denoiseWorkspaceFrame=Math.max(0,Math.round(frame));return denoiseWorkspacePlayback?.seekFrame(frame);},
-  step:frames=>denoiseWorkspacePlayback?.step(frames),playPause:()=>denoiseWorkspacePlayback?.toggle(),
+   step:frames=>denoiseWorkspacePlayback?.step(frames),playPause:()=>denoiseWorkspacePlayback?.toggle(),
   setWipe:(slot,value)=>{denoiseWorkspaceWipes.set(slot,Math.max(0,Math.min(100,Number(value)||0)));denoiseWorkspaceStill?.draw();},
   setDifference:(mode,contrast)=>{denoiseCompareDiffMode=mode;denoiseCompareDiffContrast=contrast;denoiseWorkspacePlayback?.reconcile();denoiseWorkspaceStill?.draw();denoiseWorkspaceUpdateModes();},
   syncChart:()=>{

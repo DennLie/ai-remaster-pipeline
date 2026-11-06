@@ -48,9 +48,10 @@ const ENHANCEMENT_METHODS = [
   {key:'unsharp',label:'Unsharp'}, {key:'cas',label:'CAS'}, {key:'multiscale',label:'Multiscale'},
   {key:'richardson_lucy',label:'Richardson–Lucy'}, {key:'nafnet',label:'NAFNet · GoPro'}, {key:'restormer',label:'Restormer · GoPro'},
 ];
-function comparisonStageKey() { return typeof active==='string' && ['deflicker','enhancement'].includes(active) ? active : 'denoise'; }
-function isRestorationComparison() { return typeof active==='string' && ['denoise','deflicker','enhancement'].includes(active); }
-function denoiseMethods(key=comparisonStageKey()) { return key==='enhancement' ? ENHANCEMENT_METHODS : key==='deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS; }
+const STABILIZATION_METHODS = [{key:'zoom0',label:'0% additional zoom'}, {key:'zoom3',label:'3% additional zoom'}, {key:'current',label:'Current pipeline settings'}];
+function comparisonStageKey() { return typeof active==='string' && ['dust','deflicker','enhancement','stabilize'].includes(active) ? active : 'denoise'; }
+function isRestorationComparison() { return typeof active==='string' && ['dust','denoise','deflicker','enhancement','stabilize'].includes(active); }
+function denoiseMethods(key=comparisonStageKey()) { return key==='dust' ? (state.dust_matrix?.variants || []).map(v=>({key:v.method,label:dustLabel(v.values)})) : key==='stabilize' ? STABILIZATION_METHODS : key==='enhancement' ? ENHANCEMENT_METHODS : key==='deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS; }
 function denoisePresets(key=comparisonStageKey()) { return key!=='denoise' ? [{key:'settings',label:'Current settings'}] : DENOISE_PRESETS; }
 function denoiseMatrixState(key=comparisonStageKey()) { return state?.[key+'_matrix'] || {}; }
 
@@ -95,12 +96,14 @@ function denoiseVariantPath(method, preset, key=comparisonStageKey(), matrix=den
 function denoiseVariantReady(method, preset, key=comparisonStageKey(), matrix=denoiseMatrixState(key)) {
   if (method === 'off') return true;
   const variants = matrix.variants;
-  if (Array.isArray(variants)) return variants.some(v => v.method === method && v.preset === preset);
+  if (Array.isArray(variants)) return variants.some(v => v.method === method && v.preset === preset && (key!=='dust' || v.repair_complete));
   return Boolean(denoiseVariantPath(method, preset,key,matrix));
 }
 
 function denoiseStageVariant(key=comparisonStageKey()) {
   const values = state?.settings?.[key] || {};
+  if(key==='dust') return {method:state.dust_matrix?.variants?.find(v=>v.adopted)?.method || 'off',preset:'settings'};
+  if(key==='stabilize') return {method:Number(values.zoom ?? 3)===0 ? 'zoom0' : Number(values.zoom ?? 3)===3 ? 'zoom3' : 'current',preset:'settings'};
   const method = values.method || (key==='deflicker' ? 'arp' : 'off');
   const preset = key!=='denoise' ? 'settings' : values.preset || 'gentle';
   if (method === 'off' || !denoiseMethods(key).some(x => x.key === method) ||
@@ -159,7 +162,7 @@ function denoiseCompareCandidates(st) {
   }
   for (const file of (st.files || [])) {
     const path = file.path || '';
-    if (['denoise','deflicker','enhancement'].includes(st.key) && Array.isArray(denoiseMatrixState().variants) &&
+    if (['denoise','deflicker','enhancement','stabilize'].includes(st.key) && Array.isArray(denoiseMatrixState().variants) &&
         !denoiseMatrixState().variants.some(v => denoiseVariantPath(v.method, v.preset) === path)) continue;
     if (denoisePreviewIsFinal(path) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
       candidates.push({ path, label: denoiseVariantLabel(path), kind: 'variant' });
@@ -274,7 +277,7 @@ function denoiseCompareInitializePaths(candidates) {
 }
 
 function drawDenoise(st, settings, expected, progress) {
-  const shared=['denoise','deflicker','enhancement'].includes(st.key);
+  const shared=['dust','denoise','deflicker','enhancement','stabilize'].includes(st.key);
   if(shared) denoiseWorkspaceActivate(st.key);
   const candidates = denoiseCompareCandidates(st);
   denoiseCompareInitializePaths(candidates);
@@ -283,7 +286,7 @@ function drawDenoise(st, settings, expected, progress) {
     <div class="editor-page ${shared ? 'denoise-editor-page' : ''}">
       <aside class="card denoise-settings-sidebar" aria-label="${esc(st.title)} settings">
         <h2>${esc(st.title)}</h2>
-        <p>${esc(shared ? `Compare ${st.key==='enhancement' ? 'enhancement and deblurring' : st.key==='deflicker' ? 'brightness-correction' : 'noise-reduction'} variants against the processing input, then choose one for the pipeline.` : st.description)}</p>
+        <p>${esc(shared ? `Compare ${st.key==='dust' ? 'mask-gated dust repair' : st.key==='stabilize' ? 'stabilization zoom' : st.key==='enhancement' ? 'enhancement and deblurring' : st.key==='deflicker' ? 'brightness-correction' : 'noise-reduction'} variants against the processing input, then choose one for the pipeline.` : st.description)}</p>
         ${progressHtml(progress.percent, progress.label)}
         ${shared ? denoiseMatrixHtml() : st.fields.map(field => fieldHtml(st, field)).join('')}
         <div data-dm-expected>${shotOutputList(expected, null)}</div>
@@ -356,6 +359,8 @@ function drawDenoise(st, settings, expected, progress) {
 }
 
 function denoiseMatrixHtml() {
+  if(comparisonStageKey()==='dust') return dustPickerHtml();
+  if(comparisonStageKey()==='stabilize') return stabilizationPickerHtml();
   if(comparisonStageKey()==='enhancement') return enhancementPickerHtml();
   if(comparisonStageKey()==='deflicker') return deflickerPickerHtml();
   const matrix = state.denoise_matrix || {};
@@ -474,6 +479,7 @@ function denoiseSameVariant(a, b) {
 
 function denoiseMatrixUpdateUi() {
   const selected = denoiseSelectedVariant();
+  invalidateStabilizationFootprint();
   // Focus selects the chart, not pipeline settings or comparison membership.
   denoiseWorkspaceFor().syncChart();
   const stage = denoiseStageVariant();
@@ -545,7 +551,7 @@ function denoiseMatrixUpdateUi() {
     cell.setAttribute('aria-label', `${denoiseVariantLabelFor(cell.dataset.method,cell.dataset.preset)}, ${ready ? 'ready' : 'not rendered'}${pipeline ? ', selected for pipeline' : ''}`);
     const row=cell.closest('.comparison-method-row') || cell;
     const status = row.querySelector('.denoise-variant-cell-state');
-    if (status) status.textContent = ready ? 'Rendered' : 'Not rendered';
+    if (status) status.textContent = comparisonStageKey()==='dust' ? ready ? 'Repair ready' : 'Mask ready' : ready ? 'Rendered' : 'Not rendered';
     const badge = row.querySelector('.denoise-variant-pipeline');
     if (badge) badge.hidden = !pipeline;
   });
@@ -556,6 +562,67 @@ function denoiseMatrixUpdateUi() {
     analysis.hidden=!gains;
     analysis.textContent=gains ? `Applied ARP gains: ${gains.corrected}/${gains.frames} frames · maximum ${gains.max_gain_change_pct}% · mean ${gains.mean_abs_gain_change_pct}% · ${gains.cut_boundaries} detected cuts. Estimates, not proof of improved restoration.` : '';
   }
+  const scenes=document.querySelector('[data-stabilization-scenes]');
+  if(scenes) {
+    const variant=denoiseMatrixState().variants?.find(item=>item.method===selected.method);
+    const reports=variant?.scenes;
+    const summary=document.querySelector('[data-stabilization-scene-summary]');
+    if(summary) summary.textContent='Stabilization scene report · '+(!variant ? 'Not rendered' : !reports ? 'Report unavailable' :
+      `${reports.filter(row=>row.status==='fallback').length}/${reports.length} scenes: unstabilized safety fallback`);
+    const html=!variant ? '<p>Render this variant to inspect its scene report.</p>' : !reports ? '<p>Scene report unavailable for this cached result. No tracking success is inferred; explicitly rerender to record it.</p>' :
+      `<p>${reports.filter(row=>row.status==='fallback').length}/${reports.length} scenes used the unstabilized safety fallback. Applied stabilization is not proof of improved restoration.</p><ol>${reports.map(row=>`<li>Frames ${row.start+1}–${row.end}: ${row.status==='fallback' ? 'Unstabilized safety fallback' : 'Stabilization applied'}${row.reason ? ' · '+esc(row.reason) : ''}${!row.tracking_report_available ? ' · Tracking report unavailable' : ''}</li>`).join('')}</ol>`;
+    if(scenes.innerHTML!==html) scenes.innerHTML=html;
+  }
+}
+
+function stabilizationFootprintIdentity() {
+  const snapshot=denoiseWorkspaceSnapshot(),selected=snapshot.selected;
+  const row=denoiseMatrixState().variants?.find(item=>item.method===selected.method);
+  return JSON.stringify([comparisonStageKey(),denoiseMatrixState().source_revision,row?.output,row?.revision,snapshot.frame]);
+}
+function invalidateStabilizationFootprint() {
+  const host=document.querySelector('[data-stabilization-footprint]');
+  if(!host || host.dataset.identity===stabilizationFootprintIdentity()) return;
+  host.dataset.identity=stabilizationFootprintIdentity();
+  host.querySelector('[data-footprint-status]').textContent='Select Inspect footprint to read this frame; no render is started.';
+  const image=host.querySelector('[data-footprint-image]');image.hidden=true;image.removeAttribute('src');
+}
+async function inspectStabilizationFootprint() {
+  if(comparisonStageKey()!=='stabilize') return;
+  const host=document.querySelector('[data-stabilization-footprint]');
+  if(!host) return;
+  const identity=stabilizationFootprintIdentity(),frame=denoiseWorkspaceSnapshot().frame,path=denoiseSelectedPath();
+  const status=host.querySelector('[data-footprint-status]'),image=host.querySelector('[data-footprint-image]');
+  host.dataset.identity=identity;image.hidden=true;
+  if(!path) {status.textContent='Choose a finished stabilization result first.';return;}
+  status.textContent='Reading geometric footprint…';
+  try {
+    const result=await api('/api/stabilization-footprint?'+new URLSearchParams({variant:path,frame}));
+    if(!host.isConnected || identity!==stabilizationFootprintIdentity()) return;
+    if(!result.ok) throw Error(result.error || 'Footprint unavailable.');
+    status.textContent=`Frame ${frame+1}: valid output ${result.valid_output_pct.toFixed(2)}% · missing output ${result.missing_output_pct.toFixed(2)}% · estimated cropped source area ${result.cropped_source_area_estimate_pct.toFixed(2)}%. ${result.note}`;
+    image.src=media(result.image);image.hidden=false;
+  }catch(error) {
+    if(host.isConnected && identity===stabilizationFootprintIdentity()) status.textContent=error.message || 'Footprint unavailable.';
+  }
+}
+
+function stabilizationPickerHtml() {
+  const stage=state.stages.find(item=>item.key==='stabilize'),values=state.settings.stabilize || {};
+  const selected=denoiseSelectedVariant(),pipeline=denoiseStageVariant();
+  return `<section class="denoise-variant-picker" aria-labelledby="denoiseVariantHeading">
+    <div class="denoise-variant-head"><h3 id="denoiseVariantHeading">Zoom variants</h3><output id="denoiseMatrixStatus" class="denoise-matrix-status" role="status"></output></div>
+    <div class="deflicker-variant-list" role="group" aria-label="Stabilization variants included in comparison" onkeydown="denoiseMatrixKeyboard(event)">
+      ${STABILIZATION_METHODS.map(method=>denoiseMatrixCellHtml(method,{key:'settings'},selected)).join('')}
+    </div>
+    <div class="denoise-selection-tools"><span data-dm-comparison-count role="status"></span><button type="button" onclick="denoiseWorkspaceSelectAll()">Select all</button><button type="button" onclick="denoiseWorkspaceClear()">Clear</button></div>
+    <div class="denoise-generation-prompt" data-dm-generation hidden><p data-dm-generation-text></p><div class="actions"><button type="button" class="primary" data-dm-generate onclick="denoiseWorkspaceGenerate()">Render missing variants</button><button type="button" onclick="denoiseWorkspaceDismissGeneration()">Not now</button></div><output data-dm-generation-status role="status"></output></div>
+    ${comparisonSelectedHtml(denoiseVariantLabelFor(selected.method,selected.preset),denoiseVariantLabelFor(pipeline.method,pipeline.preset),Boolean(state.running))}
+    <div class="deflicker-parameters"><h3>Motion settings</h3>
+      ${stage.fields.map(field=>fieldHtml(stage,field)).join('')}
+      <p>0% and 3% override only additional zoom; motion settings stay identical. Current pipeline settings retain custom zoom values (currently <span data-stabilization-current-zoom>${esc(values.zoom ?? '3')}</span>%). Matching results are reused.</p>
+    </div>
+  </section>`;
 }
 
 function denoiseMatrixSelect(method, preset) {
@@ -591,7 +658,10 @@ async function denoiseMatrixCopySelected() {
   const parameters=comparisonStageKey()==='enhancement'
     ? `${['nafnet','restormer'].includes(selected.method) ? '' : ` preset=${settings.preset || 'gentle'}`} mix=${settings.mix ?? 100}`
     : ` preset=${selected.preset}`;
-  const text = `method=${selected.method}${parameters}${path ? ` output=${path}` : ''}`;
+  const stabilizationValues=comparisonStageKey()==='stabilize' ? {...state.settings.stabilize,
+    zoom:selected.method==='zoom0' ? '0' : selected.method==='zoom3' ? '3' : state.settings.stabilize.zoom} : null;
+  const text = stabilizationValues ? JSON.stringify({stage:'stabilize',parameters:stabilizationValues,output:path})
+    : `method=${selected.method}${parameters}${path ? ` output=${path}` : ''}`;
   const notice = document.querySelector('[data-dm-notice]');
   try {
     await navigator.clipboard.writeText(text);
