@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "catalog_origin": "https://github.com/DennLie/ai-remaster-pipeline/blob/b790a15487faa01005f8166451e9716c1526e0e0/benchmarks/public_domain_films/catalog.json",
+  "pilot_origin": "https://github.com/DennLie/ai-remaster-pipeline/pull/22",
+  "warning": "Reuses the pilot's three first 24-frame corpus scenes, not long sequences. Native clips require their existing PR #18 corpus manifests. Proxies are not scans; transfer rights are not automatically cleared. Rotation and the 0/1/2/3 zoom sweep are new conditions, not an exact reproduction of PR #22's translation-only experiment.",
+  "cases": [
+    {
+      "id": "lumiere_approach",
+      "film": "lumiere_train",
+      "scene": "approach_probe",
+      "transfer_sha256": "653527c6ad9df215580de278f471d35b290e1033a73e478e4adc3b5dc79d839f",
+      "end_frame": 24,
+      "synthetic": {"seed": 2026, "translation_px": 2, "rotation_deg": 0.5}
+    },
+    {
+      "id": "train_robbery_interior",
+      "film": "great_train_robbery",
+      "scene": "interior_action_probe",
+      "transfer_sha256": "2fe29266a0c253addcda17b9591d020c7e4d343702be273097eeee89ebdfc5ce",
+      "end_frame": 24,
+      "synthetic": {"seed": 2026, "translation_px": 2, "rotation_deg": 0.5}
+    },
+    {
+      "id": "melies_stage",
+      "film": "melies_moon",
+      "scene": "stage_probe",
+      "transfer_sha256": "991a4cc1e126dad41ff828ce561dc02b36030d51dfc38ea6f28fd0ad965a1e94",
+      "end_frame": 24,
+      "synthetic": {"seed": 2026, "translation_px": 2, "rotation_deg": 0.5}
+    }
+  ]
+}
