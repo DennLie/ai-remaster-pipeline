@@ -78,6 +78,7 @@ class StabilizeVideoTests(unittest.TestCase):
 
     def test_unreliable_shot_is_reencoded_without_transform(self) -> None:
         args = stabilize_video.build_parser().parse_args(["--source", "source.mp4"])
+        args._scene_reports = []
         commands = []
         with tempfile.TemporaryDirectory() as tmp_text:
             work_dir = Path(tmp_text)
@@ -98,6 +99,9 @@ class StabilizeVideoTests(unittest.TestCase):
         self.assertEqual(len(commands), 3)
         fallback_filter = commands[2][commands[2].index("-vf") + 1]
         self.assertNotIn("vidstabtransform", fallback_filter)
+        self.assertEqual(args._scene_reports[0]['status'], 'fallback')
+        self.assertEqual((args._scene_reports[0]['start'], args._scene_reports[0]['end']), (0, 24))
+        self.assertIn('64.0px', args._scene_reports[0]['reason'])
 
     def test_audio_mux_does_not_trim_the_authoritative_video_stream(self) -> None:
         commands = []

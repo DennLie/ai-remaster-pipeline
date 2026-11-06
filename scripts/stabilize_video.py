@@ -260,6 +260,20 @@ def stabilize_shot(
             cwd=work_dir,
             label=f"Shot {index + 1}: writing safe unstabilized fallback",
         )
+    if hasattr(args, '_scene_reports'):
+        args._scene_reports.append({'start': start, 'end': end,
+            'status': 'fallback' if unreliable else 'stabilized', 'reason': unreliable,
+            'tracking_report_available': motion_report.is_file()})
+    if hasattr(args, '_geometry_scenes'):
+        from stabilization_footprint import replay
+        geometry = {'start': start, 'end': end, 'zoom': 0.0 if unreliable else float(f'{args.zoom:.4f}')}
+        try:
+            geometry.update(replay(ffmpeg, work_dir, index, frames, args._width, args._height,
+                fps, transform, bool(unreliable)))
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            geometry['error'] = str(exc)
+            print(f'Shot {index + 1}: footprint unavailable: {exc}', flush=True)
+        args._geometry_scenes.append(geometry)
     return chunk
 
 
@@ -379,6 +393,9 @@ def main_with_args(args: argparse.Namespace) -> int:
 
     ffmpeg = find_ffmpeg(args.ffmpeg)
     streams = probe_streams(ffmpeg, source)
+    args._scene_reports = []
+    args._geometry_scenes = []
+    args._width, args._height = info.width, info.height
     pix_fmt = stabilization_pix_fmt(streams["pix_fmt"])
     cache_root = ROOT / ".cache" / "stabilize"
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -389,7 +406,17 @@ def main_with_args(args: argparse.Namespace) -> int:
             for index, (start, end) in enumerate(shots)
         ]
         concat_chunks(ffmpeg, source, chunks, output, work_dir, bool(streams["has_audio"]))
+        from stabilization_footprint import publish
+        try:
+            publish(output, signature, args._geometry_scenes, info.width, info.height, work_dir, ffmpeg)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f'Footprint report unavailable: {exc}', flush=True)
 
+    report_path = output.with_suffix(output.suffix + '.scenes.json')
+    report_temp = report_path.with_suffix('.json.tmp')
+    report_temp.write_text(json.dumps({'signature': signature, 'output_fingerprint': file_fingerprint(output),
+        'scenes': args._scene_reports}, indent=2) + '\n', encoding='utf-8')
+    report_temp.replace(report_path)
     write_signature(output, signature)
     ensure_browser_preview(ffmpeg, output)
     print(f"Wrote stabilized video: {output}", flush=True)
