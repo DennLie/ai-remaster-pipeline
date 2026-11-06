@@ -7,6 +7,10 @@
     [switch]$SkipDeepExemplar,
     [switch]$SkipComfyManager,
     [switch]$InstallCorrelationExtension,
+    [switch]$InstallDart,
+    [switch]$DartOnly,
+    [switch]$AcceptDartResearch,
+    [string]$DartWeightsFrom,
     [switch]$NonInteractive
 )
 
@@ -1120,6 +1124,28 @@ function Resolve-ComfyModelDestination {
     return $resolved
 }
 
+function Install-ManagedDart {
+    Write-Host 'DART is optional research software. Adapted RTN rights remain unresolved; no commercial clearance.' -ForegroundColor Yellow
+    if (-not $AcceptDartResearch) {
+        if ($NonInteractive) { throw 'DART setup requires -AcceptDartResearch in non-interactive mode.' }
+        $answer = Read-Host 'Acknowledge research-only use and unresolved RTN rights, and install DART? [y/N]'
+        if ($answer -notmatch '^(y|yes)$') {
+            Write-Host 'Skipping DART. No DART installation was changed.'
+            return
+        }
+    }
+    if (-not (Test-Path -LiteralPath $PipelinePython)) { throw 'Install the base ARP environment first; its Python runs the isolated DART installer.' }
+    $args = @($PipelinePython, (Join-Path $Root 'scripts\setup_dart.py'), '--acknowledge-research')
+    if ($SkipModelDownloads) { $args += '--skip-weights' }
+    if ($DartWeightsFrom) { $args += @('--weights-from', $DartWeightsFrom) }
+    Invoke-External -Command $args
+}
+
+if ($DartOnly) {
+    Invoke-Step 'Set up ARP-managed DART only (no ComfyUI changes)' { Install-ManagedDart }
+    exit 0
+}
+
 $mode = Resolve-ComfyInstallMode
 $ComfyDir = $mode.Dir
 $UseExistingComfy = [bool]$mode.Existing
@@ -1372,6 +1398,18 @@ if ($DownloadModels -and -not $SkipModelDownloads) {
     }
 } else {
     Write-Host 'Skipping model downloads. Models and LoRAs will download on demand when their pipeline stages run.'
+}
+
+if (-not $InstallDart -and -not $NonInteractive) {
+    Write-Host 'Optional DART: ARP-managed research backend with separate Python 3.12; downloads may total several GB.'
+    $dartChoice = Read-Choice 'Also install the optional DART research backend? (Y/N)' @('Y', 'N') 'N'
+    $InstallDart = $dartChoice -eq 'Y'
+}
+
+if ($InstallDart) {
+    Invoke-Step 'Set up ARP-managed DART research backend' { Install-ManagedDart }
+} else {
+    Write-Host 'Optional DART research backend: install_windows.bat -DartOnly (separate Python 3.12; no ComfyUI changes).'
 }
 
 Invoke-Step 'Write local ARP configuration' {

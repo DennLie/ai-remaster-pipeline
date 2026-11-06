@@ -44,6 +44,10 @@ venv/
 *.log
 /tools/comfyui/
 /tools/realbasicvsr/
+/tools/dart/
+/tools/dart-installer/
+/tools/.locks/
+/evaluation/
 /tmp*/
 
 # Accidental mirrored absolute paths from local Windows runs

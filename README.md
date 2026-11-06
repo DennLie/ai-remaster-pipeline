@@ -23,6 +23,12 @@ Alpha software. Windows + NVIDIA is the supported path.
 | **Models** | Downloaded the first time a stage needs them. Prefetch with `install_windows.bat -DownloadModels`. |
 | **Gated models** | Accept access on Hugging Face, then `hf auth login --force` |
 
+The Windows installer also offers **DART**, an optional research-only Dust &
+Scratches backend. **N / Enter** skips it; **Y** requires a separate research-rights
+confirmation, then sets up `tools\dart` with its own Python 3.12 environment.
+Downloads may total several GB. Install later with `install_windows.bat -DartOnly`.
+See [DART setup and restrictions](docs/user-guide.md#dust--scratches-experimental).
+
 1. **Overview:** browse to a video or numbered image sequence and tick the stages you want.
 2. Click **Run Whole Remaster**.
 3. Review each stage's tab: fix shot boundaries, pick and regenerate colour references, then rerun just that stage.
