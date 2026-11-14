@@ -115,14 +115,19 @@ class BenchmarkInfrastructureTests(unittest.TestCase):
         self.assertEqual(gt_scratch[1, 1], 127)
 
     def test_idempotent_provisioning_caching(self) -> None:
-        """Verify provisioning is idempotent and reports cached on subsequent execution."""
-        cache_dir = ROOT_DIR / ".cache/benchmarks"
-        res = pbr.provision_all(cache_dir, acknowledge_research=True, force=False)
-        self.assertTrue(res["isolation_audit"]["is_isolated"])
-
-        # All resources should report 'cached' or 'provisioned'
-        for name, r in res["resources"].items():
-            self.assertIn(r["status"], {"cached", "provisioned"})
+        """Verify synthetic provisioning caches without external research datasets."""
+        with tempfile.TemporaryDirectory(prefix="arp-cache-test-") as tmp:
+            cache_dir = Path(tmp) / "synthetic"
+            first = pbr.provision_synthetic_benchmark(cache_dir)
+            self.assertEqual(first["status"], "provisioned")
+            manifest = Path(first["manifest"])
+            original = manifest.read_bytes()
+            original_mtime = manifest.stat().st_mtime_ns
+            second = pbr.provision_synthetic_benchmark(cache_dir)
+            self.assertEqual(second["status"], "cached")
+            self.assertEqual(second["manifest"], first["manifest"])
+            self.assertEqual(manifest.read_bytes(), original)
+            self.assertEqual(manifest.stat().st_mtime_ns, original_mtime)
 
     def test_environment_immutability_before_and_after_benchmarks(self) -> None:
         """Verify running benchmark provisioning and suite does not mutate pip freeze."""

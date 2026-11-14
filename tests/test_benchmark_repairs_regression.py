@@ -200,8 +200,21 @@ def test_dart_harness_missing_external_mask_raises():
 # 5. DART Sample Accounting
 # ---------------------------------------------------------------------------
 
-def test_dart_resource_audit_sample_counting():
+def test_dart_resource_audit_sample_counting(tmp_path, monkeypatch):
     """Verify DART audit distinguishes available masks from evaluated samples."""
+    import provision_benchmark_resources as pbr
+
+    monkeypatch.setattr(pbr, "ROOT_DIR", tmp_path)
+    empty = audit_all_resources()["dart_harness"]
+    assert empty["available_masks"] == 0
+    assert empty["samples_evaluated"] == 0
+    assert empty["samples_skipped"] == 0
+
+    masks = tmp_path / "evaluation/dart_trial_01/masks"
+    masks.mkdir(parents=True)
+    # The availability audit counts file names, not decoded mask contents.
+    for index in range(72):
+        (masks / f"{index:06d}.png").touch()
     audit = audit_all_resources()
     dart_info = audit.get("dart_harness")
     assert dart_info is not None
