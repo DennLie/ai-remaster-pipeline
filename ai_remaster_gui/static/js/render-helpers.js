@@ -67,6 +67,12 @@ const FIELD_DESCRIPTIONS = {
     'Higher values catch fainter transient blemishes but can produce false positives at motion boundaries; review the mask preview before ever using it for repair.',
   'cleanup.defect_mask_height':
     'Mask analysis height. Lower resolutions use less CPU and miss finer defects; source may be slow on 4K film scans. The saved preview is scaled to the source dimensions.',
+  'cleanup.defect_detector':
+    'Commercial-safe film defect detector strategy. Farneback 3F uses optical flow temporal consensus; DIS Flow is lower-latency; Temporal Ridge detects vertical scratches; Consensus 5F uses a 5-frame temporal median; Legacy uses spatial horizontal bandpass filtering.',
+  'dust.preset':
+    'Benchmark-calibrated preset configurations for classical and neural detection backends. Selecting a preset updates detector, sensitivity, threshold and dilation to empirical operating points.',
+  'dust.detector':
+    'Film defect detector strategy. Commercial-safe: Farneback 3F (balanced), DIS Flow (fast), Temporal Ridge (vertical scratches), Consensus 5F (high precision), Legacy (spatial). Research-only: DART neural MaskNet (unresolved upstream RTN license).',
   'denoise.method':
     'Off leaves the source image unchanged. hqdn3d uses a 3D spatial/temporal filter, NLMeans uses similar image patches, and BM3D uses block matching. These are classical FFmpeg methods; trained AI models are not installed by this stage.',
   'detail.method':
@@ -441,14 +447,22 @@ async function selectOutpaintHeightMode(mode) {
 }
 
 function selectFieldHtml(key, label, kind, value, tooltip = '') {
+  const isSelected = option => value === option || (option === 'farneback_3f' && (value === 'temporal' || value === ''));
   const options = kind.slice(7).split('|')
-    .map(option => `<option value="${esc(option)}" ${value === option ? 'selected' : ''}>${esc(selectOptionLabel(key, option))}</option>`)
+    .map(option => `<option value="${esc(option)}" ${isSelected(option) ? 'selected' : ''}>${esc(selectOptionLabel(key, option))}</option>`)
     .join('');
   const title = tooltipTitle(tooltip);
   return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}</select>`;
 }
 
 function selectOptionLabel(key, option) {
+  if (key === 'defect_detector' || key === 'detector') {
+    if (option === 'farneback_3f' || option === 'temporal') return 'Farneback 3F (optical flow consensus)';
+    if (option === 'dis_flow' || option === 'dis') return 'DIS Flow (fast optical flow)';
+    if (option === 'ridge' || option === 'multiscale_ridge') return 'Temporal Ridge (vertical scratches)';
+    if (option === 'consensus_5f' || option === 'median_5f') return 'Consensus 5F (5-frame median)';
+    if (option === 'legacy' || option === 'spatial_scratch') return 'Legacy (single-frame spatial)';
+  }
   if (key === 'deflicker_method' && option === 'arp') return 'ARP Conservative (recommended)';
   if (key === 'deflicker_method' && option === 'ffmpeg_median') return 'FFmpeg Median (experimental)';
   if (key === 'deflicker_method' && option === 'ffmpeg_am') return 'FFmpeg Arithmetic Mean (experimental)';

@@ -1,16 +1,22 @@
 ﻿from __future__ import annotations
 
 import hashlib
-import math
 import json
+import math
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+_FFMPEG_DIR = ROOT / ".cache" / "tools" / "ffmpeg"
+if _FFMPEG_DIR.is_dir() and str(_FFMPEG_DIR) not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = str(_FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
 
 # The single Qwen Image Edit model used everywhere we run Qwen (colour references, outpaint
 # guide frames, and shot-change seed guides). Mirrors ai_remaster_gui.config.QWEN_IMAGE_EDIT_MODEL
@@ -251,10 +257,85 @@ def newest_output(
     raise RuntimeError(f"ComfyUI reported {label}s, but none exist on disk after waiting: {candidates}")
 
 
+def ensure_inherited_permissions(path: Path | str) -> None:
+    """Ensure path inherits permissions from its parent directory on Windows.
+
+    Prevents restrictive ACL inheritance breakage when staging directories
+    or files are created or moved across privilege contexts (e.g., elevated
+    sessions, same-volume renames). Leaves permissions on non-Windows
+    platforms untouched.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        p = Path(path)
+        if not p.exists():
+            return
+        cmd = ["icacls", str(p), "/reset"]
+        if p.is_dir():
+            cmd.append("/t")
+        subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        pass
+
+
+class staging_directory:
+    """Context manager for staging directories that maintain parent ACL inheritance.
+
+    Unlike tempfile.TemporaryDirectory (which uses mode 0o700, creating an explicit
+    non-inheriting DACL on Windows that locks out non-elevated users if created in an
+    elevated session), staging_directory creates folders with default permissions
+    (CreateDirectoryW with NULL security attributes), ensuring newly generated
+    artifacts inherit the workspace/parent folder ACLs and remain accessible to
+    normal, non-elevated users.
+    """
+
+    def __init__(
+        self,
+        prefix: str = ".stage-",
+        suffix: str = "",
+        dir: Path | str | None = None,
+        delete: bool = True,
+    ) -> None:
+        self.dir = Path(dir) if dir is not None else Path(tempfile.gettempdir())
+        self.prefix = prefix
+        self.suffix = suffix
+        self.delete = delete
+        self.path: Path | None = None
+
+    def __enter__(self) -> Path:
+        self.dir.mkdir(parents=True, exist_ok=True)
+        for _ in range(100):
+            token = uuid.uuid4().hex[:12]
+            candidate = self.dir / f"{self.prefix}{token}{self.suffix}"
+            try:
+                candidate.mkdir(parents=False, exist_ok=False)
+                self.path = candidate
+                ensure_inherited_permissions(self.path)
+                return self.path
+            except FileExistsError:
+                continue
+        raise RuntimeError(f"Could not allocate staging directory under {self.dir}")
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self.delete and self.path is not None and self.path.exists():
+            try:
+                shutil.rmtree(self.path, ignore_errors=True)
+            except Exception:
+                pass
+
+
 def replace_with_retry(source: Path, target: Path, label: str | None = None, attempts: int = 20, delay: float = 0.5) -> None:
     for attempt in range(attempts):
         try:
             source.replace(target)
+            ensure_inherited_permissions(target)
             return
         except PermissionError:
             if attempt >= attempts - 1:

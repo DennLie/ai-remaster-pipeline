@@ -30,6 +30,9 @@ def _executable(name: str) -> str:
     local = ROOT / '.cache' / 'tools' / 'ffmpeg' / (name + ('.exe' if os.name == 'nt' else ''))
     if local.is_file():
         return str(local)
+    fallback = Path(__file__).resolve().parents[1] / '.cache' / 'tools' / 'ffmpeg' / (name + ('.exe' if os.name == 'nt' else ''))
+    if fallback.is_file():
+        return str(fallback)
     found = which(name)
     if found:
         return found

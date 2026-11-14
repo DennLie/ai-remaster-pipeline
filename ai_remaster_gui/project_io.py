@@ -41,11 +41,14 @@ def bind_context(context: dict) -> None:
 def source_signature(source_text: str) -> tuple[str, int, int] | None:
     if not source_text:
         return None
-    source = resolve_video_source(source_text)
-    if not source.exists() or source.suffix.lower() not in VIDEO_EXTS:
+    try:
+        source = resolve_video_source(source_text)
+        if not source.exists() or source.suffix.lower() not in VIDEO_EXTS:
+            return None
+        stat = source.stat()
+        return str(source), stat.st_size, stat.st_mtime_ns
+    except OSError:
         return None
-    stat = source.stat()
-    return str(source), stat.st_size, stat.st_mtime_ns
 
 def source_analysis_key(signature: tuple[str, int, int]) -> str:
     return "\0".join(str(part) for part in signature)
@@ -245,11 +248,14 @@ def outpaint_guide_asset_paths(settings: dict[str, dict[str, str]]) -> list[Path
     return assets
 
 def project_asset_is_bundleable(path: Path) -> bool:
-    if not path.exists() or not path.is_file():
+    try:
+        if not path.exists() or not path.is_file():
+            return False
+    except OSError:
         return False
     try:
         relative = path.resolve().relative_to(ROOT.resolve())
-    except ValueError:
+    except (ValueError, OSError):
         return False
     return bundle_name_allowed(relative.as_posix())
 

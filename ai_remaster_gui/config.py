@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+FFMPEG_DIR = ROOT / ".cache" / "tools" / "ffmpeg"
+if FFMPEG_DIR.is_dir() and str(FFMPEG_DIR) not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = str(FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
 SCRIPTS = ROOT / "scripts"
 # Settings normally live next to the project, but ARP_SETTINGS_FILE can redirect them (the test
 # suite points it at a throwaway file so tests neither read nor clobber the developer's real UI

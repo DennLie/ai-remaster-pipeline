@@ -62,7 +62,20 @@ from . import stabilization as stabilization_stage
 from . import dust as dust_stage
 from . import video_order
 from . import pipeline_order
-from .paths import even_int, format_timecode, is_unfinished_media_artifact, newest, rel, resolve, resolve_served, resolve_video_source, safe_stem
+from .paths import (
+    check_artifact_access,
+    even_int,
+    format_timecode,
+    is_unfinished_media_artifact,
+    newest,
+    rel,
+    resolve,
+    resolve_served,
+    resolve_video_source,
+    safe_exists,
+    safe_is_file,
+    safe_stem,
+)
 from .power import keep_awake, release_keep_awake
 from .naming import manifest_for_outpainted
 from .project_io import (
@@ -493,16 +506,31 @@ class PipelineApp:
                 except Exception as exc:
                     self.log.append(f"Could not restore image-sequence source: {exc}")
 
+    def log_inaccessible_artifact(self, path: Path | str | None, exc: OSError, context: str = "") -> None:
+        if not path:
+            return
+        try:
+            resolved = resolve(str(path))
+        except Exception:
+            resolved = Path(str(path))
+        ctx_desc = f" during {context}" if context else ""
+        msg = f"Inaccessible artifact{ctx_desc}: '{resolved}' ({exc.__class__.__name__}: {exc})"
+        print(f"[ARP WARNING] {msg}", file=sys.stderr)
+        if not any(msg in entry for entry in self.log[-15:]):
+            self.log.append(msg)
+
     def normalize_loaded_source_state(self) -> None:
         self.restore_image_sequence_source()
         source_text = self.settings.get("global", {}).get("source", "")
         if source_text:
-            source = resolve_video_source(source_text)
-            if source.exists() and str(source) != source_text:
-                self.settings.setdefault("global", {})["source"] = str(source)
-                self.log.append(f"Resolved source material path to: {source}")
-            self.clear_derived_stage_inputs()
-            self.hydrate_stage_inputs("global")
+            try:
+                source = resolve_video_source(source_text)
+                if safe_exists(source) and str(source) != source_text:
+                    self.settings.setdefault("global", {})["source"] = str(source)
+                    self.log.append(f"Resolved source material path to: {source}")
+            except OSError as exc:
+                self.log_inaccessible_artifact(source_text, exc, context="source normalization")
+            self.hydrate_stage_inputs("global", from_persisted_load=True)
 
     def colorize_enabled(self) -> bool:
         return is_true(self.settings.get("global", {}), "colorize", "true")
@@ -722,7 +750,7 @@ class PipelineApp:
 
     def _start_denoise_matrix(self, title: str, command: list[str], stage_key: str = "denoise", expected_project=None) -> tuple[bool, str]:
         with self.lock:
-            if stage_key == 'dust' and (command[command.index('--source')+1] != self.stabilized_source_for_downstream() or expected_project is not None and expected_project != str(self.project_path or '')):
+            if stage_key == 'dust' and (command[command.index('--source')+1] != dust_stage.analysis_source(self,json.loads(command[command.index('--settings')+1])) or expected_project is not None and expected_project != str(self.project_path or '')):
                 return False, 'Dust project/input changed before launch. Reload and retry.'
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -867,7 +895,7 @@ class PipelineApp:
                 if row['problem']:return key+': '+row['problem']
                 bindings=row['bindings']
                 manifest=bindings.get('manifest','')
-                if key in ('references','colour') and manifest and resolve(manifest).is_file():
+                if key in ('references','colour') and manifest and safe_is_file(manifest):
                     try:actual=manifest_source_video(resolve(manifest))
                     except (OSError,ValueError,KeyError,TypeError):return key+': the shot manifest source could not be validated.'
                     if not actual or resolve(actual).resolve()!=resolve(bindings.get('source','')).resolve():
@@ -876,7 +904,7 @@ class PipelineApp:
                     from .frame_inspector import _metadata
                     paths=[bindings.get(name,'') for name in ('source','outpainted_video','colorized_video')]
                     paths=[resolve(path) for path in paths if path]
-                    if paths and all(path.is_file() for path in paths):
+                    if paths and all(safe_is_file(path) for path in paths):
                         try:
                             metadata=[_metadata(path) for path in paths]
                             if any(any(value[name]!=metadata[0][name] for name in ('frames','fps_fraction')) for value in metadata[1:]):
@@ -917,7 +945,7 @@ class PipelineApp:
             result.update(source=self.cleaned_source_for_downstream(), original_fallback=False)
             if self.cleanup_enabled():
                 result.update(from_stage='cleanup', label='Clean Up output', parameters={},
-                    problem=result['problem'] or ('' if resolve(result['source']).is_file() else 'Run Clean Up first.'))
+                    problem=result['problem'] or ('' if safe_is_file(result['source']) else 'Run Clean Up first.'))
             return result
         upstream = self.preprocessing_upstream(stage_key)
         previous = upstream[-1] if upstream else None
@@ -1089,7 +1117,7 @@ class PipelineApp:
         return self.dust_output() if is_true(self.settings.get('global', {}), 'dust') else self.stabilized_source_for_downstream()
 
     def run_dust(self, values, kind, source_expected=None, project_expected=None):
-        if source_expected is not None and source_expected != self.stabilized_source_for_downstream() or project_expected is not None and project_expected != str(self.project_path or ''):
+        if source_expected is not None and source_expected != dust_stage.analysis_source(self,values) or project_expected is not None and project_expected != str(self.project_path or ''):
             raise ValueError('Dust project/input changed; reload before starting work.')
         if kind not in ('mask', 'repair'):
             raise ValueError('Choose mask analysis or repair.')
@@ -1104,13 +1132,19 @@ class PipelineApp:
         if kind == 'repair' and self.cleanup_enabled() and is_true(self.settings.get('cleanup', {}), 'ai_descratch'):
             raise ValueError('Disable legacy Clean Up AI DeScratch before running a second scratch repair.')
         self.ensure_pipeline_source()
-        problem = self.preprocessing_problem('dust' if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else None)
+        original = opts.get('analysis_source') == 'original'
+        problem = '' if original else self.preprocessing_problem('dust' if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else None)
         if problem:
             raise ValueError(problem)
-        if self.stabilize_enabled() and ('stabilize' in self.preprocessing_upstream('dust') or not (video_order.configured(self.settings) or pipeline_order.configured(self.settings))):
+        if not original and self.stabilize_enabled() and ('stabilize' in self.preprocessing_upstream('dust') or not (video_order.configured(self.settings) or pipeline_order.configured(self.settings))):
             stabilization_stage.review_pair(self, self.stabilization_output())
-        source = self.stabilized_source_for_downstream()
-        if not resolve(source).is_file():
+        source = dust_stage.analysis_source(self,opts)
+        ready, err = check_artifact_access(source, require_file=True)
+        if not ready:
+            if err:
+                raise ValueError(f"Dust input is inaccessible: '{source}' ({err.__class__.__name__}: {err})")
+            if original:
+                raise ValueError('Original input is unavailable. Select a source file and prepare its selected section first.')
             raise ValueError('Run the configured upstream stages first; original-source substitution is not allowed.')
         if kind == 'repair':
             dust_stage.saved_mask(source, opts)
@@ -1120,7 +1154,7 @@ class PipelineApp:
     def _dust_command(self, config, values, kind='repair'):
         import uuid
         cancel = ROOT / '.cache' / 'dust-jobs' / (uuid.uuid4().hex + '.cancel')
-        cmd = [sys.executable, '-u', '-m', 'ai_remaster_gui.dust', '--source', self.stabilized_source_for_downstream(),
+        cmd = [sys.executable, '-u', '-m', 'ai_remaster_gui.dust', '--source', dust_stage.analysis_source(self,values),
                '--settings', json.dumps(values), '--kind', kind, '--comfy-url', comfy_url_for(config),
                '--comfy-output', comfy_output_root_for(config), '--comfy-dir', comfy_dir_for(config), '--cancel-file', str(cancel)]
         if is_true(self.settings.get('global', {}), 'commercial_model_guard'):
@@ -1223,23 +1257,29 @@ class PipelineApp:
         out = []
         for folder_text in stage.folders:
             folder = ROOT / folder_text
-            if not folder.exists():
+            if not safe_exists(folder):
                 continue
-            for path in folder.rglob("*"):
+            try:
+                candidates = list(folder.rglob("*"))
+            except OSError as exc:
+                self.log_inaccessible_artifact(folder, exc, context=f"scanning files for {stage.title}")
+                continue
+            for path in candidates:
                 # Writers expose .partial.mkv while FFmpeg is still encoding.
                 # Do not list, thumbnail, or offer unfinalized media to A/B/C.
                 if is_unfinished_media_artifact(path):
                     continue
-                if path.is_file() and path.suffix.lower() in exts and self.stage_file_matches(stage.key, path, scoped_prefixes):
-                    try:
-                        stat = path.stat()
-                        preview = file_preview(path)
-                    except FileNotFoundError:
+                try:
+                    if not (path.is_file() and path.suffix.lower() in exts and self.stage_file_matches(stage.key, path, scoped_prefixes)):
                         continue
-                    except OSError as exc:
-                        self.log.append(f"Skipped unreadable file while refreshing {stage.title}: {rel(path)} ({exc})")
-                        continue
-                    out.append({"path": rel(path), "size": stat.st_size, "mtime": int(stat.st_mtime), "preview": preview})
+                    stat = path.stat()
+                    preview = file_preview(path)
+                except FileNotFoundError:
+                    continue
+                except OSError as exc:
+                    self.log.append(f"Skipped unreadable file while refreshing {stage.title}: {rel(path)} ({exc})")
+                    continue
+                out.append({"path": rel(path), "size": stat.st_size, "mtime": int(stat.st_mtime), "preview": preview})
         return sorted(out, key=lambda item: str(item["path"]).lower())
 
     def stage_file_prefixes(self, stage_key: str) -> tuple[str, ...]:
@@ -1270,12 +1310,17 @@ class PipelineApp:
         rows = []
         for key, label, filename in stems:
             path = work_dir / filename
-            exists = path.exists() and path.is_file()
-            size = path.stat().st_size if exists else 0
+            exists = safe_is_file(path)
+            size = 0
+            if exists:
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    exists = False
             try:
                 path_text = path.resolve().relative_to(ROOT.resolve()).as_posix()
-            except ValueError:
-                path_text = str(path.resolve())
+            except (ValueError, OSError):
+                path_text = str(path)
             rows.append({"key": key, "label": label, "path": path_text, "exists": exists, "size": size})
         return rows
 
@@ -1283,13 +1328,18 @@ class PipelineApp:
         rows = []
         for stage in self.active_stages():
             expected = [resolve(path) for path in self.expected_outputs(stage.key) if path]
-            existing = [path for path in expected if path.exists()]
+            existing = [path for path in expected if safe_is_file(path, on_error=self.log_inaccessible_artifact)]
             if pipeline_order.configured(self.settings) and not (comparison_output_ready(self,stage.key) if stage.key in video_order.STAGES else self.stage_is_current(stage.key)):
                 existing=[]
             if stage.key in (video_order.STAGES if video_order.configured(self.settings) else PREPROCESSING_STAGES) and not comparison_output_ready(self, stage.key):
                 existing = []
             ready = bool(expected) and len(existing) == len(expected)
-            latest = max(existing, key=lambda path: path.stat().st_mtime_ns) if existing else None
+            latest = None
+            if existing:
+                try:
+                    latest = max(existing, key=lambda path: path.stat().st_mtime_ns)
+                except OSError:
+                    latest = None
             rows.append({"stage": stage.title, "status": "Ready" if ready else "Waiting", "latest": rel(latest) if latest else ""})
         return rows
 
@@ -2213,7 +2263,7 @@ class PipelineApp:
             for key in keys:
                 stage_settings[key] = ""
 
-    def hydrate_stage_inputs(self, completed_stage: str = "") -> None:
+    def hydrate_stage_inputs(self, completed_stage: str = "", *, from_persisted_load: bool = False) -> None:
         if pipeline_order.configured(self.settings):
             self.hydrate_pipeline_bindings()
             self.save()
@@ -2221,8 +2271,10 @@ class PipelineApp:
         denoise_expected_text = self.denoise_output()
         self.settings.setdefault('denoise', {})['output'] = denoise_expected_text
         clean_expected_text = self.cleanup_output()
+        clean_ready, clean_err = check_artifact_access(clean_expected_text, require_file=True)
+        if clean_err:
+            self.log_inaccessible_artifact(clean_expected_text, clean_err, context="cleanup hydration")
         clean_expected = resolve(clean_expected_text) if clean_expected_text else None
-        clean_ready = bool(clean_expected and clean_expected.exists())
         self.settings.setdefault("cleanup", {})["output"] = clean_expected_text
         deflicker_expected_text = self.deflicker_output()
         self.settings.setdefault("deflicker", {})["output"] = deflicker_expected_text
@@ -2235,23 +2287,35 @@ class PipelineApp:
             else deflickered_text
         )
         stabilization_expected_text = self.stabilization_output()
+        stabilization_ready, stab_err = check_artifact_access(stabilization_expected_text, require_file=True)
+        if stab_err:
+            self.log_inaccessible_artifact(stabilization_expected_text, stab_err, context="stabilization hydration")
         stabilization_expected = resolve(stabilization_expected_text) if stabilization_expected_text else None
-        stabilization_ready = bool(stabilization_expected and stabilization_expected.exists())
         stabilize_settings = self.settings.setdefault("stabilize", {})
-        stabilize_settings["input_video"] = cleaned_text
+        if not stab_err or not stabilize_settings.get("input_video"):
+            stabilize_settings["input_video"] = cleaned_text
         stabilize_settings["output"] = stabilization_expected_text
         upstream_text = (
             rel(stabilization_expected) if self.stabilize_enabled() and stabilization_ready
             else "" if self.stabilize_enabled()
             else cleaned_text
         )
+        dust_inaccessible = False
         if is_true(self.settings.get('global', {}), 'dust'):
             output = self.dust_output()
-            upstream_text = output if output and resolve(output).is_file() else ''
+            dust_ready = False
+            if output:
+                dust_ready, dust_err = check_artifact_access(output, require_file=True)
+                if dust_err:
+                    dust_inaccessible = True
+                    self.log_inaccessible_artifact(output, dust_err, context="dust & scratches hydration")
+            upstream_text = output if output and dust_ready else ''
 
         detail_expected_text = self.detail_output()
+        detail_ready, detail_err = check_artifact_access(detail_expected_text, require_file=True)
+        if detail_err:
+            self.log_inaccessible_artifact(detail_expected_text, detail_err, context="detail hydration")
         detail_expected = resolve(detail_expected_text) if detail_expected_text else None
-        detail_ready = bool(detail_expected and detail_expected.exists())
         self.settings.setdefault("detail", {})["output"] = detail_expected_text
         upstream_text = (
             rel(detail_expected) if self.detail_enabled() and detail_ready
@@ -2262,6 +2326,8 @@ class PipelineApp:
         if video_order.configured(self.settings):
             stabilize_settings['input_video'] = self.processing_input('stabilize')
             upstream_text = self.processing_input() if not self.preprocessing_problem() else ''
+
+        any_inaccessible = bool(clean_err or stab_err or dust_inaccessible or detail_err)
 
         if not self.outpaint_enabled():
             outpainted_text = upstream_text
@@ -2275,11 +2341,16 @@ class PipelineApp:
                 self.log.append(f"Updated Shot Detection input: {outpainted_text}")
             outpainted = None
         else:
-            expected_outpainted = resolve(self.expected_outputs("outpaint")[0]) if self.expected_outputs("outpaint") else None
-            if completed_stage == "global" and not (expected_outpainted and expected_outpainted.exists()):
+            expected_outpainted_text = self.expected_outputs("outpaint")[0] if self.expected_outputs("outpaint") else ""
+            outpainted_ready, outpainted_err = check_artifact_access(expected_outpainted_text, require_file=True)
+            if outpainted_err:
+                any_inaccessible = True
+                self.log_inaccessible_artifact(expected_outpainted_text, outpainted_err, context="outpaint hydration")
+            expected_outpainted = resolve(expected_outpainted_text) if expected_outpainted_text else None
+            if completed_stage == "global" and not (expected_outpainted and outpainted_ready):
                 outpainted = None
             else:
-                outpainted = expected_outpainted if expected_outpainted and expected_outpainted.exists() else None
+                outpainted = expected_outpainted if expected_outpainted and outpainted_ready else None
             if outpainted:
                 outpainted_text = rel(outpainted)
                 self.settings.setdefault("shots", {})["outpainted_video"] = outpainted_text
@@ -2291,16 +2362,23 @@ class PipelineApp:
                 self.settings.setdefault("recomp", {})["manifest"] = manifest
                 self.log.append(f"Updated Shot Detection input: {outpainted_text}")
         if self.outpaint_enabled() and not outpainted:
-            for stage_key in ("shots", "recomp"):
-                self.settings.setdefault(stage_key, {})["outpainted_video"] = ""
-            for stage_key in ("references", "colour", "recomp"):
-                self.settings.setdefault(stage_key, {})["manifest"] = ""
+            if not any_inaccessible:
+                for stage_key in ("shots", "recomp"):
+                    self.settings.setdefault(stage_key, {})["outpainted_video"] = ""
+                for stage_key in ("references", "colour", "recomp"):
+                    self.settings.setdefault(stage_key, {})["manifest"] = ""
         elif not self.outpaint_enabled() and not upstream_text:
-            self.settings.setdefault("shots", {})["outpainted_video"] = ""
-            for stage_key in ("references", "colour", "recomp"):
-                self.settings.setdefault(stage_key, {})["manifest"] = ""
-        expected_manifest = resolve(self.expected_outputs("shots")[0]) if self.expected_outputs("shots") else None
-        manifest = expected_manifest if expected_manifest and expected_manifest.exists() else None
+            if not any_inaccessible:
+                self.settings.setdefault("shots", {})["outpainted_video"] = ""
+                for stage_key in ("references", "colour", "recomp"):
+                    self.settings.setdefault(stage_key, {})["manifest"] = ""
+        expected_manifest_text = self.expected_outputs("shots")[0] if self.expected_outputs("shots") else ""
+        manifest_ready, manifest_err = check_artifact_access(expected_manifest_text, require_file=True)
+        if manifest_err:
+            any_inaccessible = True
+            self.log_inaccessible_artifact(expected_manifest_text, manifest_err, context="shots manifest hydration")
+        expected_manifest = resolve(expected_manifest_text) if expected_manifest_text else None
+        manifest = expected_manifest if expected_manifest and manifest_ready else None
         if manifest:
             manifest_text = rel(manifest)
             self.settings.setdefault("references", {})["manifest"] = manifest_text
@@ -2312,23 +2390,28 @@ class PipelineApp:
             self.settings.get("colour", {}).get("manifest", ""),
             self.settings.get("recomp", {}).get("colorization_method", self.settings.get("colour", {}).get("method", "deepexemplar")),
         )
-        if preferred_colorized_text and resolve(preferred_colorized_text).exists():
+        if preferred_colorized_text and safe_exists(preferred_colorized_text, on_error=self.log_inaccessible_artifact):
             expected_colorized_text = preferred_colorized_text
         expected_colorized = resolve(expected_colorized_text) if expected_colorized_text else None
-        colorized = expected_colorized if expected_colorized and expected_colorized.exists() else None
+        colorized_ready, colorized_err = check_artifact_access(expected_colorized, require_file=True)
+        if colorized_err:
+            any_inaccessible = True
+            self.log_inaccessible_artifact(expected_colorized, colorized_err, context="colour output hydration")
+        colorized = expected_colorized if expected_colorized and colorized_ready else None
         if self.colorize_enabled() and colorized:
             self.settings.setdefault("recomp", {})["colorized_video"] = rel(colorized)
         elif not self.colorize_enabled():
             self.settings.setdefault("recomp", {})["colorized_video"] = ""
         source = self.settings.get("global", {}).get("source")
         if source:
-            self.settings.setdefault("recomp", {})["source"] = upstream_text
+            if upstream_text or not any_inaccessible:
+                self.settings.setdefault("recomp", {})["source"] = upstream_text
         output = recomposition_output_for(
             self.recomposition_base_input(), self.settings.get("recomp", {}).get("encoder", "h264")
         )
         if output:
             self.settings.setdefault("recomp", {})["output"] = output
-        else:
+        elif not any_inaccessible:
             self.settings.setdefault("recomp", {})["output"] = ""
         soundtrack_source = self.soundtrack_source_for()
         if soundtrack_source:
@@ -2336,7 +2419,7 @@ class PipelineApp:
             soundtrack_output = soundtrack_output_for(soundtrack_source, self.settings.get("audio", {}))
             if soundtrack_output:
                 self.settings.setdefault("audio", {})["output"] = soundtrack_output
-        elif not self.soundtrack_enabled():
+        elif not self.soundtrack_enabled() and not any_inaccessible:
             self.settings.setdefault("audio", {})["input_video"] = ""
         upscale_input = self.upscale_input_for()
         if upscale_input:
@@ -2347,7 +2430,9 @@ class PipelineApp:
             if upscale_output:
                 self.settings.setdefault("upscale", {})["output"] = upscale_output
         selected = self.output_selection_state().get("path", "")
-        if selected:
+        if selected and not any_inaccessible:
+            self.settings.setdefault("output", {})["output"] = selected
+        elif selected and not self.settings.get("output", {}).get("output"):
             self.settings.setdefault("output", {})["output"] = selected
         self.save()
 
@@ -2428,7 +2513,7 @@ class PipelineApp:
     def existing_outputs(self, stage_key: str) -> list[str]:
         if stage_key in {'denoise', 'deflicker', 'enhancement'} and not comparison_output_ready(self, stage_key):
             return []
-        return [path for path in self.expected_outputs(stage_key) if path and resolve(path).exists()]
+        return [path for path in self.expected_outputs(stage_key) if path and safe_exists(path, on_error=self.log_inaccessible_artifact)]
 
     def existing_shot_list(self) -> str:
         """The shot list Run Whole Remaster would work from, even before Outpainting has rendered
@@ -2436,7 +2521,7 @@ class PipelineApp:
         if pipeline_order.configured(self.settings):
             row=self.pipeline_plan()['nodes'].get('shots',{})
             manifest=row.get('bindings',{}).get('manifest','')
-            if manifest and resolve(manifest).is_file():
+            if manifest and safe_is_file(manifest, on_error=self.log_inaccessible_artifact):
                 try:actual=manifest_source_video(resolve(manifest))
                 except (OSError,ValueError,KeyError,TypeError):return ''
                 if actual and resolve(actual).resolve()==resolve(row['input']).resolve():return manifest
@@ -2451,7 +2536,7 @@ class PipelineApp:
         clip = outpaint_output_for(source, values.get("target_aspect", "16:9"), values.get("target_height", "720"))
         for candidate in (clip, *other_model_outpaints(clip)):
             manifest = manifest_for_outpainted(candidate)
-            if manifest and resolve(manifest).is_file():
+            if manifest and safe_is_file(manifest, on_error=self.log_inaccessible_artifact):
                 return manifest
         return ""
 
@@ -2598,7 +2683,7 @@ class PipelineApp:
             cmd,
             values,
             (
-                "repair_device", "defect_sensitivity", "defect_mask_height", "scratch_sensitivity", "scratch_mask_dilate",
+                "repair_device", "defect_sensitivity", "defect_mask_height", "defect_detector", "scratch_sensitivity", "scratch_mask_dilate",
                 "ai_descratch_height", "ai_chunk_frames", "dearchive_height", "chunk_seconds",
                 "overlap_frames", "source_fidelity", "prompt", "negative_prompt",
                 "lora_strength", "seed",
@@ -3449,20 +3534,20 @@ class PipelineApp:
         values = self.settings.get("upscale", {})
         source = self.upscale_input_for() or values.get("input_video")
         full_output = upscale_output_for(source, values) or values.get("output", "")
-        if source and full_output and resolve(full_output).exists():
+        if source and full_output and safe_exists(full_output, on_error=self.log_inaccessible_artifact):
             return {"source": source, "output": full_output, "exists": "true", "kind": "output", "title": "Upscale Output",
                     "cq": upscale_cq_render_for(source, values)}
         preview_source = values.get("preview_source", "")
         preview_output = values.get("preview_output", "")
         if preview_source and preview_output:
-            preview_exists = resolve(preview_output).exists()
+            preview_exists = safe_exists(preview_output, on_error=self.log_inaccessible_artifact)
             # The CQ pass finishes before the finisher starts, so it can be compared on its own meanwhile.
             preview_cq = upscale_cq_render_for(preview_source, values)
             if preview_exists or preview_cq:
                 return {"source": preview_source, "output": preview_output, "exists": "true" if preview_exists else "false",
                         "kind": "preview", "title": "Upscale Preview", "cq": preview_cq}
         output = upscale_preview_output_for(source, values)
-        exists = bool(output and resolve(output).exists())
+        exists = bool(output and safe_exists(output, on_error=self.log_inaccessible_artifact))
         return {"source": source, "output": output, "exists": "true" if exists else "false", "kind": "preview", "title": "Upscale Preview",
                 "cq": upscale_cq_render_for(source, values)}
 
@@ -3471,7 +3556,7 @@ class PipelineApp:
         values = self.settings.get("upscale", {})
         source_text = self.upscale_input_for() or values.get("input_video", "")
         source = resolve(source_text) if source_text else None
-        if source is None or not source.is_file():
+        if source is None or not safe_is_file(source, on_error=self.log_inaccessible_artifact):
             return {"before": "", "after": "", "stale": "false"}
 
         shot_index = max(0, int(index))
@@ -3482,13 +3567,18 @@ class PipelineApp:
 
         predicted_output = upscale_output_for(source_text, values)
         output = resolve(predicted_output) if predicted_output else None
-        if output is None or not output.is_file():
+        if output is None or not safe_is_file(output, on_error=self.log_inaccessible_artifact):
             return {"before": before, "after": "", "stale": "false"}
 
         after = extract_video_frame_at(output, target_dir, suffix, shot_seconds)
         manifest_text = self.upscale_shot_manifest()
         manifest = resolve(manifest_text) if manifest_text else None
-        stale = bool(manifest and manifest.is_file() and output.stat().st_mtime_ns < manifest.stat().st_mtime_ns)
+        stale = False
+        if manifest and safe_is_file(manifest) and safe_is_file(output):
+            try:
+                stale = output.stat().st_mtime_ns < manifest.stat().st_mtime_ns
+            except OSError:
+                stale = False
         return {"before": before, "after": after, "stale": "true" if stale else "false"}
 
     def cleanup_diagnostics_state(self) -> dict:
@@ -3502,11 +3592,13 @@ class PipelineApp:
     def cleanup_comparison_state(self) -> dict[str, str]:
         source = self.enhanced_source_for_downstream()
         output = self.cleanup_output() if source else ""
-        exists = bool(source and output and resolve(source).exists() and resolve(output).exists())
+        source_ready = safe_exists(source, on_error=self.log_inaccessible_artifact)
+        output_ready = safe_exists(output, on_error=self.log_inaccessible_artifact)
+        exists = bool(source_ready and output_ready)
         return {
             "source": source,
             "output": output,
-            "source_exists": "true" if source and resolve(source).exists() else "false",
+            "source_exists": "true" if source_ready else "false",
             "exists": "true" if exists else "false",
             "title": "Clean Up Comparison",
             "method": "off",
@@ -3518,16 +3610,16 @@ class PipelineApp:
         source_preview = source
         global_settings = self.settings.get("global", {})
         global_source = global_settings.get("source", "")
-        source_available = bool(source and resolve(source).exists())
+        source_available = bool(source and safe_exists(source, on_error=self.log_inaccessible_artifact))
 
         # A selected source section is created lazily when the stage starts. Before that happens,
         # skipping Clean Up must still leave something useful in the Stabilization viewer. Show
         # the original source (or the browser-friendly image-sequence preview) until the trimmed
         # processing-master section exists. The actual stabilization command targets the section.
-        if not source_available and not self.cleanup_enabled() and global_source and resolve(global_source).exists():
+        if not source_available and not self.cleanup_enabled() and global_source and safe_exists(global_source, on_error=self.log_inaccessible_artifact):
             source = global_source
             source_preview = global_settings.get("source_sequence_preview", "") or global_source
-            source_available = bool(source_preview and resolve(source_preview).exists())
+            source_available = bool(source_preview and safe_exists(source_preview, on_error=self.log_inaccessible_artifact))
         elif (
             source_available
             and global_source
@@ -3535,19 +3627,19 @@ class PipelineApp:
             and global_settings.get("source_sequence_preview")
         ):
             candidate = global_settings["source_sequence_preview"]
-            if resolve(candidate).exists():
+            if safe_exists(candidate, on_error=self.log_inaccessible_artifact):
                 source_preview = candidate
 
-        preview_available = bool(source_preview and resolve(source_preview).exists())
-        exists = bool(preview_available and output and resolve(output).exists())
+        preview_available = bool(source_preview and safe_exists(source_preview, on_error=self.log_inaccessible_artifact))
+        exists = bool(preview_available and output and safe_exists(output, on_error=self.log_inaccessible_artifact))
         preview = stabilization_preview_for(output) if output else ""
         return {
             "source": source_preview,
             "master_source": source,
-            "output": preview if preview and resolve(preview).exists() else output,
+            "output": preview if preview and safe_exists(preview) else output,
             "master_output": output,
             "source_exists": "true" if preview_available else "false",
-            "exists": "true" if exists and (not preview or resolve(preview).exists()) else "false",
+            "exists": "true" if exists and (not preview or safe_exists(preview)) else "false",
             "title": "Stabilization Comparison",
         }
 
@@ -3555,8 +3647,8 @@ class PipelineApp:
         source = self.dust_source_for_downstream()
         output = self.detail_output() if source else ""
         return {"source": source, "output": output,
-                "source_exists": "true" if source and resolve(source).is_file() else "false",
-                "exists": "true" if output and resolve(output).is_file() else "false"}
+                "source_exists": "true" if source and safe_is_file(source, on_error=self.log_inaccessible_artifact) else "false",
+                "exists": "true" if output and safe_is_file(output, on_error=self.log_inaccessible_artifact) else "false"}
 
     def output_selection_state(self) -> dict[str, str]:
         if pipeline_order.configured(self.settings):
@@ -3584,24 +3676,24 @@ class PipelineApp:
         stabilization_output = self.stabilization_output() if self.stabilize_enabled() else ""
         detail_output = self.detail_output() if self.detail_enabled() else ""
         dust_output = self.dust_output() if is_true(self.settings.get('global', {}), 'dust') else ''
-        if upscale_output and resolve(upscale_output).exists():
+        if upscale_output and safe_exists(upscale_output, on_error=self.log_inaccessible_artifact):
             return {"path": upscale_output, "kind": "upscaled", "label": "Upscaled output"}
-        if soundtrack_output and resolve(soundtrack_output).exists():
+        if soundtrack_output and safe_exists(soundtrack_output, on_error=self.log_inaccessible_artifact):
             return {"path": soundtrack_output, "kind": "soundtrack", "label": "Soundtrack output"}
-        if recomposed and resolve(recomposed).exists():
+        if recomposed and safe_exists(recomposed, on_error=self.log_inaccessible_artifact):
             return {"path": recomposed, "kind": "recomposed", "label": "Recomposed output"}
         if video_order.configured(self.settings):
             ready = bool(preprocessing_output and not self.preprocessing_problem())
             kind = {'denoise':'denoised','deflicker':'deflickered','enhancement':'enhanced','stabilize':'stabilized'}.get(last,last or '')
             return {'path':preprocessing_output,'kind':kind if ready else kind+'_pending' if kind else '',
                 'label':('' if ready else 'Pending ') + preprocessing_label + ' output' if last else ''}
-        if detail_output and resolve(detail_output).exists():
+        if detail_output and safe_exists(detail_output, on_error=self.log_inaccessible_artifact):
             return {"path": detail_output, "kind": "detail", "label": "Detail Enhancement output"}
-        if dust_output and resolve(dust_output).exists():
+        if dust_output and safe_exists(dust_output, on_error=self.log_inaccessible_artifact):
             return {'path': dust_output, 'kind': 'dust', 'label': 'Dust & Scratches output'}
-        if stabilization_output and resolve(stabilization_output).exists():
+        if stabilization_output and safe_exists(stabilization_output, on_error=self.log_inaccessible_artifact):
             return {"path": stabilization_output, "kind": "stabilized", "label": "Stabilized output"}
-        if cleanup_output and resolve(cleanup_output).exists():
+        if cleanup_output and safe_exists(cleanup_output, on_error=self.log_inaccessible_artifact):
             return {"path": cleanup_output, "kind": "cleanup", "label": "Clean Up output"}
         if preprocessing_output and not self.preprocessing_problem():
             return {'path': preprocessing_output, 'kind': preprocessing_kind, 'label': preprocessing_label + ' output'}
@@ -4241,6 +4333,7 @@ def cleanup_output_for(source_text: str, values: dict[str, str]) -> str:
         detect_defects=is_true(values, "detect_defects"),
         defect_sensitivity=float(values.get("defect_sensitivity", "0.65") or 0.65),
         defect_mask_height=values.get("defect_mask_height", "720"),
+        defect_detector=values.get("defect_detector", "farneback_3f"),
         ai_descratch_height=values.get("ai_descratch_height", "720"),
         scratch_sensitivity=scratch_sensitivity,
         scratch_mask_dilate=scratch_mask_dilate,
@@ -4339,8 +4432,13 @@ def complete_pipeline_plan(settings):
         if key=='shots':
             base=manifest_for_outpainted(source)
             if not base:return ''
-            path=resolve(source).resolve()
-            stat=path.stat() if path.is_file() else None
+            stat = None
+            try:
+                path = resolve(source).resolve()
+                if path.is_file():
+                    stat = path.stat()
+            except OSError:
+                path = resolve(source)
             identity=[str(path),stat.st_size if stat else None,stat.st_mtime_ns if stat else None,
                 {name:values.get(name) for name in ('sample_seconds','shot_threshold','min_shot_seconds','limit')}]
             import hashlib
@@ -4892,9 +4990,14 @@ def outpaint_chunks_state(settings: dict) -> dict:
     if not source_text:
         return {"manifest": "", "rows": []}
     source = resolve_video_source(source_text)
-    if not source.exists():
+    ready, err = check_artifact_access(source, require_file=True)
+    if not ready:
+        if err:
+            return {"manifest": "", "rows": [], "error": f"Upstream video for Outpainting is inaccessible: {source} ({err.__class__.__name__}: {err})"}
         if is_true(settings.get("global", {}), "detail"):
             return {"manifest": "", "rows": [], "error": "Run Detail Enhancement first so Outpainting has its upstream video."}
+        if is_true(settings.get("global", {}), "dust"):
+            return {"manifest": "", "rows": [], "error": "Run Dust & Scratches first so Outpainting has its upstream video."}
         if is_true(settings.get("global", {}), "stabilize"):
             return {"manifest": "", "rows": [], "error": "Run Stabilization first so Outpainting has its upstream video."}
         if is_true(settings.get("global", {}), "cleanup"):

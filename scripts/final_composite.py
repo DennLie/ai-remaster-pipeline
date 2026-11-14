@@ -8,7 +8,7 @@ from pathlib import Path
 
 import chunk_plan
 import frame_masks
-from common import ROOT, file_fingerprint, resolve_path, root_relative, resumable_output, safe_stem, write_signature
+from common import ROOT, ensure_inherited_permissions, file_fingerprint, resolve_path, root_relative, resumable_output, safe_stem, write_signature
 from outpaint_geometry import crop_box, native_source_layout, source_placement
 from reference_luminance import ffmpeg_curve, identity_curve, reference_luminance_plan
 from stream_copy import count_video_packets
@@ -116,6 +116,7 @@ def replace_with_retry(source: Path, target: Path, attempts: int = 30, delay: fl
     for attempt in range(attempts):
         try:
             source.replace(target)
+            ensure_inherited_permissions(target)
             return
         except PermissionError as exc:
             last_exc = exc

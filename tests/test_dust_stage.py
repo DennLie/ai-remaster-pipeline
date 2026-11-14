@@ -15,6 +15,89 @@ from ai_remaster_gui.commercial_policy import stage_issue
 
 
 class DustTests(unittest.TestCase):
+    def test_original_analysis_scope_is_explicit_and_cannot_repair(self):
+        self.assertEqual(dust.options({}),dust.options({'analysis_source':'stage'}))
+        with self.assertRaises(ValueError):dust.options({'analysis_source':'elsewhere'})
+        with self.assertRaisesRegex(ValueError,'analysis-only'):
+            dust.authorize({'analysis_source':'original'},kind='repair')
+        with tempfile.TemporaryDirectory() as td,patch.object(dust,'ROOT',Path(td)):
+            source=Path(td)/'source.mkv'
+            writer=dust.Writer(source,{'frames':3,'width':96,'height':64,'fps':'12'})
+            for _ in range(3):writer.write(np.full((64,96,3),100,np.uint8))
+            writer.close()
+            values={'analysis_source':'original'}
+            before=dust.digest(source)
+            dust.run(source,values,'mask')
+            with self.assertRaises(FileNotFoundError):dust.saved_mask(source,{})
+            self.assertNotEqual(dust.folder_for(source,values),dust.folder_for(source,{}))
+            app=SimpleNamespace(settings={'global':{'source':str(source)}},project_path='p',
+                stabilized_source_for_downstream=lambda:str(source),running_stage_key='',process=None)
+            matrix=dust.matrix_state(app)
+            self.assertEqual(matrix['variants'],[])
+            self.assertEqual(len(matrix['original']['variants']),1)
+            self.assertFalse(matrix['original']['variants'][0]['repair_complete'])
+            self.assertEqual(dust.inspect(app,values,1)['frames'],3)
+            with self.assertRaisesRegex(ValueError,'changed'):
+                dust.status(app,values,'different-input','p')
+            with self.assertRaisesRegex(ValueError,'changed'):
+                dust.inspect(app,values,0,str(source),'different-project')
+            self.assertEqual(dust.digest(source),before)
+
+    def test_original_launch_bypasses_only_upstream_readiness(self):
+        settings=base_settings();settings['global']['source']='original.mkv'
+        values={'analysis_source':'original'}
+        with tempfile.TemporaryDirectory() as td:
+            source=Path(td)/'section.mkv';source.write_bytes(b'original selected section')
+            with patch.object(server.APP,'settings',settings),patch.object(server.APP,'quitting',False), \
+                 patch.object(server.APP,'queue_running',False,create=True),patch.object(server.APP,'ensure_pipeline_source'), \
+                 patch('ai_remaster_gui.media.pipeline_source_text',return_value=str(source)), \
+                 patch.object(server.APP,'preprocessing_problem',side_effect=AssertionError('upstream not required')), \
+                 patch.object(server.APP,'stabilized_source_for_downstream',return_value='missing-stage.mkv'), \
+                 patch.object(server.APP,'_start_denoise_matrix',return_value=(True,'test launch')) as launch:
+                before=repr(settings)
+                self.assertTrue(server.APP.run_dust(values,'mask',str(source))[0])
+                command=launch.call_args.args[1]
+                self.assertEqual(command[command.index('--source')+1],str(source))
+                self.assertEqual(repr(settings),before)
+                with self.assertRaisesRegex(ValueError,'changed'):
+                    server.APP.run_dust(values,'mask','missing-stage.mkv')
+
+    def test_new_mask_version_reruns_detection_without_replacing_prior_repair(self):
+        with tempfile.TemporaryDirectory() as td,patch.object(dust,'ROOT',Path(td)):
+            source=Path(td)/'source.mkv'
+            writer=dust.Writer(source,{'frames':3,'width':96,'height':64,'fps':'12'})
+            for _ in range(3):writer.write(np.full((64,96,3),100,np.uint8))
+            writer.close()
+            values={'detector':'legacy','repair':'telea'}
+            dust.run(source,values,'mask');dust.run(source,values,'repair')
+            old=dust.folder_for(source,values)
+            before={p.name:dust.digest(p) for p in old.iterdir() if p.is_file()}
+            fresh={**values,'mask_version':'a'*32}
+            with self.assertRaises(FileNotFoundError):dust.saved_mask(source,fresh)
+            with patch.object(dust,'masks_for',wraps=dust.masks_for) as detector:
+                dust.run(source,fresh,'mask')
+                self.assertEqual(detector.call_count,1)
+                dust.run(source,fresh,'mask')  # Retry reuses this version, never a third calculation.
+                self.assertEqual(detector.call_count,1)
+            folder=dust.folder_for(source,fresh)
+            self.assertNotEqual(old,folder)
+            self.assertFalse((folder/'repaired.mkv').exists())
+            self.assertEqual(before,{p.name:dust.digest(p) for p in old.iterdir() if p.is_file()})
+            changed={**fresh,'repair':'propainter'}
+            self.assertEqual(dust.saved_mask(source,changed)[0],folder)
+            with patch.object(dust,'masks_for',side_effect=AssertionError('reuse frozen version')):
+                dust.run(source,changed,'mask')
+            self.assertEqual(dust.digest(folder/'effective_mask.mkv'),dust.digest(dust.folder_for(source,changed)/'effective_mask.mkv'))
+
+    def test_mask_version_validation_preserves_legacy_identity(self):
+        opts=dust.options({})
+        self.assertNotIn('mask_version',opts)
+        self.assertEqual(opts,dust.options({'mask_version':''}))
+        for invalid in (None,False,0,[],{},'../elsewhere','A'*32,'a'*31):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):dust.options({'mask_version':invalid})
+        dart=dust.options({'detector':'dart','repair':'dart','mask_version':'b'*32})
+        self.assertEqual(dart['mask_version'],'b'*32)
+
     def test_saved_mask_playback_has_frame_locked_regions_without_repair(self):
         from ai_remaster_gui import denoise_playback
         with tempfile.TemporaryDirectory() as td,patch.object(dust,'ROOT',Path(td)), \
@@ -61,6 +144,11 @@ class DustTests(unittest.TestCase):
                  patch.object(server.APP,'_start_denoise_matrix',return_value=(True,'test launch')) as launch:
                 self.assertTrue(server.APP.run_dust({'detector':'temporal','repair':'propainter'},'mask')[0])
                 self.assertIn('mask',launch.call_args.args[1])
+                before=repr(settings)
+                self.assertTrue(server.APP.run_dust({'detector':'temporal','repair':'propainter','mask_version':'1'*32},'mask')[0])
+                command=launch.call_args.args[1]
+                self.assertIn('"mask_version": "'+'1'*32+'"',command[command.index('--settings')+1])
+                self.assertEqual(repr(settings),before)
                 self.assertFalse(server.APP.run_dust({'detector':'temporal','repair':'propainter'},'repair')[0])
 
     def test_mask_authorization_is_independent_of_unused_repair_model(self):

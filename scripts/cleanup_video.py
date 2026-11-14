@@ -39,6 +39,7 @@ from prepare_outpaint_input import probe_video
 from stream_copy import count_video_packets, stream_format
 from intermediate_video import audio_codec_args as intermediate_audio_codec_args, codec_args as intermediate_codec_args, comfy_video_combine_inputs, container_args, existing_comfy_render, vhs_inputs_for_profile
 import artifact_ids as aid
+from film_defect_detectors import COMMERCIAL_DETECTOR_CHOICES, get_defect_detector
 from film_defect_masks import MASK_VERSION as TEMPORAL_MASK_VERSION, defect_mask_size, temporal_defect_mask
 
 
@@ -87,6 +88,7 @@ def cleanup_identity(source: Path, args: argparse.Namespace) -> dict[str, Any]:
         detect_defects=args.detect_defects,
         defect_sensitivity=args.defect_sensitivity,
         defect_mask_height=args.defect_mask_height,
+        defect_detector=getattr(args, "defect_detector", "farneback_3f"),
         ai_descratch_height=args.ai_descratch_height,
         scratch_sensitivity=args.scratch_sensitivity,
         scratch_mask_dilate=args.scratch_mask_dilate,
@@ -616,6 +618,112 @@ def defect_mask_preview_path(output: Path) -> Path:
     return output.with_name(f"{output.stem}_defect_mask.mp4")
 
 
+def _resolve_defect_mask_plan(
+    source: Path,
+    work_dir: Path,
+    width: int,
+    height: int,
+    fps: float,
+    args: argparse.Namespace,
+) -> tuple[Any, Path, dict[str, Any]]:
+    requested = getattr(args, "defect_detector", "farneback_3f") or "farneback_3f"
+    detector = get_defect_detector(str(requested), commercial_only=True)
+    if detector.name == "farneback_3f":
+        mask = work_dir / f"temporal_defects_v{TEMPORAL_MASK_VERSION}_{width}x{height}.mkv"
+        signature = {
+            "tool": "film_defect_masks.py",
+            "version": TEMPORAL_MASK_VERSION,
+            "source": root_relative(source),
+            "source_fingerprint": file_fingerprint(source),
+            "width": width,
+            "height": height,
+            "sensitivity": float(args.defect_sensitivity),
+            "fps": fps,
+        }
+    else:
+        mask = work_dir / f"temporal_defects_{detector.name}_v{TEMPORAL_MASK_VERSION}_{width}x{height}.mkv"
+        signature = {
+            "tool": "film_defect_detectors.py",
+            "detector": detector.name,
+            "version": TEMPORAL_MASK_VERSION,
+            "source": root_relative(source),
+            "source_fingerprint": file_fingerprint(source),
+            "width": width,
+            "height": height,
+            "sensitivity": float(args.defect_sensitivity),
+            "fps": fps,
+        }
+    return detector, mask, signature
+
+
+def _encode_windowed_defect_masks(
+    detector: Any,
+    first_frames: list[Any],
+    read_frame: Any,
+    encoder: Any,
+    sensitivity: float,
+) -> tuple[int, int]:
+    import cv2
+    import numpy as np
+
+    cfg = {"sensitivity": float(sensitivity)}
+    processed = selected = 0
+
+    if int(detector.temporal_radius) == 0:
+        for f in first_frames:
+            if f is not None:
+                m = detector.detect([f], cfg).mask[0]
+                encoder.stdin.write(cv2.cvtColor(m, cv2.COLOR_GRAY2BGR).tobytes())
+                selected += int(np.count_nonzero(m))
+                processed += 1
+        while (nxt := read_frame()) is not None:
+            m = detector.detect([nxt], cfg).mask[0]
+            encoder.stdin.write(cv2.cvtColor(m, cv2.COLOR_GRAY2BGR).tobytes())
+            selected += int(np.count_nonzero(m))
+            processed += 1
+        return processed, selected
+
+    chunk_size = 24
+    pad = max(1, int(detector.temporal_radius))
+    queue = [f for f in first_frames if f is not None]
+
+    def fill_queue(target_len: int) -> None:
+        while len(queue) < target_len:
+            nxt = read_frame()
+            if nxt is None:
+                break
+            queue.append(nxt)
+
+    left_pad: list[Any] = []
+    while True:
+        fill_queue(chunk_size + pad)
+        if not queue:
+            break
+        chunk_len = min(chunk_size, len(queue))
+        current_chunk = queue[:chunk_len]
+        right_pad = queue[chunk_len : chunk_len + pad]
+
+        window = left_pad + current_chunk + right_pad
+        masks = detector.detect(window, cfg).mask
+
+        start_idx = len(left_pad)
+        for offset in range(chunk_len):
+            m = masks[start_idx + offset]
+            encoder.stdin.write(cv2.cvtColor(m, cv2.COLOR_GRAY2BGR).tobytes())
+            selected += int(np.count_nonzero(m))
+            processed += 1
+
+        queue = queue[chunk_len:]
+        left_pad = (left_pad + current_chunk)[-pad:]
+
+        if not queue:
+            fill_queue(1)
+            if not queue:
+                break
+
+    return processed, selected
+
+
 def prepare_temporal_defect_masks(
     ffmpeg: str,
     source: Path,
@@ -643,6 +751,7 @@ def prepare_temporal_defect_masks(
         "width": width, "height": height, "sensitivity": float(args.defect_sensitivity),
         "fps": fps,
     }
+    detector, mask, signature = _resolve_defect_mask_plan(source, work_dir, width, height, fps, args)
     if not args.force and resumable_output(mask, signature, width=width, height=height):
         if not preview.is_file():
             save_scratch_mask_preview(ffmpeg, mask, output, info, kind="defect")
@@ -680,9 +789,21 @@ def prepare_temporal_defect_masks(
         previous = None
         current = read_frame()
         following = read_frame()
+        if detector.name not in ("farneback_3f", "dis_flow"):
+            processed, selected = _encode_windowed_defect_masks(
+                detector, [current, following], read_frame, encoder, args.defect_sensitivity
+            )
+            current = None
         while current is not None:
             frame_mask = (
-                temporal_defect_mask(previous, current, following, args.defect_sensitivity)
+                (
+                    temporal_defect_mask(previous, current, following, args.defect_sensitivity)
+                    if detector.name == "farneback_3f"
+                    else detector.detect(
+                        [previous, current, following],
+                        {"sensitivity": float(args.defect_sensitivity)},
+                    ).mask[1]
+                )
                 if previous is not None and following is not None
                 else np.zeros((height, width), dtype=np.uint8)
             )
@@ -1490,6 +1611,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--detect-defects", action="store_true", help="Create motion-aligned film defect masks without modifying picture content (no AI models).")
     parser.add_argument("--defect-sensitivity", type=parse_source_fidelity, default=0.65, help="Conservative temporal defect-mask sensitivity, 0 to 1.")
     parser.add_argument("--defect-mask-height", choices=["540", "720", "1080", "source"], default="720")
+    parser.add_argument(
+        "--defect-detector",
+        choices=list(COMMERCIAL_DETECTOR_CHOICES),
+        default="farneback_3f",
+        help="Pluggable commercial-safe defect detector strategy (default: farneback_3f / temporal).",
+    )
     parser.add_argument(
         "--ai-descratch",
         action="store_true",

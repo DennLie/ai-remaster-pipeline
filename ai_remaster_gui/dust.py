@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,7 @@ import time
 from pathlib import Path
 
 from .config import ROOT, SCRIPTS
-from .paths import rel, resolve
+from .paths import ensure_inherited_permissions, rel, resolve, safe_is_file, staging_directory
 from .dust_jobs import candidate_lock, check_cancel
 
 if str(SCRIPTS) not in sys.path:
@@ -23,12 +24,66 @@ import cv2
 import numpy as np
 from common import find_ffmpeg
 from cleanup_video import ai_scratch_mask, run_propainter_chunk
+from film_defect_detectors import DEFAULT_REGISTRY as DETECTOR_REGISTRY, split_proposal_components, _split_temporal_mask_components
 from film_defect_masks import temporal_defect_mask
 from film_scratch_ridge import detect_sequence
 
+_DEFAULT_TEMPORAL_FN = temporal_defect_mask
+_DEFAULT_RIDGE_FN = detect_sequence
+
 VERSION = 3
-DETECTORS = ('legacy', 'temporal', 'ridge', 'dart')
+
+
+class MaskItem(tuple):
+    def __new__(cls, image, mask, reason, scratch_mask=None, dust_mask=None):
+        instance = super().__new__(cls, (image, mask, reason))
+        instance.scratch_mask = scratch_mask if scratch_mask is not None else mask
+        instance.dust_mask = dust_mask if dust_mask is not None else np.zeros_like(mask)
+        return instance
+
+
+def detector_limitations(det_name):
+    target = 'dart_harness' if det_name == 'dart' else det_name
+    det = DETECTOR_REGISTRY.get(target, commercial_only=False) if DETECTOR_REGISTRY.has(target, commercial_only=False) else None
+    limits = ['BGR8 analysis, native geometry; no historical ground truth or accuracy score.']
+    if det_name == 'ridge':
+        limits.append('Temporal Ridge detects narrow vertical scratches only; dust and blotches are unsupported. Windowed/cut-abstaining Ridge is not the PR24 pilot.')
+    elif det_name == 'legacy':
+        limits.append('ARP legacy scratch mask is single-frame spatial only; no temporal motion tracking. Scratch channel only.')
+    elif det_name == 'consensus_5f':
+        limits.append('Consensus 5F requires 5 continuous frames (radius 2); boundary frames abstain with zero masks.')
+    elif det_name == 'dis_flow':
+        limits.append('DIS Flow uses 3-frame OpenCV DIS optical flow for fast boundary tracking.')
+    elif det_name in ('temporal', 'farneback_3f'):
+        limits.append('Farneback 3F uses 3-frame dense optical flow consensus; boundary frames abstain.')
+    elif det_name == 'dart':
+        limits.append('DART full frames are diagnostic; only the mask-gated composite can be adopted.')
+    return limits
+DETECTORS = tuple(
+    dict.fromkeys(
+        (
+            'legacy',
+            'temporal',
+            'ridge',
+            *DETECTOR_REGISTRY.list_available(commercial_only=True, include_aliases=True),
+            'dart',
+        )
+    )
+)
 REPAIRS = ('telea', 'propainter', 'dart')
+
+
+def available_detectors(commercial_only=True):
+    """Return structured metadata and schemas for registered defect detectors."""
+    return DETECTOR_REGISTRY.describe_all(commercial_only=commercial_only)
+
+
+def detector_metadata(detector_name):
+    """Return registry metadata for `detector_name` (or fallback descriptor)."""
+    target = 'dart_harness' if detector_name == 'dart' else detector_name
+    if DETECTOR_REGISTRY.has(target, commercial_only=False):
+        return DETECTOR_REGISTRY.get(target, commercial_only=False).info()
+    return {'name': str(detector_name), 'commercial_cleared': detector_name != 'dart', 'schema': {}}
 
 
 def digest(path):
@@ -37,18 +92,48 @@ def digest(path):
 
 
 def options(values):
-    detector, repair = values.get('detector', 'temporal'), values.get('repair', 'telea')
-    if detector not in DETECTORS or repair not in REPAIRS:
+    preset_name = str(values.get('preset', '')).strip().lower()
+    from film_defect_detectors import BENCHMARK_PRESETS, get_preset, resolve_preset
+    preset_obj = BENCHMARK_PRESETS.get(preset_name) if preset_name in BENCHMARK_PRESETS and preset_name != 'custom' else None
+
+    detector = values.get('detector', preset_obj.detector if preset_obj else 'temporal')
+    repair = values.get('repair', preset_obj.repair if preset_obj else 'telea')
+    supported = detector in DETECTORS or DETECTOR_REGISTRY.has(detector, commercial_only=True)
+    if not supported or repair not in REPAIRS:
         raise ValueError('Choose a supported detector and repair.')
-    if (detector == 'dart') != (repair == 'dart'):
-        raise ValueError('DART jointly generates its own soft mask and repaired frames; it does not accept the selected CPU mask.')
+    if repair == 'dart' and detector not in ('dart', 'dart_harness'):
+        raise ValueError('DART repair requires the DART defect detector.')
+    if 'repair' not in values and not preset_obj and detector in ('dart', 'dart_harness'):
+        raise ValueError('DART requires an explicit repair selection: telea, propainter, or dart.')
     result = {'detector': detector, 'repair': repair}
-    for key, default, lo, hi in (('sensitivity', .65, 0, 1), ('radius', 3, 1, 9), ('dilate', 0, 0, 6), ('threshold', 160, 1, 255)):
+    source_mode = values.get('analysis_source', 'stage')
+    if source_mode not in ('stage', 'original'):
+        raise ValueError('Choose stage or original analysis input.')
+    if source_mode == 'original':
+        result['analysis_source'] = source_mode
+    version = values.get('mask_version', '')
+    if version:
+        if not isinstance(version, str) or not re.fullmatch(r'[0-9a-f]{32}', version):
+            raise ValueError('Invalid Dust mask version.')
+        result['mask_version'] = version
+    elif version != '':
+        raise ValueError('Invalid Dust mask version.')
+
+    sens_def = preset_obj.sensitivity if preset_obj else .65
+    rad_def = preset_obj.radius if preset_obj else 3
+    dil_def = preset_obj.dilate if preset_obj else (1 if detector in ('temporal', 'farneback_3f') else 0)
+    thresh_def = preset_obj.threshold if preset_obj else 160
+
+    for key, default, lo, hi in (('sensitivity', sens_def, 0, 1), ('radius', rad_def, 1, 9), ('dilate', dil_def, 0, 6), ('threshold', thresh_def, 1, 255)):
         raw = values.get(key, default)
         n = float(raw)
         if isinstance(raw, bool) or not math.isfinite(n) or not lo <= n <= hi or key != 'sensitivity' and n != int(n):
             raise ValueError(f'Invalid {key}.')
         result[key] = n if key == 'sensitivity' else int(n)
+
+    actual_preset, _ = resolve_preset({**result, 'preset': preset_name or ''})
+    result['preset'] = actual_preset
+
     for key in ('research_confirmed', 'license_confirmed'):
         result[key] = str(values.get(key, 'false')).lower()
     for key in ('dart_repo', 'dart_python'):
@@ -61,20 +146,32 @@ def options(values):
 
 def authorize(values, guard=False, kind='repair'):
     o = options(values)
+    if kind == 'repair' and o.get('analysis_source') == 'original':
+        raise ValueError('Original input is analysis-only. Choose Stage input for repair and adoption.')
     if o['detector'] in ('ridge', 'dart') and o['research_confirmed'] != 'true':
         raise ValueError('Confirm experimental use; authentic damage accuracy is unvalidated.')
-    if o['detector'] == 'dart' or kind == 'repair' and o['repair'] == 'propainter':
+    if o['detector'] == 'dart' or kind == 'repair' and o['repair'] in ('propainter', 'dart'):
         if guard:
             raise ValueError('Commercial model guard blocks DART (unresolved RTN rights) and ProPainter (non-commercial).')
         if o['license_confirmed'] != 'true':
             raise ValueError('Acknowledge model licence restrictions before inference.')
+    if guard and o['detector'] != 'dart' and DETECTOR_REGISTRY.has(o['detector'], commercial_only=False):
+        DETECTOR_REGISTRY.get(o['detector'], commercial_only=True)
     return o
 
 
 def identity(source, values):
-    source = resolve(str(source)).resolve()
-    stat = source.stat() if source.is_file() else None
-    return {'version': VERSION, 'source': str(source), 'size': stat.st_size if stat else None,
+    try:
+        resolved = resolve(str(source)).resolve()
+    except OSError:
+        resolved = resolve(str(source))
+    stat = None
+    try:
+        if resolved.is_file():
+            stat = resolved.stat()
+    except OSError:
+        stat = None
+    return {'version': VERSION, 'source': str(resolved), 'size': stat.st_size if stat else None,
             'mtime_ns': stat.st_mtime_ns if stat else None, 'options': options(values)}
 
 
@@ -159,54 +256,110 @@ class Writer:
 
 
 def masks_for(source, o):
-    """24 output frames plus one neighbour at each side; no context crosses cuts.
+    """Chunked defect detection stream preserving frame count across all detectors.
 
-    shortcut: windowed Ridge is not the PR24 pilot; validate separately before
-    recommending it. Boundary frames abstain and are explicitly reported.
+    Windowed temporal detectors require temporal_radius context frames on each side.
+    Boundary frames and cut boundaries abstain and are explicitly reported.
+    Spatial detectors require zero context and detect all frames without abstention.
     """
+    det_name = o['detector']
+    strategy = DETECTOR_REGISTRY.get(det_name, commercial_only=True) if DETECTOR_REGISTRY.has(det_name, commercial_only=True) else None
+    radius = int(strategy.temporal_radius) if strategy is not None else 1
+    pad = max(1, radius) if radius > 0 else 1
+    is_spatial = (det_name == 'legacy') or (strategy is not None and strategy.temporal_radius == 0)
+
     block = []
     overlap = False
     previous = None
+
     def emit(items, left_context=False, following=False):
         if not items:
             return []
         images = [x[0] for x in items]
-        if o['detector'] == 'ridge' and len(images) >= 3:
-            predicted = detect_sequence(images, o['sensitivity'])
-        else:
-            predicted = [np.zeros(f.shape[:2], np.uint8) for f in images]
+        n_images = len(images)
+        min_context = max(2, 2 * radius + 1)
+
+        pred_masks = None
+        pred_scratch = None
+        pred_dust = None
+        if not is_spatial and strategy is not None and n_images >= min_context:
+            if det_name == 'ridge':
+                if detect_sequence is not _DEFAULT_RIDGE_FN:
+                    pred_masks = detect_sequence(images, o['sensitivity'])
+                    pred_scratch = pred_masks
+                    pred_dust = [np.zeros(f.shape[:2], np.uint8) for f in images]
+                else:
+                    pred_res = strategy.detect(images, {'sensitivity': o['sensitivity']})
+                    pred_masks = pred_res.mask
+                    pred_scratch = pred_res.scratch_mask
+                    pred_dust = pred_res.dust_mask
+            elif det_name not in ('legacy', 'temporal', 'farneback_3f'):
+                pred_res = strategy.detect(images, {'sensitivity': o['sensitivity']})
+                pred_masks = pred_res.mask
+                pred_scratch = pred_res.scratch_mask
+                pred_dust = pred_res.dust_mask
+
         result = []
-        first = 1 if left_context else 0
-        last = len(items)-1 if following else len(items)
+        first = pad if left_context else 0
+        last = n_images - pad if following else n_images
+
         for i in range(first, last):
             image, cut_before = items[i]
             reason = ''
-            if o['detector'] == 'legacy':
+            h, w = image.shape[:2]
+            if det_name == 'legacy':
                 mask = ai_scratch_mask(image, o['sensitivity'])
-            elif i == 0 or i == len(images)-1:
-                mask, reason = np.zeros(image.shape[:2], np.uint8), 'source_or_cut_boundary: insufficient context'
-            elif o['detector'] == 'temporal':
-                mask = temporal_defect_mask(images[i-1], image, images[i+1], o['sensitivity'])
+                scratch_mask = mask.copy()
+                dust_mask = np.zeros((h, w), np.uint8)
+            elif is_spatial and strategy is not None:
+                res = strategy.detect([image], {'sensitivity': o['sensitivity']})
+                mask = res.mask[0]
+                scratch_mask = res.scratch_mask[0]
+                dust_mask = res.dust_mask[0]
+            elif i < pad or i >= n_images - pad:
+                mask = np.zeros((h, w), np.uint8)
+                scratch_mask = np.zeros((h, w), np.uint8)
+                dust_mask = np.zeros((h, w), np.uint8)
+                reason = 'source_or_cut_boundary: insufficient context'
+            elif det_name in ('temporal', 'farneback_3f'):
+                if temporal_defect_mask is not _DEFAULT_TEMPORAL_FN or strategy is None:
+                    mask = temporal_defect_mask(images[i-1], image, images[i+1], o['sensitivity'])
+                    scratch_mask, dust_mask = _split_temporal_mask_components(mask)
+                else:
+                    res = strategy.detect([images[i-1], image, images[i+1]], {'sensitivity': o['sensitivity']})
+                    mask = res.mask[1]
+                    scratch_mask = res.scratch_mask[1]
+                    dust_mask = res.dust_mask[1]
+            elif pred_masks is not None:
+                mask = pred_masks[i]
+                scratch_mask = pred_scratch[i]
+                dust_mask = pred_dust[i]
             else:
-                mask = predicted[i]
+                mask = np.zeros((h, w), np.uint8)
+                scratch_mask = np.zeros((h, w), np.uint8)
+                dust_mask = np.zeros((h, w), np.uint8)
+                reason = 'source_or_cut_boundary: insufficient context'
+
             if cut_before:
-                reason = 'source_cut_boundary' + (': insufficient context' if o['detector'] != 'legacy' else ': legacy spatial mask')
-            result.append((image, mask, reason))
+                reason = 'source_cut_boundary' + (': insufficient context' if not is_spatial else ': legacy spatial mask')
+            result.append(MaskItem(image, mask, reason, scratch_mask=scratch_mask, dust_mask=dust_mask))
         return result
+
     for image in frames(source):
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         cut = previous is not None and float(np.median(cv2.absdiff(gray, previous))) >= 22
         if cut:
-            yield from emit(block, overlap)
+            yield from emit(block, overlap, False)
             block = []
             overlap = False
         block.append((image, cut))
-        if len(block) == (26 if overlap else 25):
+        limit = 24 + 2 * pad if overlap else 24 + pad
+        if len(block) == limit:
             yield from emit(block, overlap, True)
-            block = block[-2:]
+            block = block[-(2 * pad):]
             overlap = True
         previous = gray
-    yield from emit(block, overlap)
+    yield from emit(block, overlap, False)
 
 
 def manifest(folder, source, values, kind):
@@ -220,13 +373,32 @@ def manifest(folder, source, values, kind):
         required.extend(('repaired.mkv', 'repair_measurements.csv'))
         if report.get('native_composition'):
             required.append('native_measurements.csv')
-    if any(report.get('hashes', {}).get(name) != digest(folder / name) for name in required):
+    check_names = list(required)
+    for name in ('scratch_mask.mkv', 'dust_mask.mkv'):
+        if name in report.get('hashes', {}):
+            check_names.append(name)
+    if any(report.get('hashes', {}).get(name) != digest(folder / name) for name in check_names):
         raise ValueError('Missing or changed mask/result.')
     return report
 
 
-def status(app, values):
-    source = app.stabilized_source_for_downstream()
+def analysis_source(app, values):
+    if options(values).get('analysis_source') == 'original':
+        from .media import pipeline_source_text
+        return pipeline_source_text(getattr(app, 'settings', {}))
+    return app.stabilized_source_for_downstream()
+
+
+def validate_analysis_context(app, values, source_expected=None, project_expected=None):
+    source = analysis_source(app, values)
+    if (source_expected is not None and source_expected != source or
+            project_expected is not None and project_expected != str(getattr(app, 'project_path', '') or '')):
+        raise ValueError('Dust project/input changed; reload before inspection.')
+
+
+def status(app, values, source_expected=None, project_expected=None):
+    validate_analysis_context(app, values, source_expected, project_expected)
+    source = analysis_source(app, values)
     folder = folder_for(source, values)
     try:
         folder, report = saved_mask(source, values)
@@ -241,13 +413,14 @@ def status(app, values):
                 repair_error = str(exc)
         files = {name: rel(folder / name) for name in report['hashes']}
         if not complete:
-            files = {name: path for name,path in files.items() if name in ('input.mkv','mask.mkv','effective_mask.mkv','measurements.csv')}
-        return {'source': source, 'files': files, 'frames': report['metadata']['frames'], 'repair_complete': complete, 'repair_error': repair_error, 'mask_values': report['identity']['options'], 'limitations': report['limitations']}
+            files = {name: path for name,path in files.items() if name in ('input.mkv','mask.mkv','effective_mask.mkv','scratch_mask.mkv','dust_mask.mkv','measurements.csv')}
+        return {'source': source, 'files': files, 'frames': report['metadata']['frames'], 'repair_complete': complete, 'repair_error': repair_error, 'mask_values': report['identity']['options'], 'limitations': report['limitations'], 'detector_info': detector_metadata(report['identity']['options']['detector'])}
     except (OSError, ValueError, KeyError, TypeError):
-        result = {'source': source, 'files': {}, 'repair_complete': False, 'frames': 0}
+        det_name = values.get('detector', 'temporal')
+        result = {'source': source, 'files': {}, 'repair_complete': False, 'frames': 0, 'detector_info': detector_metadata(det_name)}
         if values.get('detector') == 'dart':
             opts = options(values)
-            result['installation'] = {'available':all(path.is_file() for path in (
+            result['installation'] = {'available':all(safe_is_file(path) for path in (
                 Path(opts['dart_repo'])/'scripts/inference.py',Path(opts['dart_python']),
                 Path(opts['dart_repo'])/'pretrained_models/dart.safetensors')),
                 'message':'Set up DART with install_windows.bat -DartOnly. ARP uses tools/dart automatically; no ComfyUI node is required.'}
@@ -260,7 +433,7 @@ def saved_mask(source, values):
     folder = folder_for(source, opts)
     try:
         return folder, manifest(folder, source, opts, 'mask')
-    except FileNotFoundError:
+    except (FileNotFoundError, OSError):
         pass
     if opts['detector'] != 'dart':
         for path in sorted((ROOT/'intermediate/dust_scratches').glob('*/report.json')):
@@ -269,7 +442,18 @@ def saved_mask(source, values):
             try:
                 report = json.loads(path.read_text(encoding='utf-8'))
                 other = report['identity']['options']
-                if any(other[key] != opts[key] for key in ('detector','sensitivity','dilate','threshold')):
+                if other.get('mask_version', '') != opts.get('mask_version', ''):
+                    continue
+                if other.get('analysis_source') != opts.get('analysis_source'):
+                    continue
+                same_det = (other['detector'] == opts['detector']) or (
+                    DETECTOR_REGISTRY.has(other['detector'], commercial_only=False)
+                    and DETECTOR_REGISTRY.has(opts['detector'], commercial_only=False)
+                    and DETECTOR_REGISTRY.get(other['detector'], commercial_only=False).name == DETECTOR_REGISTRY.get(opts['detector'], commercial_only=False).name
+                )
+                if not same_det:
+                    continue
+                if any(other[key] != opts[key] for key in ('sensitivity','dilate','threshold')):
                     continue
                 return path.parent, manifest(path.parent, source, other, 'mask')
             except (OSError, ValueError, KeyError, TypeError):
@@ -277,16 +461,18 @@ def saved_mask(source, values):
     raise FileNotFoundError('No saved mask for this input and detector settings. Calculate a mask first.')
 
 
-def matrix_state(app):
-    source = app.stabilized_source_for_downstream()
+def matrix_state(app, original=False):
+    source = analysis_source(app, {'analysis_source':'original'} if original else {})
     command = getattr(getattr(app,'process',None),'args',[])
     stop_requested = isinstance(command,list) and '--cancel-file' in command and Path(command[command.index('--cancel-file')+1]).exists()
     rows = []
-    if source and resolve(source).is_file():
+    if source and safe_is_file(source):
         for path in sorted((ROOT/'intermediate/dust_scratches').glob('*/report.json')):
             try:
                 report = json.loads(path.read_text(encoding='utf-8'))
                 values = report['identity']['options']
+                if (values.get('analysis_source') == 'original') != original:
+                    continue
                 if path.parent != folder_for(source, values):
                     continue
                 report = manifest(path.parent, source, values, 'mask')
@@ -307,8 +493,12 @@ def matrix_state(app):
                     and options(app.settings.get('dust',{})) == values})
             except (OSError, ValueError, KeyError, TypeError):
                 continue
-    return {'source':source,'source_revision':json.dumps(identity(source,{}),sort_keys=True) if source else '',
-        'variants':rows,'ready':sum(r['repair_complete'] for r in rows),'running':app.running_stage_key=='dust','stop_requested':bool(stop_requested)}
+    result = {'source':source,'source_revision':json.dumps(identity(source,{}),sort_keys=True) if source else '',
+        'variants':rows,'ready':sum(r['repair_complete'] for r in rows),'running':app.running_stage_key=='dust','stop_requested':bool(stop_requested),
+        'available_detectors':available_detectors(commercial_only=True)}
+    if not original:
+        result['original'] = matrix_state(app, True)
+    return result
 
 
 def review_pair(app, candidate):
@@ -324,10 +514,11 @@ def review_pair(app, candidate):
     return resolve(source),output
 
 
-def inspect(app, values, frame):
+def inspect(app, values, frame, source_expected=None, project_expected=None):
+    validate_analysis_context(app, values, source_expected, project_expected)
     if type(frame) is not int or frame < 0:
         raise ValueError('Choose a nonnegative frame index.')
-    source = app.stabilized_source_for_downstream()
+    source = analysis_source(app, values)
     folder, report = saved_mask(source, values)
     complete = report['repair_complete'] and report['identity']['options'] == options(values)
     repair_error = ''
@@ -341,6 +532,9 @@ def inspect(app, values, frame):
         raise ValueError('Frame outside the analyzed source.')
     from .frame_inspector import _decode, _prune
     names = ['input.mkv', 'mask.mkv', 'effective_mask.mkv']
+    for extra in ('scratch_mask.mkv', 'dust_mask.mkv'):
+        if extra in report.get('hashes', {}):
+            names.append(extra)
     if complete:
         names.append('repaired.mkv')
     if 'dart_full.mkv' in report['hashes']:
@@ -348,6 +542,20 @@ def inspect(app, values, frame):
             raise ValueError('DART diagnostic output changed.')
         names.append('dart_full.mkv')
     images = {name: _decode(folder / name, frame) for name in names}
+    if 'scratch_mask.mkv' not in images and 'mask.mkv' in images:
+        m_file = resolve(images['mask.mkv'])
+        if m_file.is_file():
+            raw_m = cv2.imread(str(m_file), cv2.IMREAD_GRAYSCALE)
+            if raw_m is not None:
+                s_m, d_m = split_proposal_components(raw_m)
+                s_path = m_file.with_name(m_file.stem + '_scratch.png')
+                d_path = m_file.with_name(m_file.stem + '_dust.png')
+                if not s_path.is_file():
+                    cv2.imwrite(str(s_path), s_m)
+                if not d_path.is_file():
+                    cv2.imwrite(str(d_path), d_m)
+                images['scratch_mask.mkv'] = rel(s_path)
+                images['dust_mask.mkv'] = rel(d_path)
     if complete:
         before = cv2.imread(str(resolve(images['input.mkv'])))
         after = cv2.imread(str(resolve(images['repaired.mkv'])))
@@ -366,7 +574,7 @@ def inspect(app, values, frame):
             counts.update(next(row for row in csv.DictReader(f) if int(row['frame']) == frame))
     _prune()
     return {'frame': frame, 'frames': report['metadata']['frames'], 'images': images, 'measurements': counts, 'repair_error':repair_error,
-            'native_composition': report.get('native_composition')}
+            'native_composition': report.get('native_composition'), 'detector_info': detector_metadata(report['identity']['options']['detector'])}
 
 
 def run(source, values, kind='mask', guard=False, comfy_url='http://127.0.0.1:8188', comfy_output='', comfy_dir=None, cancel_file=None):
@@ -419,7 +627,7 @@ def _run(source, values, kind, guard, comfy_url, comfy_output, comfy_dir, cancel
         if meta.get('transfer') in ('smpte2084', 'arib-std-b67'):
             raise ValueError('HDR repair is not supported; no silent tone mapping.')
         validate_repair_timeline(source, meta)
-        with tempfile.TemporaryDirectory(prefix='.repair-', dir=target) as tmp:
+        with staging_directory(prefix='.repair-', dir=target) as tmp:
             tmp = Path(tmp)
             model = None
             if o['repair'] == 'dart':
@@ -481,7 +689,9 @@ def _run(source, values, kind, guard, comfy_url, comfy_output, comfy_dir, cancel
             report['hashes'].update({name: digest(tmp / name) for name in ('repaired.mkv', 'repair_measurements.csv')})
             report['repair_complete'] = True
             publish_report(tmp, report)
-            tmp.rename(target / '.repair-ready')
+            ready_dir = target / '.repair-ready'
+            tmp.rename(ready_dir)
+            ensure_inherited_permissions(ready_dir)
         return finish_repair(target, source, o, cancel_file)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
@@ -498,14 +708,21 @@ def _run(source, values, kind, guard, comfy_url, comfy_output, comfy_dir, cancel
             try:
                 old = json.loads(other.read_text(encoding='utf-8'))
                 old_options = old['identity']['options']
+                if old_options.get('mask_version', '') != o.get('mask_version', ''):
+                    continue
+                if old_options.get('analysis_source') != o.get('analysis_source'):
+                    continue
                 if old['identity']['source'] != str(source) or any(old_options[k] != o[k] for k in keys):
                     continue
                 old = manifest(other.parent, source, old_options, 'mask')
             except (OSError, ValueError, KeyError, TypeError):
                 continue
-            with tempfile.TemporaryDirectory(prefix=f'.{target.name}.analysis-', dir=target.parent, delete=False) as tmp:
+            with staging_directory(prefix=f'.{target.name}.analysis-', dir=target.parent, delete=False) as tmp:
                 stage = Path(tmp)
-                names = ('input.mkv', 'mask.mkv', 'effective_mask.mkv', 'measurements.csv')
+                names = ['input.mkv', 'mask.mkv', 'effective_mask.mkv', 'measurements.csv']
+                for name in ('scratch_mask.mkv', 'dust_mask.mkv'):
+                    if (other.parent / name).exists():
+                        names.append(name)
                 for name in names:
                     shutil.copyfile(other.parent / name, stage / name)
                 report = {**old, 'identity': initial_identity, 'repair_complete': False,
@@ -515,7 +732,7 @@ def _run(source, values, kind, guard, comfy_url, comfy_output, comfy_dir, cancel
     if meta['width']*meta['height']*26 > 96_000_000:
         raise ValueError('Native-resolution analysis exceeds the experimental window memory limit. No resizing applied.')
     # Retain staging on failure: Windows locks must not trigger destructive temp cleanup.
-    with tempfile.TemporaryDirectory(prefix=f'.{target.name}.analysis-', dir=target.parent, delete=False) as tmp:
+    with staging_directory(prefix=f'.{target.name}.analysis-', dir=target.parent, delete=False) as tmp:
         stage = Path(tmp)
         dart_masks, dart_images = None, None
         if o['detector'] == 'dart':
@@ -545,34 +762,69 @@ def _run(source, values, kind, guard, comfy_url, comfy_output, comfy_dir, cancel
                 if {p.name for p in (external / name).glob('*.png')} != expected:
                     raise ValueError('DART frame names/count do not match the source.')
             dart_masks, dart_images = external / 'masks', external / 'frames'
-        writers = {name: Writer(stage / name, meta) for name in ('input.mkv', 'mask.mkv', 'effective_mask.mkv')}
+        writers = {
+            'input.mkv': Writer(stage / 'input.mkv', meta),
+            'mask.mkv': Writer(stage / 'mask.mkv', meta),
+            'effective_mask.mkv': Writer(stage / 'effective_mask.mkv', meta),
+            'scratch_mask.mkv': Writer(stage / 'scratch_mask.mkv', meta),
+            'dust_mask.mkv': Writer(stage / 'dust_mask.mkv', meta),
+        }
         if dart_images:
             writers['dart_full.mkv'] = Writer(stage / 'dart_full.mkv', meta)
         rows = []
         iterator = masks_for(source, o) if not dart_masks else ((f, None, '') for f in frames(source))
         try:
-            for index, (image, mask, reason) in enumerate(iterator):
+            for index, item in enumerate(iterator):
                 check_cancel(cancel_file)
+                image, mask, reason = item
+                s_mask = getattr(item, 'scratch_mask', None)
+                d_mask = getattr(item, 'dust_mask', None)
+                if s_mask is None:
+                    s_mask = mask
+                if d_mask is None:
+                    d_mask = np.zeros_like(mask)
                 if dart_masks:
                     mask = read_mask(dart_masks / f'frame_{index:06d}.png', image.shape)
                     writers['dart_full.mkv'].write(read_restored(dart_images / f'frame_{index:06d}.png', image.shape))
+                    raw_bin = (mask >= o['threshold']).astype(np.uint8) * 255
+                    s_mask, d_mask = split_proposal_components(raw_bin)
+                    categorized = (s_mask > 0) | (d_mask > 0)
+                    uncategorized = (raw_bin > 0) & ~categorized
+                    if np.any(uncategorized):
+                        d_mask = np.where(uncategorized, np.uint8(255), d_mask)
                 effective = (mask >= (o['threshold'] if dart_masks else 128)).astype(np.uint8)*255
                 if o['dilate']:
                     effective = cv2.dilate(effective, np.ones((3, 3), np.uint8), iterations=o['dilate'])
-                for name, f in (('input.mkv', image), ('mask.mkv', cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)), ('effective_mask.mkv', cv2.cvtColor(effective, cv2.COLOR_GRAY2BGR))):
-                    writers[name].write(f)
-                rows.append({'frame': index, 'mask_pixels': int(np.count_nonzero(mask >= 128)), 'repair_pixels': int(np.count_nonzero(effective)), 'abstention': reason,
-                    'note': 'Empty proposal may also mean detector safety rejection; not proof of intact film.'})
+                writers['input.mkv'].write(image)
+                writers['mask.mkv'].write(cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR))
+                writers['effective_mask.mkv'].write(cv2.cvtColor(effective, cv2.COLOR_GRAY2BGR))
+                writers['scratch_mask.mkv'].write(cv2.cvtColor(s_mask, cv2.COLOR_GRAY2BGR))
+                writers['dust_mask.mkv'].write(cv2.cvtColor(d_mask, cv2.COLOR_GRAY2BGR))
+                rows.append({
+                    'frame': index,
+                    'mask_pixels': int(np.count_nonzero(mask >= (o['threshold'] if dart_masks else 128))),
+                    'repair_pixels': int(np.count_nonzero(effective)),
+                    'scratch_pixels': int(np.count_nonzero(s_mask >= 128)),
+                    'dust_pixels': int(np.count_nonzero(d_mask >= 128)),
+                    'abstention': reason,
+                    'note': 'Empty proposal may also mean detector safety rejection; not proof of intact film.'
+                })
         finally:
             close_writers(writers.values())
         write_csv(stage / 'measurements.csv', rows)
         if identity(source, o) != initial_identity or digest(source) != initial_hash:
             raise ValueError('Source changed during inference; refusing publication.')
-        report = {'identity': initial_identity, 'source_sha256': initial_hash, 'metadata': meta,
-            'repair_complete': False, 'hashes': {name: digest(stage / name) for name in (*writers, 'measurements.csv')},
-            'limitations': ['BGR8 analysis, native geometry; no historical ground truth or accuracy score.', 'Windowed/cut-abstaining Ridge is not the original PR24 pilot.', 'DART full frames are diagnostic; only the mask-gated composite can be adopted.']}
+        report = {
+            'identity': initial_identity,
+            'source_sha256': initial_hash,
+            'metadata': meta,
+            'repair_complete': False,
+            'hashes': {name: digest(stage / name) for name in (*writers, 'measurements.csv')},
+            'limitations': detector_limitations(o['detector']),
+        }
         if o['detector'] == 'dart':
             report['model_preflight'] = preflight
+            report['weights_sha256'] = 'd78a388c76ffb2d71cd0fee55f44e3dde695112a40c540a7b67cc0590cfa73d3'
         publish_report(stage, report)
         check_cancel(cancel_file)
         return finish_analysis(stage, target, source, o, cancel_file)
@@ -609,6 +861,7 @@ def finish_analysis(stage, target, source, values, cancel_file=None):
             raise FileExistsError(f'Dust destination already exists; pending analysis retained: {stage}')
         try:
             stage.rename(target)
+            ensure_inherited_permissions(target)
             return report
         except PermissionError as exc:
             if attempt == 4:
@@ -643,6 +896,9 @@ def finish_repair(target, source, values, cancel_file=None):
     names = ['repaired.mkv', 'repair_measurements.csv']
     if report.get('native_composition'):
         names.append('native_measurements.csv')
+    for name in ('scratch_mask.mkv', 'dust_mask.mkv'):
+        if (ready / name).exists():
+            names.append(name)
     for name in names:
         path = target/name if (target/name).exists() else ready/name
         if digest(path) != report['hashes'].get(name):
@@ -655,7 +911,9 @@ def finish_repair(target, source, values, cancel_file=None):
     for name in names:
         if not (target/name).exists():
             (ready/name).rename(target/name)
+            ensure_inherited_permissions(target/name)
     publish_report(target, report)
+    ensure_inherited_permissions(target)
     return report
 
 
@@ -706,7 +964,7 @@ def propainter_frames(target, tmp, meta, url, output, report, cancel_file=None):
         if not inputs.exists():
             if pending:
                 raise ValueError('Pending ProPainter section inputs are missing.')
-            with tempfile.TemporaryDirectory(prefix='.inputs-', dir=chunk) as stage:
+            with staging_directory(prefix='.inputs-', dir=chunk) as stage:
                 stage = Path(stage)
                 for name, source in (('input.mkv',target/'input.mkv'),('mask.mkv',target/'effective_mask.mkv')):
                     subprocess.run([find_ffmpeg(), '-v', 'error', '-n', '-i', str(source),
@@ -715,6 +973,7 @@ def propainter_frames(target, tmp, meta, url, output, report, cancel_file=None):
                 publish_json(stage/'report.json', {'signature': signature,
                     'hashes': {name:digest(stage/name) for name in ('input.mkv','mask.mkv')}})
                 stage.rename(inputs)
+                ensure_inherited_permissions(inputs)
         saved_inputs = json.loads((inputs/'report.json').read_text(encoding='utf-8'))
         if saved_inputs['signature'] != signature or any(digest(inputs/name) != saved_inputs['hashes'][name] for name in ('input.mkv','mask.mkv')):
             raise ValueError('ProPainter section inputs changed; refusing submission.')

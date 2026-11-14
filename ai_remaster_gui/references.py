@@ -16,7 +16,7 @@ from .file_dialogs import browse_path
 from .manifests import manifest_source_video, read_manifest, read_manifest_details, update_manifest_row, write_manifest_details
 from .media import extract_video_frame_at, extract_video_frame_at_frame, ffprobe_info, local_tool, safe_preview_name
 from .naming import manifest_for_outpainted
-from .paths import format_timecode, rel, resolve, safe_stem
+from .paths import format_timecode, rel, resolve, safe_is_file, safe_stem
 from .runtime_settings import qwen_masked_workflow_for, qwen_workflow_for
 from .sam_masks import sam2_mask_for_image
 
@@ -56,7 +56,12 @@ def colorized_output_for_manifest(manifest_text: str, method: str = "deepexempla
         return ""
     manifest = resolve(manifest_text)
     ident = aid.colorized_identity(manifest.stem, method)
-    source_video = manifest_source_video(manifest)
+    source_video = ''
+    try:
+        if safe_is_file(manifest):
+            source_video = manifest_source_video(manifest)
+    except OSError:
+        source_video = ''
     name_src = resolve(source_video).name if source_video else manifest.name
     return rel(ROOT / "intermediate" / "outpainted_colorized" / aid.artifact_name(aid.source_word(name_src), "color", ident, "mkv"))
 

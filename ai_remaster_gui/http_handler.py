@@ -461,10 +461,10 @@ class Handler(BaseHTTPRequestHandler):
                                lambda: state.APP.run_enhancement_batch(data.get('variants')), view='enhancement')
         elif parsed.path == "/api/dust-status":
             from .dust import status
-            self._send_result('Dust & Scratches status', lambda: status(state.APP, data.get('values', {})))
+            self._send_result('Dust & Scratches status', lambda: status(state.APP, data.get('values', {}), data.get('source'), data.get('project')))
         elif parsed.path == "/api/dust-inspect":
             from .dust import inspect
-            self._send_result('Dust & Scratches frame', lambda: inspect(state.APP, data.get('values', {}), data.get('frame', 0)))
+            self._send_result('Dust & Scratches frame', lambda: inspect(state.APP, data.get('values', {}), data.get('frame', 0), data.get('source'), data.get('project')))
         elif parsed.path == "/api/dust-run":
             self._send_action('Dust & Scratches', lambda: state.APP.run_dust(data.get('values', {}), data.get('kind'), data.get('source'), data.get('project')), view='dust')
         elif parsed.path == "/api/dust-adopt":
