@@ -3080,6 +3080,8 @@ class GuiSmokeTests(unittest.TestCase):
         package_name = "arp_test_ltxvideo"
         comfy_dir = app.ROOT / "tools" / "comfyui"
         package_dir = app.ROOT / "tools" / "comfyui" / "custom_nodes" / "ComfyUI-LTXVideo"
+        if not (package_dir / "pyramid_blending.py").is_file() or not (comfy_dir / "comfy").is_dir():
+            self.skipTest("ComfyUI and ComfyUI-LTXVideo are not installed in tools/comfyui")
         package = types.ModuleType(package_name)
         package.__path__ = [str(package_dir)]
         sys.modules[package_name] = package
@@ -6598,6 +6600,7 @@ class GuiSmokeTests(unittest.TestCase):
 
             with (
                 mock.patch.object(outpaint_guides, "outpaint_chunks_state", return_value=fake_state),
+                mock.patch.object(app.APP, "outpaint_source_for", return_value="input/example.mp4"),
                 mock.patch.object(outpaint_guides, "pipeline_source_text", return_value="input/example.mp4"),
                 mock.patch.object(outpaint_guides, "ensure_outpaint_prepared_canvas", return_value=prepared),
                 mock.patch.object(outpaint_guides, "chunk_frame_preview", return_value=app.rel(source_frame)),
