@@ -1,0 +1,180 @@
+{
+  "models": {
+    "flash":       "gemini-3.8-flash-medium",
+    "flashHigh":   "gemini-3.8-flash-high",
+    "sonnet":      "claude-sonnet-5-5-medium",
+    "opus":        "claude-opus-5-5-high",
+    "argonMedium": "gemini-4-argon-medium",
+    "argon":       "gemini-4-argon-high"
+  },
+  "routes": {
+    "research":      "flash",
+    "docs":          "flash",
+    "github":        "flash",
+    "investigation": "flashHigh",
+    "implement":     "flashHigh",
+    "refactor":      "flashHigh",
+    "test":          "flashHigh",
+    "corrections":   "flashHigh",
+    "review":        "flashHigh",
+    "verify":        "flashHigh",
+    "critical-review": "opus",
+    "debug":         "opus",
+    "architecture":  "opus",
+    "exceptional":   "argon"
+  },
+  "routeFallbacks": {
+    "implement":   ["sonnet"],
+    "refactor":    ["sonnet"],
+    "test":        ["sonnet"],
+    "corrections": ["sonnet"]
+  },
+  "modes": { "readOnly": "", "write": "accept-edits" },
+  "permissionDeniedPattern": "(permission check failed|user denied permission|denied permission to run|permission (was )?denied|requires (interactive )?permission)",
+  "timeoutPattern": "(print_timeout|DEADLINE_EXCEEDED|print timeout after)",
+  "interruptedPattern": "(\"finished_reason\"\\s*:\\s*\"interrupted\"|\"status\"\\s*:\\s*\"CANCELLED\")",
+  "defaultRoute": "flash",
+  "classifier": [
+    { "type": "exceptional",     "pattern": "\\b(exceptional reasoning|argon)\\b" },
+    { "type": "debug",           "pattern": "\\b(debug|root cause|race condition|intermittent|crash|stack ?trace)\\b" },
+    { "type": "architecture",    "pattern": "\\b(architecture|architect|system design|trade-?offs?)\\b" },
+    { "type": "critical-review", "pattern": "\\b(critical review|security review)\\b" },
+    { "type": "review",          "pattern": "\\b(code review|independent review|\\breview\\b)\\b" },
+    { "type": "verify",          "pattern": "\\b(final verification|verify acceptance|verify)\\b" },
+    { "type": "investigation",   "pattern": "\\b(investigate|investigation|trace (the )?call|impact analysis|across the repo)\\b" },
+    { "type": "test",            "pattern": "\\b(unit tests?|write tests?|add tests?|test suite)\\b" },
+    { "type": "corrections",     "pattern": "\\b(apply corrections|fix review findings|address review)\\b" },
+    { "type": "refactor",        "pattern": "\\b(refactor|rename|extract|restructure|clean ?up code)\\b" },
+    { "type": "implement",       "pattern": "\\b(implement|add feature|fix bug|build|create (a )?(function|module|class)|write code)\\b" },
+    { "type": "github",          "pattern": "\\b(github|issue|label|milestone|pull request|\\bpr\\b)\\b" },
+    { "type": "docs",            "pattern": "\\b(document|documentation|readme|docs?|changelog|summari[sz]e)\\b" },
+    { "type": "research",        "pattern": "\\b(research|look up|find out|compare|survey)\\b" }
+  ],
+  "writeTypes": ["implement", "refactor", "test", "corrections"],
+  "readOnlyTypes": ["research", "docs", "github", "investigation", "review", "verify", "critical-review", "architecture"],
+  "destructivePattern": "(\\bdelete\\b|\\brm\\b|\\bremove-item\\b|\\bdrop (table|database)\\b|force[- ]push|reset --hard|\\bformat\\b|\\btruncate\\b|\\bwipe\\b)",
+  "protectedPathPatterns": [
+    "^(colorize_video\\.bat|qwen_colorize_references\\.bat|outpaint_video\\.bat|prepare_outpaint_input\\.bat|finalize_outpaint_output\\.bat)$",
+    "^vendor/",
+    "^input/",
+    "audio"
+  ],
+  "escalation": {
+    "autoEscalateOnFailure": false,
+    "requireAuthorization": {
+      "opus":  "AuthorizeCostly",
+      "argon": "AuthorizeArgon"
+    }
+  },
+  "quota": {
+    "weeklyReservePercent": 25,
+    "fiveHourReservePercent": 10,
+    "officialStaleHours": 12,
+    "_note": "Manual readings (Quota.ps1 -Set) are always labelled ESTIMATE; local ledger calculations are labelled ESTIMATE; fresh -SyncFromCli readings are labelled ACTUAL (CLI /usage)."
+  },
+  "groups": {
+    "gemini-flash-pro": { "modelPattern": "^gemini-3\\.8-(flash|pro)", "localWeeklyTokenCap": 8000000, "perRunTokenBudget": 300000, "maxCallsPerRun": 6, "autoDispatch": true },
+    "claude-gpt":       { "modelPattern": "^(claude-|gpt-)",           "localWeeklyTokenCap": 2000000, "perRunTokenBudget": 300000, "maxCallsPerRun": 4, "autoDispatch": true, "requireJustification": true },
+    "argon":            { "modelPattern": "^gemini-4-argon",           "localWeeklyTokenCap": 2000000, "perRunTokenBudget": 0, "maxCallsPerRun": 0, "autoDispatch": false }
+  },
+  "lifecyclePhases": [
+    { "name": "investigation", "type": "investigation", "writes": false },
+    { "name": "implement",     "type": "implement",     "writes": true  },
+    { "name": "test",          "type": "test",          "writes": true  },
+    { "name": "review",        "type": "review",        "writes": false },
+    { "name": "corrections",   "type": "corrections",   "writes": true, "onlyIfReviewFlagged": true },
+    { "name": "verify",        "type": "verify",        "writes": false }
+  ],
+  "backlog": {
+    "pageSize": 100,
+    "syncIntervalMinutes": 5,
+    "blockedLabels": ["needs-info", "needs-triage", "ready-for-human", "wontfix"],
+    "preferredLabels": ["ready-for-agent"],
+    "useWorktreeWhenDirty": false,
+    "allowExternalGitHubWrites": false,
+    "allowAutoPushOrMerge": false,
+    "allowAutoCloseIssue": false,
+    "delivery": {
+      "allowComments": false,
+      "allowLabels": false,
+      "allowCommitsAndBranches": false,
+      "allowPush": false,
+      "allowDraftPr": false,
+      "allowAutoMerge": false,
+      "allowAutoCloseIssue": false,
+      "baseBranch": "main",
+      "branchPrefix": "agy/issue-",
+      "statusLabels": {
+        "inProgress": "in-progress",
+        "completed": "completed-locally",
+        "partial": "partial-progress",
+        "prReady": "pr-open"
+      },
+      "preExistingDirtyFiles": [
+        "ai_remaster_gui/denoise_playback.py",
+        "ai_remaster_gui/dust.py",
+        "ai_remaster_gui/http_handler.py",
+        "ai_remaster_gui/server.py",
+        "ai_remaster_gui/static/js/denoise-workspace.js",
+        "ai_remaster_gui/static/js/render-denoise.js",
+        "ai_remaster_gui/static/js/render-dust.js",
+        "docs/dust-and-scratches-workspace.md",
+        "docs/user-guide.md",
+        "tests/test_dust_stage.py",
+        "tests/test_dust_workspace_browser.test.cjs"
+      ],
+      "issueFileOwnership": {
+        "33": [
+          "scripts/benchmark_defect_masks.py",
+          "tests/test_defect_mask_benchmark.py"
+        ],
+        "34": [
+          "docs/archival-ground-truth-protocol.md",
+          "scripts/dataset_adapters.py",
+          "scripts/temporal_consistency_scorer.py",
+          "tests/test_dataset_adapters.py",
+          "tests/test_temporal_consistency.py"
+        ],
+        "35": [
+          "scripts/candidate_detector_eval.py",
+          "docs/defect-detector-empirical-comparison.md",
+          "tests/test_candidate_detectors.py"
+        ],
+        "36": [
+          "docs/model-license-inventory.json",
+          "docs/model-license-audit.md",
+          "scripts/assess_dart_exports.py",
+          "scripts/run_dart_research.py",
+          "tests/test_dart_exports.py",
+          "tests/test_dart_pinned_runner.py",
+          "tests/test_model_license_inventory.py"
+        ],
+        "37": [
+          "scripts/film_defect_detectors.py",
+          "tests/test_defect_detector_registry.py",
+          "scripts/cleanup_video.py",
+          "scripts/artifact_ids.py",
+          "ai_remaster_gui/dust.py"
+        ]
+      }
+    }
+  },
+  "budgets": {
+    "maxWorkersPerRun": 6,
+    "maxParallelWorkers": 2,
+    "maxRetriesSameModel": 1,
+    "maxTotalTokens": 400000,
+    "workerTimeoutMinutes": 20,
+    "timeoutSeconds": 1200,
+    "handoffMaxChars": 2500,
+    "issueMaxChars": 8000,
+    "perTaskTokenBudgets": {
+      "investigation": 40000,
+      "implement": 80000,
+      "test": 40000,
+      "review": 30000,
+      "corrections": 50000,
+      "verify": 20000
+    }
+  }
+}
