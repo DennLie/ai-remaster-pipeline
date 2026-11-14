@@ -9,6 +9,7 @@
     [switch]$InstallCorrelationExtension,
     [switch]$InstallDart,
     [switch]$DartOnly,
+    [switch]$FfmpegOnly,
     [switch]$AcceptDartResearch,
     [string]$DartWeightsFrom,
     [switch]$NonInteractive
@@ -1141,8 +1142,64 @@ function Install-ManagedDart {
     Invoke-External -Command $args
 }
 
+function Install-FfmpegIfMissing {
+    $ToolDir = Join-Path $Root '.cache\tools\ffmpeg'
+    $FfmpegExe = Join-Path $ToolDir 'ffmpeg.exe'
+    $FfprobeExe = Join-Path $ToolDir 'ffprobe.exe'
+    if ((Test-Path -LiteralPath $FfmpegExe) -and (Test-Path -LiteralPath $FfprobeExe)) {
+        Write-Host "FFmpeg already exists: $ToolDir"
+        if ($env:PATH -notlike "*$ToolDir*") {
+            $env:PATH = "$ToolDir;$env:PATH"
+        }
+        return
+    }
+    $ArchiveDir = Join-Path $Root '.cache\downloads'
+    $Archive = Join-Path $ArchiveDir 'ffmpeg-release-essentials.zip'
+    Ensure-Directory $ArchiveDir
+    Ensure-Directory $ToolDir
+    if (-not (Test-Path -LiteralPath $Archive)) {
+        $downloadUrl = if ($env:ARP_FFMPEG_URL) { $env:ARP_FFMPEG_URL } else { 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' }
+        Write-Host "Downloading FFmpeg essentials from $downloadUrl"
+        try {
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $Archive -UseBasicParsing
+        } catch {
+            if (Test-Path -LiteralPath $Archive) { Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue }
+            throw "Failed to download FFmpeg essentials archive from '$downloadUrl': $_"
+        }
+    }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = $null
+    try {
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
+        foreach ($entry in $zip.Entries) {
+            $name = [System.IO.Path]::GetFileName($entry.FullName)
+            $normalized = $entry.FullName.Replace('\', '/').ToLowerInvariant()
+            if (($name -eq 'ffmpeg.exe' -or $name -eq 'ffprobe.exe') -and $normalized.Contains('/bin/')) {
+                $target = Join-Path $ToolDir $name
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+            }
+        }
+    } catch {
+        throw "Failed to extract FFmpeg essentials from '$Archive': $_"
+    } finally {
+        if ($null -ne $zip) { $zip.Dispose() }
+    }
+    if (-not ((Test-Path -LiteralPath $FfmpegExe) -and (Test-Path -LiteralPath $FfprobeExe))) {
+        throw "Could not extract ffmpeg.exe and ffprobe.exe from $Archive"
+    }
+    Write-Host "Installed FFmpeg tools: $ToolDir"
+    if ($env:PATH -notlike "*$ToolDir*") {
+        $env:PATH = "$ToolDir;$env:PATH"
+    }
+}
+
 if ($DartOnly) {
     Invoke-Step 'Set up ARP-managed DART only (no ComfyUI changes)' { Install-ManagedDart }
+    exit 0
+}
+
+if ($FfmpegOnly) {
+    Invoke-Step 'Install local FFmpeg tools only' { Install-FfmpegIfMissing }
     exit 0
 }
 
@@ -1163,42 +1220,6 @@ Invoke-Step 'Configure ComfyUI directory' {
     if (-not (Test-ComfyDir $ComfyDir)) {
         throw "ComfyUI main.py was not found in: $ComfyDir"
     }
-}
-
-function Install-FfmpegIfMissing {
-    $ToolDir = Join-Path $Root '.cache\tools\ffmpeg'
-    $FfmpegExe = Join-Path $ToolDir 'ffmpeg.exe'
-    $FfprobeExe = Join-Path $ToolDir 'ffprobe.exe'
-    if ((Test-Path -LiteralPath $FfmpegExe) -and (Test-Path -LiteralPath $FfprobeExe)) {
-        Write-Host "FFmpeg already exists: $ToolDir"
-        return
-    }
-    $ArchiveDir = Join-Path $Root '.cache\downloads'
-    $Archive = Join-Path $ArchiveDir 'ffmpeg-release-essentials.zip'
-    Ensure-Directory $ArchiveDir
-    Ensure-Directory $ToolDir
-    if (-not (Test-Path -LiteralPath $Archive)) {
-        Write-Host 'Downloading FFmpeg essentials from https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
-        Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $Archive -UseBasicParsing
-    }
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
-    try {
-        foreach ($entry in $zip.Entries) {
-            $name = [System.IO.Path]::GetFileName($entry.FullName)
-            $normalized = $entry.FullName.Replace('\', '/').ToLowerInvariant()
-            if (($name -eq 'ffmpeg.exe' -or $name -eq 'ffprobe.exe') -and $normalized.Contains('/bin/')) {
-                $target = Join-Path $ToolDir $name
-                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
-            }
-        }
-    } finally {
-        $zip.Dispose()
-    }
-    if (-not ((Test-Path -LiteralPath $FfmpegExe) -and (Test-Path -LiteralPath $FfprobeExe))) {
-        throw "Could not extract ffmpeg.exe and ffprobe.exe from $Archive"
-    }
-    Write-Host "Installed FFmpeg tools: $ToolDir"
 }
 
 Invoke-Step 'Create ai-remaster-pipeline venv' {

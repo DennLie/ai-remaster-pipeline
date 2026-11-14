@@ -10,3 +10,10 @@ from pathlib import Path
 # (where the path is resolved), so this redirect always wins the import race regardless of which
 # test module loads the package first.
 os.environ.setdefault("ARP_SETTINGS_FILE", str(Path(tempfile.mkdtemp(prefix="arp-test-settings-")) / "settings.json"))
+
+# Ensure bundled FFmpeg tools in .cache/tools/ffmpeg are on PATH for tests
+ROOT = Path(__file__).resolve().parents[1]
+ffmpeg_dir = ROOT / ".cache" / "tools" / "ffmpeg"
+if ffmpeg_dir.is_dir() and str(ffmpeg_dir) not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = str(ffmpeg_dir) + os.pathsep + os.environ.get("PATH", "")
+
