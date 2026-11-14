@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import artifact_ids as ids  # noqa: E402
 import cleanup_video  # noqa: E402
+import deflicker_video  # noqa: E402
 from localized_deflicker_backend import validate_localized_request  # noqa: E402
 from ai_remaster_gui import app  # noqa: E402
 from ai_remaster_gui.runtime_settings import base_settings  # noqa: E402
@@ -69,26 +70,24 @@ class LocalizedIntegrationTests(unittest.TestCase):
 
     def test_gui_and_cli_derive_identical_output_key(self):
         settings = base_settings()
-        settings["global"].update({"source":"input/film.mp4", "cleanup":"true"})
-        settings["cleanup"].update({
-            "light_deflicker":"true", "deflicker_method":"localized_research",
+        settings["global"].update({"source":"input/film.mp4", "deflicker":"true"})
+        settings["deflicker"].update({
+            "method":"localized_research",
             "localized_confirm_single_shot":"true",
-            "dearchive":"false", "ai_descratch":"false",
-            "devignette":"false", "detect_defects":"false",
         })
         old = app.APP.settings
         try:
             app.APP.settings = settings
-            cmd = app.APP.command_for("cleanup")
+            cmd = app.APP.command_for("deflicker")
             self.assertIn("--localized-confirm-single-shot", cmd)
-            args = cleanup_video.build_parser().parse_args(cmd[3:])
-            self.assertEqual(args.deflicker_method, "localized_research")
+            args = deflicker_video.build_parser().parse_args(cmd[3:])
+            self.assertEqual(args.method, "localized_research")
             self.assertTrue(args.localized_confirm_single_shot)
-            expected = Path(app.cleanup_output_for("input/film.mp4", settings["cleanup"])).name
-            actual = cleanup_video.default_output(Path(args.source), args).name
+            expected = Path(app.APP.deflicker_output()).name
+            actual = deflicker_video.output_for(Path(args.source), vars(args), args.intermediate_profile).name
             self.assertEqual(expected, actual)
-            settings["cleanup"]["localized_confirm_single_shot"] = "false"
-            cmd_off = app.APP.command_for("cleanup")
+            settings["deflicker"]["localized_confirm_single_shot"] = "false"
+            cmd_off = app.APP.command_for("deflicker")
             self.assertNotIn("--localized-confirm-single-shot", cmd_off)
         finally:
             app.APP.settings = old

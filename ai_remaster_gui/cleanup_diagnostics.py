@@ -13,7 +13,7 @@ def _clean_stem(name: str) -> str:
 
 
 def cleanup_diagnostics_for(root: Path, source: Path | None,
-                            output: Path | None, settings: dict) -> dict:
+                            output: Path | None, settings: dict, *, work_directory: Path | None = None) -> dict:
     """Only show reports belonging to the exact current cleanup artifact."""
     empty = {"ready": False, "deflicker": None, "defect_mask": "", "scratch_mask": ""}
     if not source or not output or not output.is_file() or not source.is_file():
@@ -37,10 +37,12 @@ def cleanup_diagnostics_for(root: Path, source: Path | None,
     # FFmpeg Median/Arithmetic Mean instead use direct pixel-difference charts.
     if settings.get('light_deflicker') != 'true' or settings.get('deflicker_method', 'arp') != 'arp':
         return result
-    match = re.fullmatch(r'.+_cleanup_([a-f0-9]{8})', output.stem)
-    if not match:
-        return result
-    workdir = root / '.cache' / 'cleanup_chunks' / f'{_clean_stem(source.name)}_{match.group(1)}'
+    if work_directory is None:
+        match = re.fullmatch(r'.+_cleanup_([a-f0-9]{8})', output.stem)
+        if not match:
+            return result
+        work_directory = root / '.cache' / 'cleanup_chunks' / f'{_clean_stem(source.name)}_{match.group(1)}'
+    workdir = work_directory
     if not workdir.is_dir():
         return result
     try:

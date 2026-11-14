@@ -30,7 +30,21 @@ def stage_issue(
 
     values = settings.get(stage, {})
     reasons: list[str] = []
-    if stage == "cleanup":
+    if stage == 'enhancement':
+        method = model_override or values.get('method', 'off')
+        if method in {'nafnet', 'restormer'}:
+            reasons.append(f'{method} checkpoint and dependencies await commercial-use audit')
+        elif method not in {'off', 'unsharp', 'cas', 'multiscale', 'richardson_lucy'}:
+            reasons.append(f'unknown enhancement method {method!r} has not been reviewed')
+    elif stage == 'dust':
+        method = model_override or values.get('repair', 'telea')
+        if method == 'propainter':
+            reasons.append('ProPainter is non-commercial (NTU S-Lab License 1.0)')
+        elif method == 'dart' or values.get('detector') == 'dart':
+            reasons.append('DART adapted RTN code rights remain unresolved')
+        elif method != 'telea':
+            reasons.append('unknown Dust & Scratches repair method')
+    elif stage == "cleanup":
         if _on(values, "ai_descratch"):
             reasons.append("ProPainter / AI DeScratch is non-commercial (NTU S-Lab License 1.0)")
         if _on(values, "dearchive", "true"):
@@ -79,7 +93,7 @@ def stage_issue(
             reasons.append("LTX upscaling models/LoRAs are not cleared for unrestricted commercial use")
         else:
             reasons.append(f"{model} upscaler weights and dependencies have not been fully audited")
-    elif stage not in {"stabilize", "shots", "recomp", "output"}:
+    elif stage not in {"denoise", "deflicker", "stabilize", "shots", "recomp", "output"}:
         reasons.append(f"unrecognized stage {stage!r} has not been reviewed")
 
     if not reasons:

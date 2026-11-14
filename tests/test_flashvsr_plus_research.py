@@ -133,8 +133,17 @@ class FlashVSRPlusContracts(unittest.TestCase):
                 flash.validate(args)
 
     def test_no_torch_or_external_code_imported_at_module_level(self):
-        self.assertNotIn("torch", sys.modules)
         self.assertTrue(callable(flash.build_upstream_command))
+        code = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            f"sys.path.insert(0, r'{ROOT / 'scripts'}')\n"
+            "import run_flashvsr_plus_research as f\n"
+            "assert callable(f.build_upstream_command)\n"
+            "assert 'torch' not in sys.modules, f'torch was imported: {sys.modules.get(\"torch\")}'\n"
+        )
+        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Import isolation check failed: {res.stderr}")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ const script = fs.readFileSync(path.join(root, 'ai_remaster_gui/static/js/render
 const context = vm.createContext({
   state: {
     settings: { global: { source: 'input/original.webm' } },
+    denoise_matrix: {source: 'input/original.webm'},
     stages: [{key: 'denoise', files: [
       {path: 'intermediate/denoised/arp_hqdn3d_gentle.mkv'},
       {path: 'intermediate/denoised/arp_nlmeans_gentle.mkv'},
@@ -39,6 +40,15 @@ test('only video candidates are selectable, and source stays first', () => {
   ]);
   context.denoiseCompareInitializePaths(found);
   assert.deepEqual(Array.from(vm.runInContext('denoiseComparePaths', context)), Array.from(found, x => x.path));
+});
+
+test('missing stage input never falls back to the raw original',()=>{
+  const source=context.state.denoise_matrix.source;
+  try {
+    context.state.denoise_matrix.source='';
+    const found=context.denoiseCompareCandidates({key:'denoise',files:[]});
+    assert.equal(found.length,0);
+  } finally {context.state.denoise_matrix.source=source}
 });
 
 test('reuse a manual choice, but reject removed cached files', () => {

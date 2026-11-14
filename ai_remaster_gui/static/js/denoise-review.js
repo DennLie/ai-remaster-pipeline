@@ -1,398 +1,300 @@
-/* Extended, frame-exact Remove Noise review. Complements rather than replaces
- * the existing approximate A/B/C H.264 playback previews.
- * No writable operations or user-controlled filesystem APIs.
- */
-let denoiseReviewVariant = '';
-let denoiseReviewFrame = 0;
-let denoiseReviewCount = 0;
-let denoiseReviewFps = 0;
-let denoiseReviewEpoch = 0;
-let denoiseReviewChartEpoch = 0;
-let denoiseReviewEntries = [];
-let denoiseReviewZoom = 1;
-let denoiseReviewWipe = 50;
-let denoiseReviewDiffMode = 'direction';
-let denoiseReviewDiffContrast = 32;
-let denoiseReviewImagePair = null;
+/* Exact 8-bit RGB stills share the comparison's canvases, clock and crop. */
+
+function denoiseReviewErrorText(error) {
+  return String(error?.message || error || 'The exact still could not be loaded.')
+    .replace(/Ungültige Differenzdaten oder Kontrasteinstellungen\.?/i,'The pixel-difference settings are invalid.')
+    .replace(/Bildgrößen stimmen nicht überein\.?/i,'The still images do not have identical dimensions.')
+    .replace(/Nicht deckungsgleiche Einzelbilder\.?/i,'The still images are not aligned.')
+    .replace(/Canvas nicht verfügbar\.?/i,'This browser cannot provide a difference canvas.').slice(0,300);
+}
 
 function denoiseReviewVariants(candidates) {
-  return (candidates || []).slice(1).filter(v => denoisePreviewIsFinal(v.path));
-}
-
-function denoiseReviewHtml(candidates) {
-  const options = denoiseReviewVariants(candidates);
-  if (!options.length) {
-    return `<section class="denoise-review" data-denoise-review>
-      <h3>Erweiterte Einzelbildansicht</h3>
-      <p class="shot-empty">Noch keine fertige Rauschreduzierungs-Variante vorhanden. Nach dem Rendern erscheinen exakte Original-/Ergebnisframes, Pixeldifferenz, Frame-Balken und Wischvergleich.</p>
-    </section>`;
-  }
-  if (!options.some(x => x.path === denoiseReviewVariant)) {
-    denoiseReviewVariant = options.find(x => x.path === denoiseComparePaths[1])?.path || options[0].path;
-    denoiseReviewFrame = 0;
-  }
-  return `<section class="denoise-review" data-denoise-review aria-label="Erweiterter bildgenauer Remove-Noise-Vergleich">
-    <div class="denoise-review-heading"><h3>Erweiterte Ansicht · Einzelbildgenau</h3>
-      <span>Zusätzlich zum A/B/C-Vergleich – echte dekodierte Frames, keine H.264-Vorschauen</span></div>
-    <div class="denoise-review-toolbar">
-      <label>Ergebnis vergleichen <select data-dr-variant onchange="denoiseReviewChoose(this.value)">
-        ${options.map(x => `<option value="${esc(x.path)}" ${x.path === denoiseReviewVariant ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}
-      </select></label>
-      <label>Zoom <select data-dr-zoom onchange="denoiseReviewSetZoom(this.value)">
-        ${[1,2,4].map(v => `<option value="${v}" ${v === denoiseReviewZoom ? 'selected' : ''}>${v*100}%</option>`).join('')}
-      </select></label>
-    </div>
-    <div class="denoise-review-rail">
-      <div class="cleanup-frame-rail-heading"><strong>Frame-Änderungen</strong>
-        <span>Türkis = aufgehellt · Orange = abgedunkelt · Balken wählen einen exakten Frame</span></div>
-      <div class="denoise-review-chart" data-dr-chart role="group" aria-label="Helligkeitsänderungen je Einzelbild"></div>
-      <output data-dr-chart-status role="status">Berechne Frame-Unterschiede ...</output>
-      <small>Gemessene Pixeländerungen sind kein Beweis für Rausch- oder Kornentfernung. Bei Langfilmen nur Stichproben.</small>
-    </div>
-    <section class="denoise-review-inspector" aria-label="Drei Einzelbildansichten">
-      <div class="fi-heading"><strong>Frame Inspector</strong>
-        <small>Frame-indexgenau aus tatsächlichem Verarbeitungseingang und ausgewählter Variante</small></div>
-      <div class="fi-buttons">
-        <button type="button" data-dr-prev10 disabled>−10</button>
-        <button type="button" data-dr-prev disabled>−1 Frame</button>
-        <button type="button" data-dr-next disabled>+1 Frame</button>
-        <button type="button" data-dr-next10 disabled>+10</button>
-      </div>
-      <input data-dr-timeline type="range" min="0" max="0" value="0" step="1" disabled aria-label="Exakte Frameposition im Clip">
-      <output data-dr-status role="status">Bereite Einzelbilder vor.</output>
-      <div class="denoise-review-diff-controls">
-        <label>Pixeldifferenz <select data-dr-diff-mode onchange="denoiseReviewSetDiffMode(this.value)">
-          <option value="direction" ${denoiseReviewDiffMode === 'direction' ? 'selected' : ''}>Falschfarben: heller / dunkler</option>
-          <option value="rgb" ${denoiseReviewDiffMode === 'rgb' ? 'selected' : ''}>RGB: Veränderung je Farbkanal</option>
-        </select></label>
-        <label>Kontrast <select data-dr-diff-contrast onchange="denoiseReviewSetDiffContrast(this.value)">
-          ${[8,32,64].map(n => `<option value="${n}" ${n === denoiseReviewDiffContrast ? 'selected' : ''}>${n}× + Gamma</option>`).join('')}
-        </select></label>
-        <small>Reine Anzeigeverstärkung – die Originalframes, Ergebnisse und Messwerte bleiben unverändert.</small>
-      </div>
-      <div class="denoise-review-stills">
-        <figure><figcaption>ORIGINAL · Render-Eingang</figcaption>
-          <div class="denoise-review-media"><img data-dr-before tabindex="0" role="button" alt="Originalframe vor Rauschreduzierung" title="Klicken zum Vergrößern"></div></figure>
-        <figure><figcaption>ERGEBNIS · ausgewählte Variante</figcaption>
-          <div class="denoise-review-media"><img data-dr-after tabindex="0" role="button" alt="Exaktes bearbeitetes Einzelbild" title="Klicken zum Vergrößern"></div></figure>
-        <figure><figcaption>PIXELDIFFERENZ · verstärkt</figcaption>
-          <div class="denoise-review-media"><canvas data-dr-difference tabindex="0" role="button" aria-label="Verstärkte Pixelunterschiede, klicken zum Vergrößern" title="Klicken zum Vergrößern"></canvas></div>
-          <small data-dr-diff-caption>Türkis = aufgehellt · Orange = abgedunkelt · Dunkelgrau = unverändert. Keine Defektmaske.</small></figure>
-      </div>
-      <output data-dr-readout role="status"></output>
-      <details class="denoise-review-wipe">
-        <summary><strong>Wischvergleich</strong> · exakter Original/Ergebnis-Schieber</summary>
-        <p class="denoise-review-wipe-hint">Links <strong>ORIGINAL</strong>, rechts <strong>ERGEBNIS</strong>.
-          Ziehe die senkrechte Linie im Bild oder benutze den Schieber darunter.</p>
-        <output class="wipe-current-view" data-dr-wipe-current-view aria-live="off">50 % ORIGINAL · 50 % ERGEBNIS</output>
-        <div class="denoise-review-wipe-picture" data-dr-wipe-picture>
-          <img data-dr-wipe-before alt="Unverändertes Originalframe">
-          <img data-dr-wipe-after alt="Bearbeitetes Frame">
-          <div class="denoise-review-wipe-divider" data-dr-wipe-divider aria-hidden="true">
-            <span class="denoise-review-wipe-handle" data-dr-wipe-handle><span class="wipe-grip-side wipe-grip-original">ORIGINAL</span><span class="wipe-grip-side wipe-grip-result">ERGEBNIS</span></span>
-          </div>
-        </div>
-        <label>Original links · Ergebnis rechts
-          <input data-dr-wipe-position type="range" min="0" max="100" step="1"
-                 value="${denoiseReviewWipe}" oninput="denoiseReviewSetWipe(this.value)">
-        </label>
-        <output data-dr-wipe-status>50 % Original links / 50 % Ergebnis rechts</output>
-      </details>
-    </section>
-  </section>`;
-}
-
-function denoiseReviewRoot() { return document.querySelector('[data-denoise-review]'); }
-function denoiseReviewElement(name) { return denoiseReviewRoot()?.querySelector('[data-dr-' + name + ']'); }
-
-function denoiseReviewSetZoom(value) {
-  denoiseReviewZoom = [1,2,4].includes(Number(value)) ? Number(value) : 1;
-  denoiseReviewRoot()?.style.setProperty('--denoise-review-zoom', String(denoiseReviewZoom));
-  denoiseReviewSetWipe(denoiseReviewWipe);
-}
-
-function denoiseReviewSetWipe(value) {
-  denoiseReviewWipe = Math.max(0, Math.min(100, Number(value) || 0));
-  const after = denoiseReviewElement('wipe-after');
-  const line = denoiseReviewElement('wipe-divider');
-  // Both pictures use centered scaling; align the clip with the physical handle.
-  const edge = 50 + (denoiseReviewWipe - 50) / denoiseReviewZoom;
-  if (after) after.style.clipPath = `inset(0 0 0 ${edge}%)`;
-  if (line) line.style.left = denoiseReviewWipe + '%';
-  const picture = denoiseReviewElement('wipe-picture');
-  const grip = denoiseReviewElement('wipe-handle');
-  if (picture && grip) {
-    const width = picture.getBoundingClientRect().width;
-    grip.style.opacity = String(comparisonWipeGripOpacity(width, grip.offsetWidth || 180, denoiseReviewWipe));
-  }
-  const view = denoiseReviewElement('wipe-current-view');
-  if (view) view.textContent = comparisonWipeVisibleState(denoiseReviewWipe);
-  const control = denoiseReviewElement('wipe-position');
-  if (control) control.value = String(denoiseReviewWipe);
-  const status = denoiseReviewElement('wipe-status');
-  if (status) status.textContent = `${denoiseReviewWipe.toFixed(0)} % Original links · ${(100-denoiseReviewWipe).toFixed(0)} % Ergebnis rechts`;
-}
-
-function denoiseReviewChoose(path) {
-  const st = state?.stages?.find(x => x.key === 'denoise');
-  const valid = st ? denoiseReviewVariants(denoiseCompareCandidates(st)).some(x => x.path === path) : false;
-  if (!valid) return;
-  denoiseReviewVariant = path;
-  denoiseReviewEpoch++;
-  denoiseReviewChartEpoch++;
-  denoiseReviewFrame = 0;
-  denoiseReviewCount = 0;
-  denoiseReviewImagePair = null;
-  denoiseReviewEntries = [];
-  const select = denoiseReviewElement('variant');
-  if (select) select.value = path;
-  // Reuse the existing event handlers; re-running Start would attach them twice.
-  void denoiseReviewSelectFrame(0, false);
-  void denoiseReviewLoadChart(path);
+  const items=candidates || [], hasKinds=items.some(item=>item.kind);
+  return items.filter((item,index)=>(hasKinds ? item.kind!=='source' : index>0) && denoisePreviewIsFinal(item.path));
 }
 
 function denoiseReviewChartRows(report) {
-  if (!report || report.metric !== 'directional_mean_luma_8bit' ||
-      !Number.isInteger(report.frames) || report.frames < 1 ||
-      !Array.isArray(report.samples) || report.samples.length > 240 || !report.samples.length) {
-    throw new Error('Ungültiger Framebericht.');
-  }
-  let prev = -1, peak = 0;
-  const rows = report.samples.map(x => {
-    const frame = Number(x.frame), bright = Number(x.brighten_mean_luma);
-    const dark = Number(x.darken_mean_luma), total = Number(x.mean_abs_luma);
-    if (!Number.isInteger(frame) || frame <= prev || frame >= report.frames ||
-        ![bright,dark,total].every(v => Number.isFinite(v) && v >= 0 && v <= 255) ||
-        Math.abs(total-bright-dark) > 0.001) throw new Error('Ungültige Frame-Messwerte.');
-    prev = frame;
-    peak = Math.max(peak, bright, dark);
-    return {frame, bright, dark, total};
+  if(!report || report.metric!=='directional_mean_luma_8bit' ||
+    !Number.isInteger(report.frames) || report.frames<1 || !Array.isArray(report.samples) ||
+    !report.samples.length || report.samples.length>240) throw new Error('Invalid frame report.');
+  let prev=-1,peak=0;
+  const rows=report.samples.map(item=>{
+    const frame=Number(item.frame),bright=Number(item.brighten_mean_luma);
+    const dark=Number(item.darken_mean_luma),total=Number(item.mean_abs_luma);
+    if(!Number.isInteger(frame) || frame<=prev || frame>=report.frames ||
+      ![bright,dark,total].every(value=>Number.isFinite(value) && value>=0 && value<=255) ||
+      Math.abs(total-bright-dark)>.001) throw new Error('Invalid frame measurements.');
+    prev=frame;peak=Math.max(peak,bright,dark);
+    return {frame,bright,dark,total};
   });
-  return rows.map(x => ({...x, brightHeight: x.bright ? Math.max(2,100*x.bright/(peak||1)) : 0,
-    darkHeight: x.dark ? Math.max(2,100*x.dark/(peak||1)) : 0}));
+  return rows.map(item=>({...item,brightHeight:item.bright ? Math.max(2,100*item.bright/(peak||1)) : 0,
+    darkHeight:item.dark ? Math.max(2,100*item.dark/(peak||1)) : 0}));
 }
 
-function denoiseReviewHighlight() {
-  const root = denoiseReviewRoot();
-  if (!root) return;
-  for (const bar of root.querySelectorAll('[data-dr-bar]')) {
-    const active = Number(bar.dataset.drBar) === denoiseReviewFrame;
-    bar.classList.toggle('is-current', active);
-    bar.setAttribute('aria-pressed', String(active));
+function createDenoiseReviewChart(host,options) {
+  const chart=host.querySelector('[data-dr-chart]'),status=host.querySelector('[data-dr-chart-status]');
+  let entries=[],key='',path='',epoch=0,destroyed=false,abort=null;
+  const events=new AbortController();
+  const current=ticket=>!destroyed && ticket===epoch && host.isConnected;
+  function highlight(frame=options.frame()) {
+  if(!chart) return;
+  const bars=[...chart.querySelectorAll('[data-dr-bar]')];
+  const nearest=bars.reduce((best,bar)=>!best || Math.abs(Number(bar.dataset.drBar)-frame)<Math.abs(Number(best.dataset.drBar)-frame) ? bar : best,null);
+  for(const bar of bars) {
+    const active=Number(bar.dataset.drBar)===frame;
+    bar.classList.toggle('is-current',active);bar.tabIndex=bar===nearest ? 0 : -1;
+    bar.setAttribute('aria-current',String(active));
   }
-  const selected = denoiseReviewEntries.find(x => x.frame === denoiseReviewFrame);
-  const readout = denoiseReviewElement('chart-status');
-  if (readout && selected) {
-    readout.textContent = `Frame ${denoiseReviewFrame+1}: aufgehellt ${selected.bright.toFixed(2)} / 255 · abgedunkelt ${selected.dark.toFixed(2)} / 255`;
-  } else if (readout && denoiseReviewEntries.length) {
-    readout.textContent = `Frame ${denoiseReviewFrame+1}: nicht in der Diagramm-Stichprobe; die Einzelbilder sind trotzdem exakt.`;
-  }
+  const selected=entries.find(item=>item.frame===frame);
+  const readout=status;
+  if(readout && selected) readout.textContent=`Frame ${frame+1}: brightened ${selected.bright.toFixed(2)} / 255 · darkened ${selected.dark.toFixed(2)} / 255`;
+  else if(readout && entries.length) readout.textContent=`Frame ${frame+1}: not in the chart sample; exact stills are available on request.`;
 }
 
-async function denoiseReviewLoadChart(path) {
-  const ticket = ++denoiseReviewChartEpoch;
-  const chart = denoiseReviewElement('chart');
-  if (!chart) return;
-  chart.replaceChildren();
-  denoiseReviewElement('chart-status').textContent = 'Berechne Helligkeitsänderungen ...';
+async function loadChart(ticket) {
+  if(!chart) return;
+  abort=new AbortController();
   try {
-    const response = await fetch('/api/denoise-frame-differences?variant=' + encodeURIComponent(path), {cache:'no-store'});
-    if (!response.ok) throw new Error('Serverfehler ' + response.status);
-    const report = await response.json();
-    if (!report.ok) throw new Error(report.error || 'Diagramm nicht verfügbar.');
-    if (ticket !== denoiseReviewChartEpoch || denoiseReviewVariant !== path || !chart.isConnected) return;
-    const rows = denoiseReviewChartRows(report);
-    denoiseReviewEntries = rows;
-    const parts = document.createDocumentFragment();
-    for (const item of rows) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'denoise-review-bar';
-      button.dataset.drBar = String(item.frame);
+    const response=await fetch('/api/denoise-frame-differences?variant='+encodeURIComponent(path)+'&stage='+options.stage,{cache:'no-store',signal:abort.signal});
+    if(!response.ok) throw new Error('The chart endpoint answered with HTTP '+response.status+'.');
+    const report=await response.json();
+    if(!report?.ok) throw new Error(report?.error || 'The chart is unavailable.');
+    if(!current(ticket)) return;
+    entries=denoiseReviewChartRows(report);
+    const parts=document.createDocumentFragment();
+    for(const item of entries) {
+      const button=document.createElement('button');
+      button.type='button';button.className='denoise-review-bar';button.dataset.drBar=String(item.frame);button.tabIndex=-1;
       button.style.setProperty('--bright-height',item.brightHeight.toFixed(2)+'%');
       button.style.setProperty('--dark-height',item.darkHeight.toFixed(2)+'%');
-      button.title = `Frame ${item.frame+1} · hell +${item.bright.toFixed(2)} · dunkel −${item.dark.toFixed(2)} / 255`;
+      button.title=`Frame ${item.frame+1} · bright +${item.bright.toFixed(2)} · dark −${item.dark.toFixed(2)} / 255`;
       button.setAttribute('aria-label',button.title);
-      button.addEventListener('click', () => denoiseReviewSelectFrame(item.frame, true));
+      button.addEventListener('click',()=>{
+        if(current(ticket)) void options.seek(item.frame);
+      });
       parts.appendChild(button);
     }
     chart.replaceChildren(parts);
-    if (report.sampled) chart.title = 'Bis zu 240 echte Einzelbild-Stichproben, kein vollständiges Filmprotokoll';
-    denoiseReviewHighlight();
-  } catch (error) {
-    if (ticket === denoiseReviewChartEpoch && chart.isConnected)
-      denoiseReviewElement('chart-status').textContent = 'Diagramm nicht verfügbar: ' + error.message;
+    chart.title=report.sampled ? 'Up to 240 real frame samples, not a complete film scan' : 'Click a bar to move the shared comparison frame';
+    highlight();
+  }catch(error) {
+    if(current(ticket) && status && error?.name!=='AbortError') status.textContent='Chart unavailable: '+denoiseReviewErrorText(error);
   }
 }
 
-function denoiseReviewLoadImage(src) {
-  return new Promise((resolve,reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('Einzelbilddatei nicht verfügbar.'));
-    image.src = '/media?path=' + encodeURIComponent(src);
+  chart?.addEventListener('keydown',event=>{
+    const keys={ArrowLeft:-1,ArrowRight:1,Home:0,End:0,PageUp:-10,PageDown:10};
+    if(!(event.key in keys)) return;
+    const bars=[...chart.querySelectorAll('[data-dr-bar]')];
+    if(!bars.length) return;
+    const selected=Math.max(0,bars.findIndex(bar=>bar.tabIndex===0));
+    const next=event.key==='Home' ? 0 : event.key==='End' ? bars.length-1
+      : Math.max(0,Math.min(bars.length-1,selected+keys[event.key]));
+    event.preventDefault();bars[next].focus();bars[next].click();
+  },{signal:events.signal});
+  return {highlight,reconcile(){
+    const selection=options.selection(),next=JSON.stringify([selection.path,selection.identity]);
+    if(next===key || destroyed) return;
+    key=next;path=selection.path;epoch++;abort?.abort();entries=[];
+    chart?.replaceChildren();
+    if(status) status.textContent=path ? 'Calculating luminance changes…' : 'Choose a finished variant.';
+    options.changed(path);
+    if(path) void loadChart(epoch);
+  },destroy(){destroyed=true;epoch++;abort?.abort();events.abort();}};
+}
+
+function denoiseReviewLoadImage(path) {
+  return new Promise((resolve,reject)=>{
+    if(typeof path!=='string' || !path) {reject(new Error('The server did not return a still image path.'));return;}
+    const image=new Image();
+    image.onload=()=>resolve(image);
+    image.onerror=()=>reject(new Error('The decoded still image could not be loaded.'));
+    image.src='/media?path='+encodeURIComponent(path);
   });
 }
 
-function denoiseReviewSetDiffMode(mode) {
-  denoiseReviewDiffMode = ['direction','rgb'].includes(mode) ? mode : 'direction';
-  denoiseReviewRefreshDiff();
-}
-
-function denoiseReviewSetDiffContrast(n) {
-  denoiseReviewDiffContrast = [8,32,64].includes(Number(n)) ? Number(n) : 32;
-  denoiseReviewRefreshDiff();
-}
-
-function denoiseReviewRefreshDiff() {
-  if (!denoiseReviewImagePair || !denoiseReviewRoot()?.isConnected) return;
-  try { denoiseReviewRenderDiff(denoiseReviewImagePair.before,denoiseReviewImagePair.after); }
-  catch (error) {
-    const readout = denoiseReviewElement('readout');
-    if (readout) readout.textContent = 'Differenzansicht: ' + error.message;
+function denoiseReviewPixels(pair, mode, contrast) {
+  const canvas=document.createElement('canvas');
+  canvas.width=pair.before.naturalWidth;canvas.height=pair.before.naturalHeight;
+  const context=canvas.getContext('2d',{willReadFrequently:true});
+  if(!context) throw new Error('This browser cannot provide a difference canvas.');
+  context.drawImage(pair.before,0,0);
+  const a=context.getImageData(0,0,canvas.width,canvas.height);
+  context.drawImage(pair.after,0,0);
+  const b=context.getImageData(0,0,canvas.width,canvas.height);
+  if(!pair.metrics) {
+    const measured=cleanupDifferencePixels(a.data,b.data,canvas.width,canvas.height,8);
+    pair.metrics={mean:measured.mean,changedPercent:measured.changedPercent};
   }
+  const pixels=comparisonContrastPixels(a.data,b.data,canvas.width,canvas.height,mode,contrast);
+  context.putImageData(new ImageData(pixels,canvas.width,canvas.height),0,0);
+  return canvas;
 }
 
-function denoiseReviewRenderDiff(before,after) {
-  const width = before.naturalWidth, height = before.naturalHeight;
-  if (!(width > 0 && height > 0) || width !== after.naturalWidth || height !== after.naturalHeight)
-    throw new Error('Nicht deckungsgleiche Einzelbilder.');
-  // Identical pixel metric to Clean Up. Use only decoded original images;
-  // separate A/B/C playback previews are lossy H.264 and not measured here.
-  const canvas = document.createElement('canvas');
-  canvas.width = width; canvas.height = height;
-  const ctx = canvas.getContext('2d',{willReadFrequently:true});
-  if (!ctx) throw new Error('2D-Canvas ist nicht verfügbar.');
-  ctx.drawImage(before,0,0);
-  const a = ctx.getImageData(0,0,width,height);
-  ctx.clearRect(0,0,width,height);
-  ctx.drawImage(after,0,0);
-  const b = ctx.getImageData(0,0,width,height);
-  const diff = cleanupDifferencePixels(a.data,b.data,width,height,8);
-  // Only the shown pixels change; mean and changed-percent use the original
-  // unamplified measurements (same as the existing Deflicker inspector).
-  const visible = comparisonContrastPixels(a.data,b.data,width,height,
-    denoiseReviewDiffMode,denoiseReviewDiffContrast);
-  const output = denoiseReviewElement('difference');
-  output.width = width; output.height = height;
-  output.getContext('2d').putImageData(new ImageData(visible,width,height),0,0);
-  const readout = denoiseReviewElement('readout');
-  if (readout) readout.textContent =
-    `Mittlere absolute Luminanzdifferenz: ${diff.mean.toFixed(2)} / 255 · Pixel mit |ΔY| ≥ 1: ${diff.changedPercent.toFixed(2)} % · Anzeige ${denoiseReviewDiffContrast}× + Gamma. Kornbeurteilung separat vornehmen.`;
-  const caption = denoiseReviewElement('diff-caption');
-  if (caption) caption.textContent = comparisonContrastCaption(denoiseReviewDiffMode);
-}
-
-function denoiseReviewAlignVideo(frame) {
-  if (!(denoiseReviewFps>0)) return;
-  const t = frame / denoiseReviewFps;
-  const delta = t - denoiseCompareStart;
-  if (delta >= 0 && delta < denoiseCompareLength - 0.001) {
-    denoiseCompareSeek(delta);
-  } else {
-    // A long-film frame selected outside the 4-second A/B/C preview:
-    // reload all preview clips at the corresponding source-relative time.
-    denoiseCompareStart = Math.max(0,t-0.5);
-    const st = state?.stages?.find(x => x.key === active);
-    if (st) renderDenoiseComparePlayers(denoiseCompareCandidates(st));
-    const videos = denoiseCompareVideos();
-    for (const video of videos) {
-      video.addEventListener('loadedmetadata', () => {
-        try { video.pause(); video.currentTime = Math.max(0,t-denoiseCompareStart); }
-        catch (_) {}
-      },{once:true});
+function createDenoiseStillReview(host,options) {
+  const state={loading:false,error:'',frame:-1,pairs:new Map()};
+  let epoch=0,key='',inFlight=false,pending=null,destroyed=false,drag=null,loadAbort=null;
+  const wipes=options.wipes || new Map(),abort=new AbortController();
+  function clear(retained=new Map()) {
+    for(const [slot,pair] of state.pairs) if(retained.get(slot)!==pair && pair.difference) {pair.difference.width=0;pair.difference.height=0;}
+    state.pairs=retained;options.measured?.(null);
+  }
+  function current(ticket) {return !destroyed && ticket===epoch && options.playback().state.exact && host.isConnected;}
+  function notify() {options.changed();}
+  function updateWipes() {
+    host.querySelectorAll('[data-ds-wipe]').forEach(handle=>{
+      const slot=Number(handle.dataset.dsWipe),canvas=host.querySelector(`[data-dp-canvas="${slot}"]`);
+      const enabled=options.playback().state.exact && !state.loading && !state.error && state.pairs.has(slot) && options.view(slot)==='wipe';
+      handle.hidden=!enabled;
+      if(!enabled || !canvas) return;
+      const percent=wipes.get(slot) ?? 50,rect=canvas.getBoundingClientRect();
+      const bounds=canvas.closest('.denoise-compare-video-wrap').getBoundingClientRect();
+      const left=rect.left-bounds.left+rect.width*percent/100;
+      handle.style.left=left+'px';
+      handle.hidden=left<0 || left>bounds.width;
+      handle.setAttribute('aria-valuenow',String(percent));
+      handle.setAttribute('aria-valuetext',comparisonWipeVisibleState(percent,'RESULT','en').replaceAll('ORIGINAL',options.reference?.()==='original' ? 'ORIGINAL SOURCE' : 'STAGE INPUT'));
+      const grip=handle.firstElementChild;
+      if(grip) grip.style.opacity=String(comparisonWipeGripOpacity(rect.width,grip.offsetWidth||120,percent));
+    });
+  }
+  function draw() {
+    const playback=options.playback().state;
+    if(!playback.exact || state.loading || state.error || state.frame!==playback.frame) {updateWipes();return;}
+    const reference=state.pairs.values().next().value;
+    if(!reference) return;
+    const paint=(slot,pair,mode)=>{
+      const canvas=host.querySelector(`[data-dp-canvas="${slot}"]`);
+      if(!canvas) return;
+      const width=pair.before.naturalWidth,height=pair.before.naturalHeight;
+      if(canvas.width!==width || canvas.height!==height) {canvas.width=width;canvas.height=height;}
+      const context=canvas.getContext('2d',{alpha:false});
+      if(mode==='difference') {
+        const diffKey=options.diffMode()+'|'+options.contrast();
+        if(pair.diffKey!==diffKey) {
+          if(pair.difference) {pair.difference.width=0;pair.difference.height=0;}
+          pair.difference=denoiseReviewPixels(pair,options.diffMode(),options.contrast());pair.diffKey=diffKey;
+        }
+        context.drawImage(pair.difference,0,0);
+      }else {
+        context.drawImage(mode==='original' || mode==='wipe' ? pair.before : pair.after,0,0);
+        if(mode==='wipe') {
+          const edge=Math.round(width*(wipes.get(slot) ?? 50)/100);
+          if(edge<width) context.drawImage(pair.after,edge,0,width-edge,height,edge,0,width-edge,height);
+        }
+      }
+      canvas.dataset.dpFrame=String(state.frame);canvas.dataset.dpQuality='exact';
+      options.measured?.(pair.metrics,slot);
+    };
+    try {
+      paint(0,reference,'original');
+      for(const [slot,pair] of state.pairs) if(slot) paint(slot,pair,options.view(slot));
+      options.painted();updateWipes();
+    }catch(error) {state.error=denoiseReviewErrorText(error);notify();}
+  }
+  async function load(request) {
+    inFlight=true;
+    loadAbort=new AbortController();
+    const pairs=new Map();
+    try {
+      let reference=null;
+      for(const item of request.items) {
+        const {slot,path,key}=item;
+        if(!current(request.ticket)) return;
+        const cached=state.pairs.get(slot);
+        if(cached?.key===key) {
+          if(reference && ['before','frames','fps','width','height'].some(name=>reference[name]!==cached.info[name]))
+            throw new Error('The exact comparison variants have different frame mappings.');
+          pairs.set(slot,cached);reference=cached.info;continue;
+        }
+        const response=await fetch('/api/denoise-inspector?variant='+encodeURIComponent(path)+'&frame='+request.frame+'&stage='+encodeURIComponent(options.stage?.() || 'denoise')+'&reference='+encodeURIComponent(options.reference?.() || 'input'),{cache:'no-store',signal:loadAbort.signal});
+        if(!response.ok) throw new Error('The inspection endpoint answered with HTTP '+response.status+'.');
+        const data=await response.json();
+        if(!data?.ok) throw new Error(data?.error || 'The exact frame is unavailable.');
+        if(data.exact!==true || data.frame!==request.frame || !Number.isInteger(data.frames) || data.frames<1 || data.frames>2147483647 ||
+          data.frame>=data.frames || !(data.fps>0 && Number.isFinite(data.fps)) || !Number.isInteger(data.width) || data.width<1 ||
+          !Number.isInteger(data.height) || data.height<1 || typeof data.before!=='string' || !data.before || typeof data.after!=='string' || !data.after)
+          throw new Error('The server returned invalid exact-frame metadata.');
+        if(reference && ['before','frames','fps','width','height'].some(name=>reference[name]!==data[name]))
+          throw new Error('The exact comparison variants have different frame mappings.');
+        if(!current(request.ticket)) return;
+        const before=reference ? pairs.values().next().value.before : await denoiseReviewLoadImage(data.before);
+        const after=data.after===data.before ? before : await denoiseReviewLoadImage(data.after);
+        if([before,after].some(image=>image.naturalWidth!==data.width || image.naturalHeight!==data.height))
+          throw new Error('The decoded still dimensions do not match the frame metadata.');
+        if(!current(request.ticket)) return;
+        const pair={before,after,metrics:null,difference:null,diffKey:'',key,info:data};
+        if(slot) {
+          pair.difference=denoiseReviewPixels(pair,options.diffMode(),options.contrast());
+          pair.diffKey=options.diffMode()+'|'+options.contrast();
+        }
+        pairs.set(slot,pair);reference=data;
+      }
+      if(!current(request.ticket)) return;
+      state.pairs=pairs;state.frame=request.frame;state.loading=false;state.error='';
+      if(reference) options.metadata?.(reference);
+      draw();notify();
+    }catch(error) {
+      if(current(request.ticket)) {state.loading=false;state.error=denoiseReviewErrorText(error);clear();notify();}
+    }finally {
+      if(state.pairs!==pairs) for(const [slot,pair] of pairs) if(state.pairs.get(slot)!==pair && pair.difference) {pair.difference.width=0;pair.difference.height=0;}
+      inFlight=false;
+      const next=pending;pending=null;
+      if(next && current(next.ticket)) void load(next);
     }
-    const control = document.getElementById('denoiseCompareStart');
-    if (control) control.value = String(denoiseCompareStart);
   }
-}
-
-async function denoiseReviewSelectFrame(frame, syncVideos = false) {
-  const path = denoiseReviewVariant;
-  const requested = Math.max(0,Math.min(denoiseReviewCount ? denoiseReviewCount-1 : Number.MAX_SAFE_INTEGER,
-    Math.round(Number(frame) || 0)));
-  const ticket = ++denoiseReviewEpoch;
-  const status = denoiseReviewElement('status');
-  if (!status) return;
-  status.textContent = `Dekodiere Frame ${requested+1} …`;
-  try {
-    const response = await fetch('/api/denoise-inspector?variant=' + encodeURIComponent(path) +
-      '&frame=' + requested,{cache:'no-store'});
-    if (!response.ok) throw new Error('Serverfehler '+response.status);
-    const data = await response.json();
-    if (!data.ok || !data.exact) throw new Error(data.error || 'Exakter Frame nicht verfügbar.');
-    const [original, processed] = await Promise.all([
-      denoiseReviewLoadImage(data.before),denoiseReviewLoadImage(data.after)
-    ]);
-    if (ticket !== denoiseReviewEpoch || path !== denoiseReviewVariant || !denoiseReviewRoot()?.isConnected) return;
-    denoiseReviewCount = Number(data.frames);
-    denoiseReviewFps = Number(data.fps);
-    denoiseReviewFrame = Number(data.frame);
-    denoiseReviewElement('before').src = original.src;
-    denoiseReviewElement('after').src = processed.src;
-    denoiseReviewElement('wipe-before').src = original.src;
-    denoiseReviewElement('wipe-after').src = processed.src;
-    denoiseReviewImagePair = {before:original,after:processed};
-    const wipe = denoiseReviewElement('wipe-picture');
-    if (wipe) wipe.style.aspectRatio = `${data.width} / ${data.height}`;
-    const slider = denoiseReviewElement('timeline');
-    slider.disabled = false; slider.max = String(data.frames-1);
-    slider.value = String(data.frame);
-    for(const key of ['prev','prev10','next','next10'])
-      denoiseReviewElement(key).disabled = false;
-    status.textContent = `Exakt: Frame ${data.frame+1}/${data.frames} · ${(data.frame/data.fps).toFixed(3)} s · ${data.width}×${data.height}`;
-    denoiseReviewSetZoom(denoiseReviewZoom);
-    try { denoiseReviewRenderDiff(original,processed); }
-    catch(error) { denoiseReviewElement('readout').textContent = 'Pixeldifferenz nicht verfügbar: '+error.message; }
-    denoiseReviewHighlight();
-    if (syncVideos) denoiseReviewAlignVideo(denoiseReviewFrame);
-  } catch(error) {
-    if (ticket === denoiseReviewEpoch && status.isConnected)
-      status.textContent = 'Einzelbildansicht: ' + error.message;
+  function reconcile(retry=false) {
+    const playback=options.playback().state,slots=options.slots();
+    const items=slots.map(slot=>({slot,path:options.path(slot),key:JSON.stringify([playback.frame,options.identity(slot),options.path(slot)])}));
+    const next=playback.exact ? JSON.stringify(items.map(item=>[item.slot,item.key])) : 'preview';
+    if(!retry && next===key) {if(playback.exact) draw();return;}
+    const retained=new Map();
+    if(playback.exact && !retry) for(const item of items) {
+      const pair=state.pairs.get(item.slot);
+      if(pair?.key===item.key) retained.set(item.slot,pair);
+    }
+    key=next;epoch++;loadAbort?.abort();pending=null;clear(retained);state.frame=-1;state.error='';
+    state.loading=Boolean(playback.exact && slots.length);
+    if(state.loading) {
+      const request={frame:playback.frame,items,ticket:epoch};
+      if(inFlight) pending=request;else void load(request);
+    }
+    updateWipes();notify();
   }
-}
-
-function denoiseReviewStart() {
-  const root = denoiseReviewRoot();
-  if (!root || !root.querySelector('[data-dr-variant]')) return;
-  denoiseReviewEpoch++;
-  denoiseReviewChartEpoch++;
-  denoiseReviewCount = 0;
-  denoiseReviewImagePair = null;
-  denoiseReviewEntries = [];
-  root.style.setProperty('--denoise-review-zoom',String(denoiseReviewZoom));
-  for(const [key,delta] of [['prev10',-10],['prev',-1],['next',1],['next10',10]]) {
-    root.querySelector('[data-dr-'+key+']')?.addEventListener('click',() =>
-      denoiseReviewSelectFrame(denoiseReviewFrame+delta,true));
+  function setWipe(slot,value) {wipes.set(slot,Math.max(0,Math.min(100,Number(value)||0)));draw();}
+  host.addEventListener('input',event=>{
+    const slider=event.target.closest('[data-ds-wipe-range]');
+    if(slider) {setWipe(Number(slider.dataset.dsWipeRange),slider.value);notify();}
+  },{signal:abort.signal});
+  host.addEventListener('pointerdown',event=>{
+    const handle=event.target.closest('[data-ds-wipe]');
+    if(!handle || handle.hidden || drag || event.pointerType==='mouse' && event.button!==0) return;
+    event.preventDefault();event.stopPropagation();
+    try {handle.setPointerCapture(event.pointerId);}catch(_) {return;}
+    drag={handle,id:event.pointerId};
+  },{signal:abort.signal,capture:true});
+  host.addEventListener('pointermove',event=>{
+    if(!drag || drag.id!==event.pointerId) return;
+    const slot=Number(drag.handle.dataset.dsWipe),canvas=host.querySelector(`[data-dp-canvas="${slot}"]`);
+    const rect=canvas.getBoundingClientRect();
+    if(rect.width>0) setWipe(slot,100*(event.clientX-rect.left)/rect.width);
+    event.preventDefault();event.stopPropagation();notify();
+  },{signal:abort.signal,capture:true});
+  function end(event) {
+    if(!drag || event.pointerId!=null && event.pointerId!==drag.id) return;
+    const {handle,id}=drag;drag=null;
+    if(handle.hasPointerCapture(id)) handle.releasePointerCapture(id);
   }
-  root.querySelector('[data-dr-timeline]')?.addEventListener('change',event =>
-    denoiseReviewSelectFrame(Number(event.target.value),true));
-  const picture = denoiseReviewElement('wipe-picture');
-  if (picture) {
-    const setFromPointer = event => {
-      const bounds = picture.getBoundingClientRect();
-      if (bounds.width <= 0) return;
-      const percent = Math.round(100 * (event.clientX - bounds.left) / bounds.width);
-      denoiseReviewSetWipe(Math.max(0, Math.min(100, percent)));
-    };
-    picture.addEventListener('pointerdown', event => {
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
-      event.preventDefault();
-      picture.setPointerCapture(event.pointerId);
-      setFromPointer(event);
-    });
-    picture.addEventListener('pointermove', event => {
-      if (picture.hasPointerCapture(event.pointerId)) setFromPointer(event);
-    });
-    const endDrag = event => {
-      if (picture.hasPointerCapture(event.pointerId)) picture.releasePointerCapture(event.pointerId);
-    };
-    picture.addEventListener('pointerup', endDrag);
-    picture.addEventListener('pointercancel', endDrag);
-  }
-  const wipeFold = root.querySelector('.denoise-review-wipe');
-  wipeFold?.addEventListener('toggle', () => { if (wipeFold.open) denoiseReviewSetWipe(denoiseReviewWipe); });
-  denoiseReviewSetWipe(denoiseReviewWipe);
-  void denoiseReviewSelectFrame(denoiseReviewFrame,false);
-  void denoiseReviewLoadChart(denoiseReviewVariant);
+  for(const name of ['pointerup','pointercancel','lostpointercapture']) host.addEventListener(name,end,{signal:abort.signal,capture:true});
+  if(typeof window!=='undefined') window.addEventListener('blur',end,{signal:abort.signal});
+  host.addEventListener('keydown',event=>{
+    const handle=event.target.closest('[data-ds-wipe]');
+    const keys={ArrowLeft:-1,ArrowRight:1,PageUp:-10,PageDown:10,Home:0,End:100};
+    if(!handle || !(event.key in keys)) return;
+    event.preventDefault();event.stopPropagation();
+    const slot=Number(handle.dataset.dsWipe);
+    setWipe(slot,event.key==='Home' || event.key==='End' ? keys[event.key] : (wipes.get(slot) ?? 50)+keys[event.key]);notify();
+  },{signal:abort.signal,capture:true});
+  return {state,reconcile,draw,updateWipes,wipe:slot=>wipes.get(slot) ?? 50,
+    destroy(){destroyed=true;epoch++;pending=null;loadAbort?.abort();end({});abort.abort();clear();}};
 }

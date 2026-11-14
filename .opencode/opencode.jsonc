@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "gitnexus": {
+        "type": "local",
+        "command": ["cmd", "/c", "gitnexus", "mcp"],
+        "cwd": ".",
+        "environment": {
+          "PATH": "{env:LOCALAPPDATA}\\Programs\\GitNexus-OpenSSL3\\bin;{env:PATH}"
+        }
+      }
+    }
+  }
+}

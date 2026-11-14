@@ -37,6 +37,14 @@ EXPECTED_GET_ROUTES = {
     "/api/outpaint-frame-mask",
     "/api/outpaint-chunk-preview",
     "/api/outpaint-guide-preview",
+    "/api/denoise-inspector",
+    "/api/stabilization-footprint",
+    "/api/denoise-frame-differences",
+    "/api/denoise-grid-download",
+    "/api/denoise-diff-video",
+    "/api/denoise-playback-video",
+    "/api/cleanup-frame-differences",
+    "/api/frame-inspector",
     "/media",
 }
 
@@ -57,6 +65,12 @@ EXPECTED_POST_ROUTES = {
     "/api/guide-frame-edit-accept", "/api/guide-frame-edit-revert", "/api/guide-paint-save",
     "/api/browse", "/api/browse-global-source", "/api/source-sequence-fps", "/api/overview-clear", "/api/project-save",
     "/api/project-load", "/api/cache-delete",
+    "/api/denoise-batch", "/api/denoise-grid", "/api/denoise-diff",
+    "/api/denoise-playback",
+    "/api/deflicker-batch",
+    "/api/enhancement-batch",
+    "/api/stabilize-batch", "/api/stabilize-adopt",
+    "/api/dust-status", "/api/dust-inspect", "/api/dust-run", "/api/dust-adopt",
 }
 
 
@@ -100,12 +114,97 @@ class _Handler(http_handler.Handler):
 
 
 class HelperBehaviourTests(unittest.TestCase):
+    def test_stabilization_routes_pass_explicit_selection_and_candidate(self):
+        rows = [{'method': 'zoom0', 'preset': 'settings'}]
+        state.APP.run_stabilization_batch = mock.Mock(return_value=(True, 'started'))
+        handler = _Handler('/api/stabilize-batch', {'variants': rows})
+        handler.do_POST()
+        state.APP.run_stabilization_batch.assert_called_once_with(rows)
+        self.assertTrue(handler.responses['json']['ok'])
+        state.APP.adopt_stabilization = mock.Mock(side_effect=ValueError('stale result'))
+        handler = _Handler('/api/stabilize-adopt', {'method': 'zoom0', 'variant': 'old.mkv'})
+        handler.do_POST()
+        state.APP.adopt_stabilization.assert_called_once_with('zoom0', 'old.mkv')
+        self.assertFalse(handler.responses['json']['ok'])
+        self.assertIn('stale result', handler.responses['json']['error'])
+
+    def test_settings_validation_returns_json_error(self) -> None:
+        state.APP.update_settings = mock.Mock(side_effect=ValueError('Stop processing before changing the pipeline order.'))
+        handler = _Handler('/api/settings', {'stage': 'global', 'values': {'preprocessing_order': 'deflicker,denoise,enhancement'}})
+        handler.do_POST()
+        self.assertFalse(handler.responses['json']['ok'])
+        self.assertIn('Stop processing', handler.responses['json']['error'])
+
     def setUp(self) -> None:
         self._real_app = state.APP
         state.APP = FakeApp()
 
     def tearDown(self) -> None:
         state.APP = self._real_app
+
+    def test_denoise_batch_passes_selection_and_preserves_legacy_all_request(self) -> None:
+        state.APP.run_denoise_batch = mock.Mock(return_value=(True, "started"))
+        variants = [{"method": "bm3d", "preset": "strong"}]
+        handler = _Handler("/api/denoise-batch", {"variants": variants})
+        handler.do_POST()
+        state.APP.run_denoise_batch.assert_called_once_with(variants)
+        self.assertTrue(handler.responses["json"]["ok"])
+        state.APP.run_denoise_batch.reset_mock()
+        _Handler("/api/denoise-batch").do_POST()
+        state.APP.run_denoise_batch.assert_called_once_with(None)
+
+    def test_denoise_playback_passes_frame_index_without_coercing_fractional_input(self) -> None:
+        from ai_remaster_gui import denoise_playback
+        handler = _Handler('/api/denoise-playback', {'variant': 'ready.mkv', 'frame': 11400, 'mode': 'rgb', 'contrast': 64})
+        with mock.patch.object(denoise_playback, 'playback_segment', return_value={'url': 'cached.mp4'}) as render:
+            handler.do_POST()
+        render.assert_called_once_with(state.APP, 'ready.mkv', 11400, 'rgb', 64, 'denoise', 'input')
+        self.assertEqual(handler.responses['json'], {'ok': True, 'url': 'cached.mp4'})
+
+    def test_denoise_playback_video_rejects_unknown_tokens(self) -> None:
+        handler = _Handler('/api/denoise-playback-video?token=../../unrelated.mp4')
+        handler.do_GET()
+        self.assertEqual(handler.responses['error'], 404)
+
+    def test_dust_mask_playback_forwards_saved_options_without_a_repair(self):
+        from ai_remaster_gui import denoise_playback
+        values={'detector':'temporal','repair':'telea'}
+        handler=_Handler('/api/denoise-playback',{'stage':'dust','frame':7,'mask_values':values})
+        with mock.patch.object(denoise_playback,'playback_segment',return_value={}) as call:
+            handler.do_POST()
+        call.assert_called_once_with(state.APP,'',7,'direction',32,'dust','input',mask_values=values)
+
+    def test_shared_inspector_chart_and_playback_forward_deflicker_stage(self) -> None:
+        from ai_remaster_gui import denoise_playback
+        for route, symbol, args in (("/api/denoise-inspector?variant=ready.mkv&frame=7&stage=deflicker", "inspect_denoise", (state.APP, "ready.mkv", 7, "deflicker", 'input')),
+                                    ("/api/denoise-frame-differences?variant=ready.mkv&stage=deflicker", "denoise_frame_differences", (state.APP, "ready.mkv", "deflicker"))):
+            with self.subTest(route=route), mock.patch.object(http_handler, symbol, return_value={}) as call:
+                _Handler(route).do_GET()
+                call.assert_called_once_with(*args)
+        with mock.patch.object(denoise_playback, "playback_segment", return_value={}) as call:
+            _Handler('/api/denoise-playback', {'variant':'ready.mkv','frame':7,'stage':'deflicker'}).do_POST()
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'deflicker', 'input')
+        state.APP.run_deflicker_batch = mock.Mock(return_value=(True, "started"))
+        rows = [{"method":"ffmpeg_median", "preset":"settings"}]
+        handler = _Handler('/api/deflicker-batch', {'variants':rows})
+        handler.do_POST()
+        state.APP.run_deflicker_batch.assert_called_once_with(rows)
+        self.assertEqual(handler.responses['json']['state'], {'_view':'deflicker'})
+
+    def test_enhancement_subset_and_shared_media_keep_their_stage(self) -> None:
+        from ai_remaster_gui import denoise_playback
+        rows = [{'method': 'nafnet', 'preset': 'settings'}]
+        state.APP.run_enhancement_batch = mock.Mock(return_value=(True, 'started'))
+        handler = _Handler('/api/enhancement-batch', {'variants': rows})
+        handler.do_POST()
+        state.APP.run_enhancement_batch.assert_called_once_with(rows)
+        self.assertEqual(handler.responses['json']['state'], {'_view': 'enhancement'})
+        with mock.patch.object(denoise_playback, 'playback_segment', return_value={}) as call:
+            _Handler('/api/denoise-playback', {'variant': 'ready.mkv', 'frame': 7, 'stage': 'enhancement'}).do_POST()
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'direction', 32, 'enhancement', 'input')
+        with mock.patch.object(http_handler, 'inspect_denoise', return_value={}) as call:
+            _Handler('/api/denoise-inspector?variant=ready.mkv&frame=7&stage=enhancement').do_GET()
+            call.assert_called_once_with(state.APP, 'ready.mkv', 7, 'enhancement', 'input')
 
     def test_send_result_success_merges_dict_and_state(self) -> None:
         with mock.patch.object(http_handler, "merge_manifest_shots", return_value={"merged": 2}):
@@ -251,7 +350,7 @@ class StateLockTests(unittest.TestCase):
         app.files_for = MethodType(lambda self, stage: [], app)
         app.active_stages = MethodType(lambda self: (), app)
         app.progress = MethodType(lambda self: [], app)
-        app.phase_progress = MethodType(lambda self: {"global": {"percent": 0, "label": "Waiting"}, "stages": []}, app)
+        app.phase_progress = MethodType(lambda self, progress_rows=None: {"global": {"percent": 0, "label": "Waiting"}, "stages": []}, app)
         app.expected_outputs = MethodType(lambda self, key: [], app)
         app.existing_outputs = MethodType(lambda self, key: [], app)
         app.upscale_preview_state = MethodType(lambda self: {}, app)

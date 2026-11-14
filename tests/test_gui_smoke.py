@@ -426,8 +426,11 @@ class GuiSmokeTests(unittest.TestCase):
 
     def test_stabilization_page_preserves_its_video_during_polling(self) -> None:
         core = (app.ROOT / "ai_remaster_gui" / "static" / "js" / "core.js").read_text(encoding="utf-8")
-
-        self.assertEqual(core.count("['cleanup', 'stabilize', 'outpaint'"), 2)
+        renderer = (app.ROOT / 'ai_remaster_gui/static/js/render-denoise.js').read_text(encoding='utf-8')
+        helpers = (app.ROOT / 'ai_remaster_gui/static/js/render-helpers.js').read_text(encoding='utf-8')
+        self.assertIn("isRestorationComparison() && document.querySelector('.denoise-workspace')", core)
+        self.assertRegex(renderer, r"function isRestorationComparison\(\).*'stabilize'")
+        self.assertIn("if (st.key === 'stabilize') return drawDenoise(st, s, expected, sp);", helpers)
 
     def test_cleanup_page_wires_the_shared_before_after_player(self) -> None:
         helpers = (app.ROOT / "ai_remaster_gui" / "static" / "js" / "render-helpers.js").read_text(encoding="utf-8")
@@ -3077,6 +3080,8 @@ class GuiSmokeTests(unittest.TestCase):
         package_name = "arp_test_ltxvideo"
         comfy_dir = app.ROOT / "tools" / "comfyui"
         package_dir = app.ROOT / "tools" / "comfyui" / "custom_nodes" / "ComfyUI-LTXVideo"
+        if not (package_dir / "pyramid_blending.py").is_file() or not (comfy_dir / "comfy").is_dir():
+            self.skipTest("ComfyUI and ComfyUI-LTXVideo are not installed in tools/comfyui")
         package = types.ModuleType(package_name)
         package.__path__ = [str(package_dir)]
         sys.modules[package_name] = package
@@ -6595,6 +6600,7 @@ class GuiSmokeTests(unittest.TestCase):
 
             with (
                 mock.patch.object(outpaint_guides, "outpaint_chunks_state", return_value=fake_state),
+                mock.patch.object(app.APP, "outpaint_source_for", return_value="input/example.mp4"),
                 mock.patch.object(outpaint_guides, "pipeline_source_text", return_value="input/example.mp4"),
                 mock.patch.object(outpaint_guides, "ensure_outpaint_prepared_canvas", return_value=prepared),
                 mock.patch.object(outpaint_guides, "chunk_frame_preview", return_value=app.rel(source_frame)),

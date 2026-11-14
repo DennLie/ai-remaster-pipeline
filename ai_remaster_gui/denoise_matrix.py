@@ -47,8 +47,12 @@ def parse_frames(text: str, count: int) -> list[int]:
 
 
 def validate_variants(rows: list[dict]) -> None:
-    if not 1 <= len(rows) <= 9:
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 9:
         raise ValueError("Expected 1–9 Remove Noise variants.")
+    if any(not isinstance(row, dict) or
+           not isinstance(row.get("method"), str) or
+           not isinstance(row.get("preset"), str) for row in rows):
+        raise ValueError("Expected Remove Noise method and preset pairs.")
     keys = [(row.get("method"), row.get("preset")) for row in rows]
     if len(set(keys)) != len(keys) or any(key not in VARIANTS for key in keys):
         raise ValueError("Unsupported or duplicate Remove Noise variant.")
@@ -258,8 +262,6 @@ def main() -> None:
         raise ValueError("Expected array of method/preset rows.")
     validate_variants(rows)
     if args.job == "batch":
-        if len(rows) != len(VARIANTS) or {(r["method"], r["preset"]) for r in rows} != set(VARIANTS):
-            raise ValueError("A full batch must include all 9 variants.")
         batch(source, rows, args.profile)
     else:
         frames = json.loads(args.frames)

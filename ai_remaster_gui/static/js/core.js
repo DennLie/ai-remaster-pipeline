@@ -5,6 +5,11 @@ let lastRenderSignature = '';
 let lastOutpaintVisualSignature = '';
 let lastSeenLogCount = null;
 let quitting = false;
+let tabEpoch = 0;
+let tabLoading = false;
+let refreshEpoch = 0;
+let refreshApplied = 0;
+let pipelineNavSignature = '';
 
 const media = path => '/media?path=' + encodeURIComponent(path);
 const mediaClip = (path, start, end, key) => (
@@ -24,12 +29,26 @@ async function api(path, opts = {}) {
 }
 
 async function refresh(force = false) {
-  if (quitting) return;
+  if (quitting || tabLoading) return;
+  const tab=active,epoch=tabEpoch,request=++refreshEpoch;
   const snap = captureScrollState();
   const editing = isEditingField();
   const mediaActive = hasMediaOnPage();
 
-  state = await api(stateUrl());
+  const nextState = await api(stateUrl());
+  if(tab!==active || epoch!==tabEpoch || request<refreshApplied) return;
+  refreshApplied=request;
+  state = nextState;
+  const runStatus=document.getElementById('workbenchRunStatus');
+  if(runStatus) {
+    runStatus.textContent=state.running ? state.running_stage : state.queue_running ? 'Queue running' : 'Idle';
+    runStatus.title=runStatus.textContent;
+  }
+  const stopButton=document.querySelector('.header-actions .warn');
+  if(stopButton) stopButton.disabled=!state.running && !state.queue_running;
+  syncWorkflowOrderControls();
+  const navSignature=JSON.stringify([state.stages.map(item=>item.key),state.settings.global.pipeline_order,state.settings.global.video_order,state.settings.global.preprocessing_order,Boolean(state.running || state.queue_running)]);
+  if(navSignature!==pipelineNavSignature) { pipelineNavSignature=navSignature;drawTabs(); }
   pruneSelected();
   if (!availableTabs().includes(active)) active = 'global';
   notifyNewLogErrors();
@@ -53,6 +72,7 @@ async function refresh(force = false) {
   }
   // The section clip just finished: replace the loading shell with the real page.
   if (active === 'outpaint' && document.querySelector('#app > .outpaint-loading')) force = true;
+  if (document.querySelector('#app > .stage-loading')) force = true;
   if (!force && active === 'global' && document.getElementById('app')?.children.length) {
     updateOverviewDynamicStatus();
     updateRunLogs();
@@ -81,6 +101,18 @@ async function refresh(force = false) {
     return;
   }
 
+  // The matrix owns membership; reconcile only changed tiles, even when no output exists yet.
+  if(active==='dust' && document.querySelector('[data-dust-catalog]')?.dataset.dustCatalog!==dustCatalog() && !editing) {
+    drawDust(state.stages.find(s=>s.key==='dust'));lastRenderSignature=sig;return;
+  }
+  if (!force && isRestorationComparison() && document.querySelector('.denoise-workspace')) {
+    updateDenoiseMatrixStatus();
+    if(active==='dust') dustUpdateStatus?.();
+    updateRunLogs();
+    lastRenderSignature = sig;
+    return;
+  }
+
   if (!force && !editing && active === 'references' && document.getElementById('app')?.children.length) {
     updateReferencesDynamicStatus();
     updateRunLogs();
@@ -94,7 +126,7 @@ async function refresh(force = false) {
     updateOutpaintGuidePreviews();
     updateOutpaintRawPreviews();
     updateRunLogs();
-    if (active === 'denoise') updateDenoiseMatrixStatus();
+    if (isRestorationComparison()) updateDenoiseMatrixStatus();
     if (active === 'outpaint') updateOutpaintRuntimeControls();
     lastRenderSignature = sig;
     lastOutpaintVisualSignature = currentOutpaintVisualSignature;
@@ -120,6 +152,9 @@ function renderSignature() {
     existing_outputs: state.existing_outputs,
     cleanup_comparison: state.cleanup_comparison,
     denoise_matrix: state.denoise_matrix,
+    deflicker_matrix: state.deflicker_matrix,
+    enhancement_matrix: state.enhancement_matrix,
+    stabilize_matrix: state.stabilize_matrix,
     stabilization_comparison: state.stabilization_comparison,
     detail_comparison: state.detail_comparison,
     reference_luminance: state.reference_luminance,
@@ -195,7 +230,10 @@ function statusDetail(item) {
 function updateStickyOffsets() {
   const header = document.querySelector('header');
   if (!header) return;
-  document.documentElement.style.setProperty('--header-height', `${Math.ceil(header.getBoundingClientRect().height)}px`);
+  const height=Math.ceil(header.getBoundingClientRect().height),tabs=document.getElementById('tabs');
+  const chromeHeight=height+(tabs && !header.contains(tabs) ? Math.ceil(tabs.getBoundingClientRect().height) : 0);
+  document.documentElement.style.setProperty('--header-height', `${height}px`);
+  document.documentElement.style.setProperty('--workbench-chrome-height', `${chromeHeight}px`);
 }
 
 window.addEventListener('resize', updateStickyOffsets);
@@ -230,6 +268,10 @@ function updateOverviewDynamicStatus() {
 
   const tableEl = document.getElementById('overviewProgressTable');
   if (tableEl) tableEl.innerHTML = overviewProgressTable();
+  for(const el of document.querySelectorAll('[data-workflow-stage-status]')) {
+    const input=document.getElementById(el.dataset.workflowStageStatus);
+    if(input) el.innerHTML=workflowStageProgressHtml(input.id,input.checked);
+  }
 }
 
 function updateOverviewSectionControlsFromState() {
@@ -263,7 +305,7 @@ function updateOverviewSectionControlsFromState() {
 }
 
 function hasMediaOnPage() {
-  return ['denoise', 'cleanup', 'stabilize', 'detail', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active)
+  return ['denoise', 'deflicker', 'enhancement', 'cleanup', 'stabilize', 'detail', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active)
     ? document.querySelectorAll('video').length > 0
     : false;
 }
@@ -276,7 +318,7 @@ function shouldPreserveInteractiveDom(mediaActive) {
 
   // Normal polling must not recreate video elements while the user is inspecting
   // chunk, shot, or recomposition previews. A manual Refresh still redraws.
-  return ['denoise', 'cleanup', 'stabilize', 'detail', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active);
+  return ['denoise', 'deflicker', 'enhancement', 'cleanup', 'stabilize', 'detail', 'outpaint', 'colour', 'recomp', 'audio', 'upscale', 'output'].includes(active);
 }
 
 function outpaintVisualSignature() {
@@ -388,34 +430,136 @@ function availableTabs() {
 }
 
 function drawTabs() {
-  const names = { global: 'Overview', cache: 'Cached Files', settings: 'Settings' };
+  const names = { global: 'Overview', cache: 'Cached Files', settings: 'Settings', detail: 'Detail Enhancement (legacy)' };
   const tabs = availableTabs().map(tabButton).join('');
   document.getElementById('tabs').innerHTML = tabs;
 
   function tabButton(tab) {
     const label = names[tab] || stage(tab).title;
-    const activeClass = active === tab ? 'active' : '';
+    const isActive = active === tab;
 
-    return `
-      <button class="tab ${activeClass}" onclick="selectTab('${tab}')">
+    const movable=pipelineOrder().includes(tab);
+    const order=pipelineOrder(),index=order.indexOf(tab),busy=state.running || state.queue_running || pipelineOrderPending;
+    return `<span class="pipeline-tab" ${movable ? `data-order-tab="${tab}" draggable="${!busy}" ondragstart="pipelineDragStart(event,'${tab}')" ondragover="event.preventDefault()" ondrop="pipelineDrop(event,'${tab}')"` : 'title="Fixed pipeline position"'}>
+      <button type="button" class="tab ${isActive ? 'active' : ''}" onclick="selectTab('${tab}')"${isActive ? ' aria-current="page"' : ''}>
         ${label}
       </button>
+      ${movable ? `<details class="pipeline-tab-menu" ontoggle="positionPipelineMenu(this)"><summary aria-label="Reorder ${esc(label)}" title="Change processing order"><svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="4" cy="9" r="1"/><circle cx="10" cy="9" r="1"/><circle cx="4" cy="14" r="1"/><circle cx="10" cy="14" r="1"/></svg></summary><div>
+        <button type="button" onclick="movePipelineStage('${tab}',-1)" ${busy || index===0 ? 'disabled' : ''}>Move earlier</button>
+        <button type="button" onclick="movePipelineStage('${tab}',1)" ${busy || index===order.length-1 ? 'disabled' : ''}>Move later</button>
+      </div></details>` : ''}</span>
     `;
   }
 }
 
+let tabRequest=null;
+function showStageLoading(tab,error='') {
+  const title=state?.stages?.find(item=>item.key===tab)?.title || ({global:'Overview',cache:'Cached Files',settings:'Settings'})[tab] || tab;
+  document.getElementById('app').innerHTML=`<section class="card stage-loading" aria-busy="${!error}"><h1>${esc(title)}</h1>
+    <p role="${error ? 'alert' : 'status'}">${esc(error || 'Loading input and result status…')}</p>
+    ${error ? '<button type="button" onclick="selectTab(active)">Try again</button>' : '<output data-tab-loading>Waiting for the server. You can switch to another tab.</output>'}</section>`;
+}
 async function selectTab(tab) {
+  const epoch=++tabEpoch;
+  tabRequest?.abort();const request=new AbortController();tabRequest=request;
+  tabLoading=true;
+  if (isRestorationComparison()) denoiseWorkspaceDeactivate();
   active = tab;
   drawTabs();
   if (tab === 'outpaint') showOutpaintLoadingShell();
   else if (['shots', 'references', 'colour'].includes(tab)) showShotLoadingShell(tab);
-  state = await api(stateUrl());
-  pruneSelected();
-  drawTabs();
-  draw(false);
-  wireColourShotVideos();
-  lastRenderSignature = renderSignature();
-  lastOutpaintVisualSignature = outpaintVisualSignature();
+  else showStageLoading(tab);
+  const started=Date.now();
+  const timer=setInterval(()=>{
+    if(epoch!==tabEpoch) return;
+    const output=document.querySelector('[data-tab-loading]');
+    if(output) output.textContent=`Waiting for server response · ${Math.floor((Date.now()-started)/1000)} s. You can switch tabs.`;
+  },1000);
+  try {
+    const nextState = await api(stateUrl(),{signal:request.signal});
+    if(epoch!==tabEpoch) return;
+    if(!Array.isArray(nextState?.stages)) throw new Error(nextState?.error || 'Invalid server response.');
+    state = nextState;
+    pruneSelected();
+    drawTabs();
+    draw(false);
+    wireColourShotVideos();
+    lastRenderSignature = renderSignature();
+    lastOutpaintVisualSignature = outpaintVisualSignature();
+  } catch(error) {
+    if(epoch===tabEpoch && error?.name!=='AbortError') showStageLoading(tab,'Stage data could not be loaded. '+(error?.message || 'Check the local server.'));
+  } finally {
+    clearInterval(timer);
+    if(tabRequest===request) tabRequest=null;
+    if(epoch===tabEpoch) tabLoading=false;
+  }
+}
+
+let pipelineOrderPending=false;
+function positionPipelineMenu(menu) {
+  if(!menu.open) return;
+  const rect=menu.querySelector('summary').getBoundingClientRect();
+  const popup=menu.querySelector('div');
+  popup.style.top=rect.bottom+'px';
+  popup.style.left=Math.max(8,Math.min(rect.left,innerWidth-180))+'px';
+}
+window.addEventListener('resize',()=>document.querySelectorAll('.pipeline-tab-menu[open]').forEach(positionPipelineMenu));
+function pipelineOrder() {
+  const defaults=['denoise','deflicker','enhancement','cleanup','stabilize','dust','detail'];
+  const tail=['outpaint','shots','references','colour','recomp','audio','upscale'];
+  const complete=state.settings.global.pipeline_order;
+  if(complete) {const order=complete.split(','),all=[...defaults,...tail];return order.length===all.length && new Set(order).size===all.length && order.every(key=>all.includes(key)) ? order : all;}
+  const stored=state.settings.global.video_order;
+  if(stored) {const order=stored.split(',');return [...(order.length===defaults.length && new Set(order).size===defaults.length && order.every(key=>defaults.includes(key)) ? order : defaults),...tail];}
+  const legacy=state.settings.global.preprocessing_order;
+  const order=typeof legacy==='string' ? legacy.split(',') : defaults.slice(0,3);
+  return [...(order.length===3 && new Set(order).size===3 && order.every(key=>defaults.slice(0,3).includes(key)) ? [...order,...defaults.slice(3)] : defaults),...tail];
+}
+function processingInputHtml(key) {
+  const input=state.processing_input || {},parameters=Object.entries(input.parameters || {}).map(([name,value])=>`${name}: ${value}`).join(' · ');
+  return `<p class="pipeline-chain">Source → ${(input.chain || []).map(item=>item.key===key ? `<strong aria-current="step">${esc(item.title)}</strong>` : esc(item.title)).join(' → ')}</p>
+    <p><strong>Stage input:</strong> ${esc(input.label || 'Selected processing input')}</p>
+    <details class="comparison-provenance"><summary>Input provenance${input.from_stage ? ' · Selected for pipeline' : ''}</summary>
+    <p>${esc(parameters)}</p><p class="pipeline-source-path">${esc(input.source || 'No source selected')}</p></details>
+    ${input.problem ? `<p class="inline-warning" role="status">${esc(input.problem)} Previous results do not match this input; render the required upstream result first.</p>` : ''}`;
+}
+function pipelineDragStart(event,key) { event.dataTransfer.setData('text/plain',key); }
+function pipelineDrop(event,target) {
+  event.preventDefault();
+  const key=event.dataTransfer.getData('text/plain'),order=pipelineOrder();
+  if(!order.includes(key)||key===target) return;
+  const position=order.indexOf(target);
+  order.splice(order.indexOf(key),1);order.splice(position,0,key);
+  void savePipelineOrder(order,key);
+}
+function movePipelineStage(key,direction) {
+  const order=pipelineOrder(),index=order.indexOf(key),target=index+direction;
+  if(index<0||target<0||target>=order.length) return;
+  [order[index],order[target]]=[order[target],order[index]];
+  return savePipelineOrder(order,key);
+}
+function syncWorkflowOrderControls() {
+  const order=pipelineOrder(),busy=state.running || state.queue_running || pipelineOrderPending;
+  for(const button of document.querySelectorAll('[data-workflow-order-key]')) {
+    const target=order.indexOf(button.dataset.workflowOrderKey)+Number(button.dataset.workflowOrderDirection);
+    button.disabled=Boolean(busy || target<0 || target>=order.length);
+  }
+}
+async function savePipelineOrder(order,key) {
+  if(state.running || state.queue_running || pipelineOrderPending) return;
+  const project=String(state.project_path || '');
+  const fromTile=document.activeElement?.hasAttribute('data-workflow-order-key');
+  pipelineOrderPending=true;drawTabs();syncWorkflowOrderControls();
+  try {
+    const response=await postJson('/api/settings',{stage:'global',values:{pipeline_order:order.join(',')},project});
+    if(project!==String(state.project_path || '')) return;
+    if(!response?.ok) throw new Error(response?.error || 'Could not change pipeline order.');
+    await refresh(true);
+  } catch(error) { if(project===String(state.project_path || '')) alert(error.message); }
+  finally {
+    pipelineOrderPending=false;drawTabs();syncWorkflowOrderControls();
+    document.querySelector(fromTile ? `[data-workflow-order-key="${key}"]:not(:disabled)` : `[data-order-tab="${key}"] summary`)?.focus();
+  }
 }
 
 // The Outpainting page waits for the trimmed source-section clip, which the server makes in

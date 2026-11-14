@@ -11,6 +11,7 @@ import json
 import math
 import os
 import subprocess
+import threading
 import time
 from fractions import Fraction
 from pathlib import Path
@@ -21,6 +22,7 @@ from .paths import resolve, resolve_video_source
 
 EXTENSIONS = {'.mkv', '.mp4', '.webm', '.mov', '.m4v', '.avi'}
 CACHE = ROOT / '.cache' / 'frame_inspector'
+_METADATA_LOCK = threading.Lock()
 
 
 def _executable(name: str) -> str:
@@ -36,7 +38,9 @@ def _executable(name: str) -> str:
 
 def _metadata(path: Path) -> dict:
     stat = path.stat()
-    return _metadata_cached(str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+    # Simultaneous visible variants must not each scan the same long source.
+    with _METADATA_LOCK:
+        return _metadata_cached(str(path.resolve()), stat.st_size, stat.st_mtime_ns)
 
 
 @lru_cache(maxsize=16)
@@ -66,10 +70,10 @@ def _metadata_cached(path_text: str, _size: int, _mtime_ns: int) -> dict:
             _executable('ffprobe'), '-v', 'error', '-select_streams', 'v:0',
             '-count_frames', '-show_entries', 'stream=nb_read_frames',
             '-of', 'default=noprint_wrappers=1:nokey=1', str(path)
-        ], capture_output=True, text=True, timeout=90, check=True)
+        ], capture_output=True, text=True, timeout=600, check=True)
         count = int(probe.stdout.strip())
-    if count < 1 or count > 150000:
-        raise ValueError('Unsupported length for frame inspection (1–150000 frames).')
+    if count < 1 or count > 2147483647:
+        raise ValueError('Frame count is outside the decoder-supported integer range.')
     return {'width': int(d['width']), 'height': int(d['height']),
             'fps': float(fps), 'fps_fraction': str(fps), 'frames': count}
 

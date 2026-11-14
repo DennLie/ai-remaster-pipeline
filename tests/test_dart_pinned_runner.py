@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,6 +51,7 @@ class ExternalDartRunnerTests(unittest.TestCase):
         self.assertEqual(args[0], str(Path("/venv/python")))
         self.assertIn("--save-masks", args)
         self.assertIn("--save-video", args)
+        self.assertIn('error:invalid value encountered in cast:RuntimeWarning', args)
         self.assertEqual(args[args.index("--max-frames")+1], "72")
         self.assertEqual(args[args.index("--chunk-size")+1], "5")
         with self.assertRaises(ValueError):
@@ -64,6 +66,19 @@ class ExternalDartRunnerTests(unittest.TestCase):
             research.main(["--dart-repo", "unused", "--dart-python", "unused",
                            "--source", "unused", "--output-dir", "unused"])
         self.assertEqual(context.exception.code, 2)
+
+    def test_raft_singleton_geometry_rejected_without_resizing(self):
+        for width,height in ((128,96),(96,128),(1,1)):
+            with self.assertRaisesRegex(ValueError,'128x128'):
+                research.validate_geometry(width,height)
+        research.validate_geometry(256,192)
+        research.validate_geometry(128,128)
+
+    def test_invalid_cast_warning_causes_nonzero_exit_before_publication(self):
+        command=research.build_command(Path(sys.executable),Path('unused'),Path('w'),Path('s'),Path('o'),7,'cuda',7,3)
+        result=subprocess.run(command[:3]+['-c',"import warnings;warnings.warn('invalid value encountered in cast',RuntimeWarning)"],capture_output=True,text=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('invalid value',result.stderr)
 
 
 if __name__ == "__main__":

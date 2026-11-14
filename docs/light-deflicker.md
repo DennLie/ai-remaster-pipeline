@@ -6,7 +6,7 @@ commercially cleared full ARP pipeline.
 
 ## What it does
 
-Light Deflicker estimates a robust brightness value for each source frame,
+The default **ARP Conservative** method estimates a robust brightness value for each source frame,
 compares it to neighboring frames in the **same estimated shot**, and
 applies a **bounded, uniform brightness gain** where there is an isolated
 discrepancy. Unlike a denoiser, it does **not** spatially blur, invent
@@ -15,7 +15,8 @@ It requires only OpenCV, NumPy and FFmpeg; no model checkpoint or GPU.
 
 Safety features:
 
-- **Off by default** (including existing projects).
+- **Off by default** for new projects. Existing enabled Clean Up Deflicker settings
+  migrate to the independent stage without silently disabling the correction.
 - The default `strength=0.65` and `max_correction=0.08` limit
   per-frame intensity gain to at most **8%** brighter or darker.
 - Frames are analyzed in a two-pass process. Exposure estimates use a
@@ -29,10 +30,11 @@ Safety features:
 - A frame-size-preserving scalar RGB gain is applied using an 8-bit
   lookup table. This preserves spatial geometry and avoids a blur filter;
   **per-channel clipping and quantization are still possible**.
-- The clean-up artifact key includes the selected settings and algorithm
+- The Deflicker artifact key includes the selected method-specific settings and algorithm
   version to prevent accidentally reusing an incompatible render.
 - Analysis includes a JSON summary and list of applied per-frame gains
-  in the existing `.cache/cleanup_chunks/<film>_<identity>/` directory.
+  in `.cache/deflicker/<output-stem>/`. Finished masters live in
+  `intermediate/deflickered/` and have a completed provenance sidecar.
 
 **Caveats:** A full-frame brightness adjustment cannot distinguish all
 deliberate flashes or camera autoexposure from film flicker, and some
@@ -42,23 +44,52 @@ or remove noise. Keep a copy of the unmodified archival source.
 
 ## ARP GUI
 
-In **Clean Up**, select *Light Deflicker (conservative; no AI)* and leave
-`Dearchive` and `AI DeScratch` off for a model-free test. A
-Deflicker-only run works without ComfyUI. The additional switches are:
+Enable **Light Deflicker** on Overview, then open its own tab between
+**Remove Noise** and **Clean Up**. It runs independently without ComfyUI.
+There are five existing methods, each compared with its current settings:
 
-- `Deflicker strength`: 0–1, default **0.65**.
-- `Maximum brightness correction`: 0–0.15, default **0.08**.
+- **ARP Conservative**: strength 0–1 (default **0.65**) and maximum
+  brightness correction 0–0.15 (default **0.08**).
+- **FFmpeg Median / Arithmetic Mean**: temporal window **3, 5, 7 or 9** frames
+  (default **5**); ARP strength and correction limit do not apply.
+- **Localized short experiment**: explicit single-shot confirmation, at most
+  **240 frames** and **75 million decoded pixels**. No cuts, fades or intentional
+  exposure changes. Fixed 60% strength and 8% cap.
+- **Localized film streaming**: separate experiment confirmation, at most
+  **five buffered frames**, no fixed film-length limit. Fixed 60% strength and
+  8% cap; cut/fade protection is fallible. Review motion and transitions.
 
-The order of the optional clean-up stages is:
+Selecting methods only includes them in comparison. **Render missing variants**
+explicitly generates the selected missing subset; **Use for pipeline** separately
+adopts one method. Editing parameters invalidates only affected outputs.
+Newly rendered comparisons do not silently change the pipeline selection.
+
+The shared Remove Noise / Deflicker workspace provides a full-input timeline,
+frame-indexed compressed playback, exact 8-bit RGB stills in the same canvases,
+original/result/difference/Wipe views, shared zoom and pan, native **1:1**, and
+an optional pixel grid. Each tab retains its own comparison selection, playhead
+and viewport state during the session. Differences are measured before preview
+compression; preview video itself is not lossless. Long-film charts sample
+at most 240 positions and can miss short artifacts.
+
+**Original is the actual stage input**: the selected Remove Noise output when
+enabled, otherwise the processing source/selected section. It is not always the
+unprocessed original transfer.
+
+The pipeline order is:
 
 ```text
-Source video
-  → Light Deflicker (opt-in, model-free)
-  → DeVignette (opt-in, model-free)
-  → Temporal defect mask proposal (opt-in, diagnostic)
-  → AI DeScratch (optional, ProPainter noncommercial)
-  → Dearchive (optional, LTX subject to separate licensing)
+Source video / selected section
+  → Remove Noise (optional)
+  → Light Deflicker (optional, independent, model-free)
+  → Clean Up (optional: DeVignette, defect masks, AI DeScratch, Dearchive)
+  → Stabilization / Detail / later enabled stages
 ```
+
+Old saved settings and project files retain their algorithm, parameters and
+experiment confirmations. An otherwise empty Deflicker-only Clean Up stage is
+disabled after migration. The GUI no longer sends Deflicker flags to Clean Up,
+so enabling both stages does not apply the correction twice.
 
 This PR changes **no DART/ProPainter/Wan/Qwen** backend or licence rule.
 The opt-in Commercial model guard permits Deflicker-only processing
@@ -68,17 +99,18 @@ FFmpeg binary distribution rights or the underlying film transfer.
 ## CLI
 
 ```bash
-python scripts/cleanup_video.py \
+python scripts/deflicker_video.py \
   --source input/Neighbors-1920-original.webm \
-  --light-deflicker \
-  --deflicker-strength 0.65 \
-  --deflicker-max-correction 0.08 \
-  --no-dearchive \
+  --method arp \
+  --strength 0.65 \
+  --max-correction 0.08 \
   --intermediate-profile lossless
 ```
 
-The lossless profile uses FFV1 for intermediates. The normal Clean Up
-output retains the source geometry, frame cadence and available audio.
+The lossless profile uses FFV1 for intermediates. The stage retains its input
+geometry, frame cadence and available audio. The legacy
+`scripts/cleanup_video.py --light-deflicker ...` CLI remains supported for
+existing scripts; only the GUI has moved to the independent runner.
 
 ## Validation gates
 

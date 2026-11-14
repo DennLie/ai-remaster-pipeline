@@ -154,6 +154,8 @@ Every stage writes predictable intermediate files under `intermediate/`, manifes
 
 **Run Whole Remaster is resumable.** It walks the enabled phases in order. Each producer compares a saved signature containing its effective settings and input fingerprints, reuses matching outputs, and regenerates work whose settings, source files, masks, prompts, guides, or upstream outputs changed. Per-chunk phases retain matching chunks. A phase with **Force** enabled deliberately bypasses reuse and runs again.
 
+**Pipeline order:** Overview arrows and tab handles can now move all fourteen phases, including Outpainting, Shots, References, Colorization, Recomposition, Audio and Upscaling. The first complete reorder starts from your existing ordering and saves it per project. Shots/References/Recomposition have individual tab handles even though Overview groups some workflow choices. Missing predecessors or unmatched video/artifact bindings block processing rather than substituting old results or silently sorting phases back. Existing files are retained on reorder; explicit later rendering follows the backend's normal regeneration policy. See [pipeline order](video-pipeline-order.md) for valid examples, migration and validation limits.
+
 ## Tabs
 
 ### Overview
@@ -182,7 +184,95 @@ When Dearchive is enabled it defaults to 4.04-second chunks (97 frames at 24 fps
 
 ### Stabilization
 
-Optional and off by default. Stabilization uses FFmpeg's two-pass libvidstab filters to estimate and correct translation and rotation. ARP first detects shot boundaries with the same detector used by Reference Generation, then analyses every shot independently so cuts and dissolves are not interpreted as camera movement. An existing user-reviewed shot manifest takes precedence when available. Smoothing, maximum translation/rotation, fixed safety zoom, and shot sensitivity are adjustable; ARP does not use automatic zoom, so framing cannot pulse or silently crop much more than requested. Stabilized masters inherit the global Intermediate Stage Video profile from Settings. Stabilization runs after Clean Up and before Outpainting or Colorization.
+Optional and off by default. Stabilization uses FFmpeg's two-pass libvidstab filters to estimate and correct translation and rotation. ARP detects hard cuts and analyses each detected scene independently. Detection can fail; continuous-shot mode bypasses these resets. The GUI does not use colour-reference sections as camera cuts; the CLI accepts an explicitly authored cut-only manifest. Smoothing, maximum translation/rotation, fixed additional zoom, and shot sensitivity are adjustable. A translation or rotation limit of **0 means unlimited**, not disabled correction. Stabilized masters inherit the global Intermediate Stage Video profile from Settings. Stabilization runs after Clean Up and before Outpainting or Colorization.
+
+The comparison workspace offers **0% additional zoom**, **3% additional zoom**, and **Current pipeline settings** (including existing custom zoom values). The fixed variants override only zoom; all motion settings are identical. Current settings may match either fixed variant, in which case the completed render is reused. Existing projects and the 3% default are unchanged.
+
+Review inspects one result; Labor retains a separate multi-comparison selection. Inspection, reference changes and comparison selection never render or adopt automatically. Confirm missing-variant rendering explicitly, then choose **Use for pipeline** to adopt a finished result. Adoption rechecks its source, parameters, format and matching frame geometry/count. The default reference is the actual stage input, including enabled upstream processing and Clean Up. Original-source comparison is display-only and requires compatible geometry and an aligned source-section timeline. Playback is frame-locked but compressed; Exact still decodes master frames for Difference, Wipe and native 1:1 inspection.
+
+**No additional zoom does not mean no image loss.** Translation and rotation can still move source content outside the output frame or expose black borders; bicubic interpolation changes pixels. A 3% zoom crops the field of view and does not guarantee border-free output. Difference includes geometric changes, not proof of better restoration.
+
+Below the videos, **Stabilization scene report** identifies scenes where correction was applied or the entire scene was re-encoded without stabilization after unreliable tracking. The fallback count remains visible when details are collapsed. This fallback does not mean the scene was successfully stabilized or copied bit-for-bit. Reports are bound to the completed output and its provenance; older cached results without a report say so rather than inventing success. Explicitly rerender the pipeline selection with Force enabled to record a report. Comparison subset batches run locally; choose This computer, or retain RunPod and use Render pipeline selection for the existing remote stage runner.
+
+**Geometric footprint:** new renders also replay the recorded motion analysis on an artificial white canvas. No source brightness threshold is used. With playback paused, choose **Inspect footprint at current frame** to display a separate diagnostic mask: white marks source-supported output pixel centres, black marks coordinates outside the source. The read-only inspection does not render restoration or replay missing diagnostics. It reports valid and missing output percentages separately from estimated cropped source area. libvidstab's planar backward-map scale is `1 - zoom/100`, so a pure 3% fixed zoom with full output coverage retains approximately `0.97²` of the source area (5.91% cropped). Boundary quantization depends on resolution: this is a nearest-sampled raster estimate, **not** continuous polygon area, a source-pixel identity map, chroma coverage or bicubic interpolation-kernel support. It does not measure residual weave or grain/detail quality.
+
+The `<master>.geometry/` folder retains each scene's local-motion analysis, raw global-motion debug file and lossless mask video. `<master>.mkv.geometry.json` records the replay filter, dimensions, scene ranges, per-frame pixel counts, FFmpeg version and provenance/fingerprints. A replay with different global fits is rejected rather than displayed as measured coverage. Safety-fallback scenes use an identity mask without zoom. Missing, stale or changed diagnostic files are unavailable; they never trigger automatic rerendering. Diagnostic replay adds processing and storage; historical long-sequence validation remains a separate task. A source-area estimate is numeric; a separate map of cropped source coordinates is not provided in this version.
+
+### Dust & Scratches (experimental)
+
+Optional and off by default, after Stabilization. Calculate and inspect masks,
+request repair of the saved mask, then explicitly adopt the result. CPU options
+are the unchanged legacy scratch detector, temporal dust proposals and
+experimental windowed Temporal Ridge; Telea is the classical repair control.
+ProPainter uses the same frozen CPU mask. DART is an optional ARP-managed, pinned
+research backend with its own soft masks/full-frame output; only a gated
+composite is adoptable. Commercial model restrictions remain enforced.
+
+The normal interactive `install_windows.bat` asks whether to also install DART.
+Choose **Y** and explicitly acknowledge research-only use and unresolved rights
+to include it. **N / Enter** skips DART and completes normal ARP setup. Declining
+the research confirmation also skips DART, without cancelling the base setup.
+The prompt warns about its separate environment and potentially multi-GB downloads.
+
+**Install DART later** (after the base ARP environment is installed):
+
+```bat
+install_windows.bat -DartOnly
+```
+
+This asks for research-only acknowledgement and installs `tools\dart` with its
+own Python 3.12.9, frozen dependencies and verified weights. It does not change
+ComfyUI, ARP's Python packages or project settings. Leave both DART override
+fields blank; ARP resolves its managed paths automatically. Existing paired
+external overrides remain supported. `install_windows.bat -InstallDart` selects
+DART explicitly instead of showing the optional-component question.
+
+To copy already downloaded, hash-verified weights without changing their source:
+
+```bat
+install_windows.bat -DartOnly -DartWeightsFrom "I:\DART\pretrained_models\dart.safetensors"
+```
+
+Python and dependency downloads are still required for the new isolated runtime
+and can total several GB; no external virtual environment is copied. For
+non-interactive DART-only setup, add `-NonInteractive -AcceptDartResearch`.
+For full non-interactive ARP setup including DART, use
+`install_windows.bat -NonInteractive -InstallDart -AcceptDartResearch`.
+Without explicit `-InstallDart` or `-DartOnly`, non-interactive setup never
+prompts for or installs DART; acknowledgement alone does not select it.
+`-SkipModelDownloads` skips missing DART weights, not Python/dependencies;
+an explicit `-DartWeightsFrom` still permits a verified local copy. Processing
+never installs DART on demand. Setup does not check the workflow's research or
+licence confirmation boxes, enable Dust, start inference or adopt a result.
+
+If Windows blocks publication after a mask calculation, ARP retains the new
+completed analysis and reports its staging path. Release the file lock and retry
+the same input/settings: a valid pending analysis is verified and published
+without another detection/inference run. Incomplete or changed pending data is
+blocked for inspection rather than overwritten. This does not recover files
+already removed by an older failed run's cleanup routine.
+
+The shared Review/Labor workbench compares saved repair candidates. In the left
+inspector, choose Detection. **Calculate mask** creates
+the proposal; **Mask ready / Saved** is a complete outcome without repair. At the
+Stage input, choose **Input / Mask overlay / Mask only**. The magenta overlay has
+display-only opacity. Play also works in Mask overlay and Mask only: saved input
+and mask share one frame-indexed playback reel and the same clock as repair views.
+Playback is compressed; choose Exact still to inspect authoritative mask boundaries.
+Without repair the input fills the viewer. **Create repair…** reveals optional
+repair settings; **Repair masked areas** explicitly creates the repair. Completed
+repairs appear on the right, never tinted by the input overlay, with the shared
+playback, wipe and difference views. No additional generic Render click
+is needed. **Use for pipeline** remains a separate adoption decision. Changing
+settings creates a draft and does not modify saved candidates. Technical mask
+measurements and file links live under the analysis details.
+
+Repair supports the existing 8-bit path
+and selected 10-bit SDR planar formats with lossless native-plane composition;
+model content remains BGR8. Inputs must have constant cadence and zero-origin
+timestamps. DART is limited to short reviewed shots;
+neither neural adapter has been GPU-quality-validated by this implementation.
+See [workflow, constraints and unfinished work](dust-and-scratches-workspace.md).
 
 ### Outpainting
 

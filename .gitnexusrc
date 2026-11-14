@@ -1,0 +1,4 @@
+{
+  "indexOnly": true,
+  "fetchWrappers": ["api", "postJson"]
+}

@@ -13,11 +13,14 @@ function comparisonWipeGripOpacity(pictureWidth, gripWidth, percent) {
 }
 
 // An external label clarifies 0%/100% even when the large grip is hidden.
-function comparisonWipeVisibleState(percent, resultLabel = 'ERGEBNIS') {
+function comparisonWipeVisibleState(percent, resultLabel = 'ERGEBNIS', lang = 'de') {
   const original = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
-  if (original === 0) return `NUR ${resultLabel} · 100 %`;
-  if (original === 100) return 'NUR ORIGINAL · 100 %';
-  return `${original} % ORIGINAL · ${100-original} % ${resultLabel}`;
+  const english = lang === 'en';
+  const only = english ? 'ONLY' : 'NUR';
+  const percentText = value => english ? `${value}%` : `${value} %`;
+  if (original === 0) return `${only} ${resultLabel} · ${percentText(100)}`;
+  if (original === 100) return `${only} ORIGINAL · ${percentText(100)}`;
+  return `${percentText(original)} ORIGINAL · ${percentText(100-original)} ${resultLabel}`;
 }
 
 function comparisonContrastPixels(before, after, width, height, mode = 'direction', amplification = 32) {
@@ -59,7 +62,12 @@ function comparisonContrastPixels(before, after, width, height, mode = 'directio
   return rgba;
 }
 
-function comparisonContrastCaption(mode) {
+function comparisonContrastCaption(mode, lang = 'de') {
+  if (lang === 'en') {
+    return mode === 'rgb'
+      ? 'RGB = absolute channel difference |ΔR|, |ΔG|, |ΔB| · Dark gray = identical pixels. Not a defect mask.'
+      : 'Teal = brightened · Orange = darkened · Dark gray = unchanged. Not a defect mask.';
+  }
   return mode === 'rgb'
     ? 'RGB = absoluter Kanalunterschied |ΔR|, |ΔG|, |ΔB| · Dunkelgrau = identische Pixel. Keine Defektmaske.'
     : 'Türkis = aufgehellt · Orange = abgedunkelt · Dunkelgrau = unverändert. Keine Defektmaske.';
@@ -70,7 +78,6 @@ function comparisonContrastCaption(mode) {
  * Clicking the enlarged picture again closes it. Escape works via dialog.
  */
 const comparisonLightboxSelector =
-  '.denoise-review-media img, .denoise-review-media canvas, ' +
   '.fi-exact-media img, .fi-exact-media canvas, .cleanup-source-still img';
 
 function comparisonLightboxOpen(target) {
@@ -88,17 +95,23 @@ function comparisonLightboxOpen(target) {
   const existing = document.querySelector('.comparison-review-lightbox');
   if (existing) existing.close();
   const previousFocus = document.activeElement;
+  const english = (target.closest('[data-review-lang]')?.dataset?.reviewLang || 'de') === 'en';
   const dialog = document.createElement('dialog');
   dialog.className = 'comparison-review-lightbox';
-  dialog.setAttribute('aria-label', 'Vergrößerte Einzelbildansicht');
-  dialog.innerHTML = `<div class="comparison-lightbox-head">
+  dialog.setAttribute('aria-label', english ? 'Enlarged still review' : 'Vergrößerte Einzelbildansicht');
+  dialog.innerHTML = english ? `<div class="comparison-lightbox-head">
+    <strong data-lightbox-title></strong>
+    <button type="button" data-lightbox-close aria-label="Close enlarged view">Close ×</button>
+  </div>
+  <img data-lightbox-image alt="Enlarged selected still" title="Click again to close">
+  <p>Click the image or Close to return to the review · Esc: close.</p>` : `<div class="comparison-lightbox-head">
     <strong data-lightbox-title></strong>
     <button type="button" data-lightbox-close aria-label="Großansicht schließen">Schließen ×</button>
   </div>
   <img data-lightbox-image alt="Vergrößertes ausgewähltes Einzelbild" title="Erneut klicken zum Schließen">
   <p>Klick ins Bild oder auf Schließen: zurück zur Übersicht · Esc: schließen.</p>`;
   const name = target.closest('figure')?.querySelector('figcaption')?.textContent?.trim()
-    || target.getAttribute('aria-label') || target.getAttribute('alt') || 'Einzelbild';
+    || target.getAttribute('aria-label') || target.getAttribute('alt') || (english ? 'Still' : 'Einzelbild');
   dialog.querySelector('[data-lightbox-title]').textContent = name;
   dialog.querySelector('[data-lightbox-image]').src = src;
   dialog.addEventListener('click', event => {

@@ -112,7 +112,16 @@ class RestormerResearchTests(unittest.TestCase):
 
     def test_import_does_not_import_torch_or_execute_external_model(self):
         self.assertTrue(callable(research.load_model))
-        self.assertNotIn("torch", sys.modules)
+        code = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            f"sys.path.insert(0, r'{ROOT / 'scripts'}')\n"
+            "import run_restormer_deblur_research as r\n"
+            "assert callable(r.load_model)\n"
+            "assert 'torch' not in sys.modules, f'torch was imported: {sys.modules.get(\"torch\")}'\n"
+        )
+        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Import isolation check failed: {res.stderr}")
 
 
 if __name__ == "__main__":

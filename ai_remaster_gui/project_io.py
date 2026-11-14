@@ -10,7 +10,7 @@ from .config import IMAGE_EXTS, ROOT, VIDEO_EXTS
 from . import state
 from .manifests import read_manifest, read_outpaint_chunk_rows
 from .paths import resolve, resolve_video_source, safe_stem
-from .runtime_settings import default_settings, load_settings, normalize_settings
+from .runtime_settings import default_settings, load_settings, normalize_settings, migrate_deflicker_settings
 from .cloud import SECRET_SETTING_KEYS
 
 PROJECT_SCHEMA_VERSION = 2
@@ -97,6 +97,7 @@ def load_project_payload(data: dict) -> dict[str, dict[str, str]]:
     settings = data.get("settings")
     if not isinstance(settings, dict):
         raise RuntimeError("Project file does not contain settings.")
+    settings = migrate_deflicker_settings(settings)
     # A project must hydrate from clean defaults, not from the settings of the project that is
     # currently open.  In particular, projects saved before image-sequence support do not contain
     # source_images/source_sequence_preview; inheriting those fields could make their conventional

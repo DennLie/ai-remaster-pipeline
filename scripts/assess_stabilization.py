@@ -7,6 +7,7 @@ intentional camera pan. No ground-truth transforms are claimed.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 from typing import Any
@@ -90,7 +91,8 @@ def summarize_motion(motion: list[dict[str, Any] | None]) -> dict[str, Any]:
 
 
 def evaluate(source: Path, variants: dict[str, Path], output_dir: Path,
-             *, cut_after_frames: set[int] | None = None) -> dict[str, Any]:
+              *, cut_after_frames: set[int] | None = None,
+              sample_frames: set[int] | None = None) -> dict[str, Any]:
     if not variants:
         raise ValueError("Provide at least one stabilization variant")
     cuts = set(cut_after_frames or ())
@@ -138,7 +140,7 @@ def evaluate(source: Path, variants: dict[str, Path], output_dir: Path,
                     pair = (None if frame_no - 1 in cuts else estimate_motion(previous[name], current[name]))
                     motions[name].append(pair)
                 previous[name] = current[name]
-            if frame_no in (0, 16, 31, 63, 95):
+            if frame_no in (sample_frames if sample_frames is not None else (0, 16, 31, 63, 95)):
                 sheets.append(np.concatenate(
                     [tile(current[name], f"frame {frame_no} | {name}", width=320) for name in names],
                     axis=1
@@ -176,6 +178,14 @@ def evaluate(source: Path, variants: dict[str, Path], output_dir: Path,
         (output_dir / "stabilization_qa.json").write_text(
             json.dumps(result, ensure_ascii=False, indent=2)+"\n", encoding="utf-8"
         )
+        with (output_dir / 'motion_frames.csv').open('w', newline='', encoding='utf-8') as file:
+            writer = csv.DictWriter(file, fieldnames=['frame', 'variant', 'excluded_cut', 'trusted',
+                'tx_px', 'ty_px', 'magnitude_px', 'rotation_deg', 'inlier_ratio', 'inlier_points'])
+            writer.writeheader()
+            for name, rows in motions.items():
+                for index, motion in enumerate(rows, 1):
+                    writer.writerow({'frame': index, 'variant': name, 'excluded_cut': index-1 in cuts,
+                                     'trusted': motion is not None, **(motion or {})})
         return result
     finally:
         for cap, _, _ in handles.values():
