@@ -45,8 +45,8 @@ class DetailEnhancementTests(unittest.TestCase):
         opts = base_settings()
         self.assertEqual(opts["global"]["detail"], "false")
         self.assertEqual(opts["detail"]["method"], "off")
-        self.assertEqual([stage.key for stage in STAGES][:6],
-                         ["denoise", 'deflicker', 'enhancement', "cleanup", "stabilize", "detail"])
+        self.assertEqual([stage.key for stage in STAGES][:7],
+                         ["denoise", 'deflicker', 'enhancement', "cleanup", "stabilize", "dust", "detail"])
         src = str(ROOT / "input" / "synthetic.mkv")
         a = detail_output_for(src, {"method": "unsharp", "preset": "gentle", "mix": "25"}, "lossless")
         b = detail_output_for(src, {"method": "unsharp", "preset": "gentle", "mix": "100"}, "lossless")
