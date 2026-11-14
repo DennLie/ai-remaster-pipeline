@@ -147,7 +147,7 @@ def playback_segment(app, candidate: str, frame: int, mode: str = "direction", c
         if stage != 'dust' or candidate or reference != 'input' or not isinstance(mask_values, dict):
             raise ValueError('Mask playback requires Dust stage input and saved detector settings.')
         from . import dust
-        folder, report = dust.saved_mask(app.stabilized_source_for_downstream(), mask_values)
+        folder, report = dust.saved_mask(dust.analysis_source(app, mask_values), mask_values)
         source, output = folder/'input.mkv', folder/'effective_mask.mkv'
         metadata = _metadata(source)
         mask_meta = _metadata(output)

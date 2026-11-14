@@ -6,7 +6,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from common import file_fingerprint, resolve_path, root_relative, resumable_output, run_ffmpeg_with_progress, video_info, write_signature
+from common import ensure_inherited_permissions, file_fingerprint, resolve_path, root_relative, resumable_output, run_ffmpeg_with_progress, video_info, write_signature
 from intermediate_video import codec_args as intermediate_codec_args, container_args
 
 
@@ -140,6 +140,7 @@ def replace_with_retry(partial: Path, output: Path, attempts: int = 20, delay: f
     for attempt in range(1, attempts + 1):
         try:
             partial.replace(output)
+            ensure_inherited_permissions(output)
             return
         except PermissionError as exc:
             last_exc = exc

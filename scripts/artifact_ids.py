@@ -234,6 +234,7 @@ def cleanup_identity(
     detect_defects: bool = False,
     defect_sensitivity: float = 0.65,
     defect_mask_height: int | str = 720,
+    defect_detector: str = "farneback_3f",
     ai_descratch_height: int | str = 720,
     scratch_sensitivity: float = 0.65,
     scratch_mask_dilate: int = 3,
@@ -307,11 +308,17 @@ def cleanup_identity(
         else:
             raise ValueError(f"Unknown light deflicker method {deflicker_method!r}")
     if detect_defects:
+        normalized_detector = str(defect_detector or "farneback_3f").strip().lower()
+        defect_algo = (
+            "temporal_motion_v1"
+            if normalized_detector in ("", "farneback_3f", "temporal")
+            else f"{normalized_detector}_v1"
+        )
         identity.update({
             "detect_defects": True,
             "defect_sensitivity": float(defect_sensitivity),
             "defect_mask_height": str(defect_mask_height),
-            "defect_algorithm": "temporal_motion_v1",
+            "defect_algorithm": defect_algo,
         })
     if ai_descratch:
         identity.update({

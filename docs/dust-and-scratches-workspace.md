@@ -9,6 +9,28 @@ scratch repair. Existing projects keep their order until explicitly reordered.
 
 ## Review workflow
 
+The Detection inspector now has an analysis-input selector: Stage input by
+default, or Original input before ARP restoration. The original route uses
+`pipeline_source_text`, preserving an active source-section selection. Source
+section preparation can transcode according to the existing import/trim profile;
+it is not scanner-raw sample identity. No restoration stage is run on this route.
+
+`analysis_source=original` is an optional identity field, absent on legacy/stage
+identities. Original masks remain in a separate source-scoped catalogue and are
+excluded from frozen-mask reuse by Stage input, even when both paths happen to
+refer to the same file. Backend authorization rejects original-scope repair and
+adoption. Upstream readiness is bypassed only for explicit original mask analysis;
+source/project checks, model acknowledgements, busy locks and DART limits remain.
+Source changes only inspect a new catalogue; they do not render, reorder or adopt.
+The viewer's saved input, exact inspection and compressed mask reel all resolve
+the same selected source. Late replies are invalidated by the source-mode context.
+
+Verification: 47 focused Dust Python tests, 173 JS tests and an isolated Chromium
+fixture at 1440/768/390. The fixture checks distinct original/stage pixel values,
+seeking, real CPU mask playback, no implicit run/adopt and no horizontal overflow.
+UI captures are under `.cache/dust-original-shots/`. No live project, GPU inference
+or active server restart was used; these checks do not validate detection quality.
+
 1. Complete the configured upstream stages. CPU mask analysis does not require
    enabling Dust for pipeline repair, a repair-model licence or ComfyUI.
 2. Choose a detector. These are local inspection drafts, not the
@@ -97,6 +119,11 @@ Repair requires constant cadence and a zero-origin video timeline; HDR,
 variable-rate and offset input are rejected rather than silently retimed.
 
 ## Methods and honest limits
+
+See the [PR24/core/wrapper comparison](ridge-integration-comparison.md) for a
+pinned, same-input 24-frame check. On the inspected Neighbors excerpts the cores
+match exactly; the original excerpt produces empty masks even with the original
+research code. This is agreement evidence, not restoration-quality validation.
 
 - **Legacy:** unchanged `cleanup_video.ai_scratch_mask`, including its known
   whole-column false-positive risk. This is a baseline, not a recommended preset.
@@ -200,6 +227,25 @@ project. Neither the running ARP/ComfyUI instances nor user-film artifacts were
 changed by these checks.
 
 ### Windows analysis publication and retained staging
+
+Explicit recalculation is available through **Recalculate mask…** after a saved
+mask is available. Confirmation starts a new `mask_version` (32 lowercase hex
+characters) with unchanged processing parameters. This optional identity field
+is omitted for legacy variants, preserving their existing artifact paths. CPU
+mask lookup/copy requires the same version; an unused new version cannot hit an
+older frozen-mask cache. Repair-configuration changes within that version still
+reuse its exact mask. DART regeneration remains joint inference with the usual
+rights/geometry guards; full-frame output is not automatically adoptable.
+The inspected draft follows a new version only after an accepted launch. Neither
+recalculation nor inspection changes the adopted pipeline settings. A publication
+retry retains its original version and is not an implicit regeneration request.
+
+Recalculation verification: real CPU mask/repair round trips preserve all prior
+files and rerun detection only once per new version; invalid IDs fail closed.
+JS tests cover confirmation, cancellation, rejection, busy guards, version labels,
+matching and unchanged pipeline settings. Isolated Chromium checks the new action,
+cancel/rejection behavior and 1440/768/390 layouts. No new DART/GPU inference or
+live-server restart is part of these checks.
 
 Analysis now stages under `.<candidate-id>.analysis-<suffix>` without automatic
 temporary-directory deletion on failure. Before this correction, a failed

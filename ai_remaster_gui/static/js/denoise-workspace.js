@@ -25,7 +25,7 @@ function createDenoiseWorkspace(stageKey) {
 const methods = denoiseMethods(stageKey);
 const presets = denoisePresets(stageKey);
 const denoiseWorkspaceVariants = presets.flatMap(preset => methods.map(method => ({method:method.key,preset:preset.key})));
-let matrix = state?.[stageKey+'_matrix'] || {};
+let matrix = stageKey==='dust' && typeof dustMatrix==='function' ? dustMatrix() : state?.[stageKey+'_matrix'] || {};
 const denoiseMatrixState = () => matrix;
 const pipelineVariant = () => denoiseStageVariant(stageKey);
 const variantPath = (method,preset) => denoiseVariantPath(method,preset,stageKey,matrix);
@@ -92,7 +92,7 @@ function denoiseWorkspaceMissing() {
 }
 
 function denoiseWorkspaceInitialize(candidates) {
-  const latest = state?.[stageKey+'_matrix'];
+  const latest = stageKey==='dust' && typeof dustMatrix==='function' ? dustMatrix() : state?.[stageKey+'_matrix'];
   if (latest && Object.hasOwn(latest,'source')) matrix = latest;
   if(generationContext && generationContext!==renderContext(generationVariants)) denoiseWorkspaceGenerationError='';
   const source = candidates.find(v => v.kind === 'source')?.path || '';

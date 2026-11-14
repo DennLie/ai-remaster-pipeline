@@ -38,17 +38,34 @@ def stage_issue(
             reasons.append(f'unknown enhancement method {method!r} has not been reviewed')
     elif stage == 'dust':
         method = model_override or values.get('repair', 'telea')
+        det = values.get('detector', 'temporal')
+        preset = values.get('preset', '')
         if method == 'propainter':
             reasons.append('ProPainter is non-commercial (NTU S-Lab License 1.0)')
-        elif method == 'dart' or values.get('detector') == 'dart':
+        elif method == 'dart' or det in ('dart', 'dart_harness') or preset.startswith('dart_'):
             reasons.append('DART adapted RTN code rights remain unresolved')
         elif method != 'telea':
             reasons.append('unknown Dust & Scratches repair method')
+        if det not in ('dart', 'dart_harness'):
+            try:
+                from film_defect_detectors import DEFAULT_REGISTRY
+                if not DEFAULT_REGISTRY.has(det, commercial_only=True):
+                    reasons.append(f'detector {det!r} is not cleared for commercial use')
+            except ImportError:
+                pass
     elif stage == "cleanup":
         if _on(values, "ai_descratch"):
             reasons.append("ProPainter / AI DeScratch is non-commercial (NTU S-Lab License 1.0)")
         if _on(values, "dearchive", "true"):
             reasons.append("LTX 2.3 Dearchive is not cleared for unrestricted commercial use")
+        if _on(values, "detect_defects"):
+            det = values.get("defect_detector", "farneback_3f")
+            try:
+                from film_defect_detectors import DEFAULT_REGISTRY
+                if not DEFAULT_REGISTRY.has(det, commercial_only=True):
+                    reasons.append(f"defect detector {det!r} is not cleared for commercial use")
+            except ImportError:
+                pass
         # DeVignette alone has no generative checkpoint.
     elif stage == "outpaint":
         model = model_override or values.get("outpaint_model", "oumoumad")

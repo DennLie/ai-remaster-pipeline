@@ -51,9 +51,9 @@ const ENHANCEMENT_METHODS = [
 const STABILIZATION_METHODS = [{key:'zoom0',label:'0% additional zoom'}, {key:'zoom3',label:'3% additional zoom'}, {key:'current',label:'Current pipeline settings'}];
 function comparisonStageKey() { return typeof active==='string' && ['dust','deflicker','enhancement','stabilize'].includes(active) ? active : 'denoise'; }
 function isRestorationComparison() { return typeof active==='string' && ['dust','denoise','deflicker','enhancement','stabilize'].includes(active); }
-function denoiseMethods(key=comparisonStageKey()) { return key==='dust' ? (state.dust_matrix?.variants || []).map(v=>({key:v.method,label:dustLabel(v.values)})) : key==='stabilize' ? STABILIZATION_METHODS : key==='enhancement' ? ENHANCEMENT_METHODS : key==='deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS; }
+function denoiseMethods(key=comparisonStageKey()) { return key==='dust' ? (denoiseMatrixState(key).variants || []).map(v=>({key:v.method,label:dustLabel(v.values)})) : key==='stabilize' ? STABILIZATION_METHODS : key==='enhancement' ? ENHANCEMENT_METHODS : key==='deflicker' ? DEFLICKER_METHODS : DENOISE_METHODS; }
 function denoisePresets(key=comparisonStageKey()) { return key!=='denoise' ? [{key:'settings',label:'Current settings'}] : DENOISE_PRESETS; }
-function denoiseMatrixState(key=comparisonStageKey()) { return state?.[key+'_matrix'] || {}; }
+function denoiseMatrixState(key=comparisonStageKey()) { return key==='dust' && typeof dustMatrix==='function' ? dustMatrix() : state?.[key+'_matrix'] || {}; }
 
 function denoiseVariantLabelFor(method, preset, key=comparisonStageKey()) {
   if (method === 'off') return 'Off';
@@ -162,7 +162,7 @@ function denoiseCompareCandidates(st) {
   }
   for (const file of (st.files || [])) {
     const path = file.path || '';
-    if (['denoise','deflicker','enhancement','stabilize'].includes(st.key) && Array.isArray(denoiseMatrixState().variants) &&
+    if (['dust','denoise','deflicker','enhancement','stabilize'].includes(st.key) && Array.isArray(denoiseMatrixState().variants) &&
         !denoiseMatrixState().variants.some(v => denoiseVariantPath(v.method, v.preset) === path)) continue;
     if (denoisePreviewIsFinal(path) && /\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(path) && !candidates.some(v => v.path === path)) {
       candidates.push({ path, label: denoiseVariantLabel(path), kind: 'variant' });

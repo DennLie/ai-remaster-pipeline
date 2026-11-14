@@ -200,6 +200,16 @@ The `<master>.geometry/` folder retains each scene's local-motion analysis, raw 
 
 ### Dust & Scratches (experimental)
 
+Under **Detection → Analysis input**, choose **Stage input** (default) or
+**Original input · no restoration**. Original analysis bypasses restoration
+stages but retains the selected source section. A prepared section may already
+have been transcoded during import/trim; this is not a claim of scanner-raw pixels.
+Changing the selector starts no processing and changes no pipeline settings.
+Press **Calculate mask** explicitly. Saved original masks have a separate
+catalogue and source label, with exact stills and mask playback. They are
+analysis-only: switch back to Stage input for repair/adoption. Original masks
+are never silently mapped onto stabilised, cropped or resized stage images.
+
 Optional and off by default, after Stabilization. Calculate and inspect masks,
 request repair of the saved mask, then explicitly adopt the result. CPU options
 are the unchanged legacy scratch detector, temporal dust proposals and
@@ -266,6 +276,15 @@ playback, wipe and difference views. No additional generic Render click
 is needed. **Use for pipeline** remains a separate adoption decision. Changing
 settings creates a draft and does not modify saved candidates. Technical mask
 measurements and file links live under the analysis details.
+
+To deliberately run detection again with the **same settings**, choose
+**Recalculate mask…** in the inspector's action footer. Confirm to create a new
+saved version, labelled with a short mask-version ID. Existing masks and repairs
+remain intact, and the pipeline selection is unchanged. For DART the confirmation
+explicitly warns that GPU inference regenerates both mask and full restoration.
+Changing the repair method reuses that version's frozen mask rather than another
+version's. Retrying a failed publication is different: use the normal calculation
+action with the same version to publish verified pending data without inference.
 
 Repair supports the existing 8-bit path
 and selected 10-bit SDR planar formats with lossless native-plane composition;

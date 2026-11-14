@@ -13,6 +13,7 @@ import tempfile
 import urllib.request
 
 from run_dart_research import DART_COMMIT, DART_WEIGHTS_SHA256
+from common import ensure_inherited_permissions, staging_directory
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = 'https://github.com/TytanMikJas/DART-Degradation-Aware-Recurrent-Transformer.git'
@@ -49,7 +50,7 @@ def install_weights(repo, copy_from=None, skip=False):
     if skip and not copy_from:
         return False
     target.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='.dart-weights-',dir=target.parent) as temporary:
+    with staging_directory(prefix='.dart-weights-', dir=target.parent) as temporary:
         staged = Path(temporary)/'dart.safetensors'
         if copy_from:
             if digest(copy_from) != DART_WEIGHTS_SHA256:
@@ -65,6 +66,7 @@ def install_weights(repo, copy_from=None, skip=False):
         if target.exists():
             raise ValueError('DART weights appeared during setup; refusing to overwrite them.')
         staged.rename(target)
+        ensure_inherited_permissions(target)
     return True
 
 
@@ -102,12 +104,13 @@ def install(root=ROOT, *, acknowledged=False, weights_from=None, skip_weights=Fa
     from ai_remaster_gui.dust_jobs import candidate_lock
     with candidate_lock(repo.parent/'dart-setup'):
         if not repo.exists():
-            with tempfile.TemporaryDirectory(prefix='.dart-checkout-',dir=repo.parent) as temporary:
+            with staging_directory(prefix='.dart-checkout-', dir=repo.parent) as temporary:
                 staged = Path(temporary)/'checkout'
                 run(['git','clone','--no-checkout',REPOSITORY,staged])
                 run(['git','-C',staged,'checkout','--detach',DART_COMMIT])
                 checked_checkout(staged)
                 staged.rename(repo)
+                ensure_inherited_permissions(repo)
         checked_checkout(repo)
         uv = uv_command(root)
         # Inherited uv/active-environment overrides must not select another project's runtime.

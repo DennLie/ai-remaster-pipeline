@@ -95,6 +95,7 @@ STAGES = (
             ("detect_defects", "Detect film damage (mask only; no AI)", "checkbox", "false"),
             ("defect_sensitivity", "Temporal defect sensitivity", "range:0|1|0.05", "0.65"),
             ("defect_mask_height", "Defect mask resolution", "select:540|720|1080|source", "720"),
+            ("defect_detector", "Defect detector", "select:farneback_3f|dis_flow|ridge|consensus_5f|legacy", "farneback_3f"),
             ("ai_descratch", "AI DeScratch (ProPainter)", "checkbox", "false"),
             ("scratch_sensitivity", "Scratch detection sensitivity", "range:0|1|0.05", "0.65"),
             ("scratch_mask_dilate", "Scratch mask expansion", "range:0|12|1", "3"),
@@ -138,7 +139,8 @@ STAGES = (
         "Inspect defect proposals, then explicitly repair and adopt. Experimental; no proven historical ground truth.",
         ("intermediate/dust_scratches",),
         (
-            ("detector", "Defect detector", "select:legacy|temporal|ridge|dart", "temporal"),
+            ("preset", "Detector preset", "select:balanced|fast_preview|high_quality_precision|scratch_focused|dust_focused|high_recall|conservative_low_fp|dart_optimal_f1|dart_high_recall|dart_conservative|custom", "balanced"),
+            ("detector", "Defect detector", "select:farneback_3f|dis_flow|ridge|consensus_5f|legacy|dart", "farneback_3f"),
             ("repair", "Repair method", "select:telea|propainter|dart", "telea"),
             ("sensitivity", "Detection sensitivity", "range:0|1|0.05", "0.65"),
             ("radius", "Telea radius (px)", "number", "3"),
