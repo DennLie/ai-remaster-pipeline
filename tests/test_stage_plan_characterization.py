@@ -106,6 +106,15 @@ def capture(function, *args):
         return {"err": f"{type(exc).__name__}: {exc}"}
 
 
+def without_mode(result):
+    """``mode`` is an additive key introduced after the golden reference was recorded."""
+    value = result.get("ok")
+    if isinstance(value, dict):
+        value = {key: item for key, item in value.items() if key != "mode"}
+        return {"ok": value}
+    return result
+
+
 def observe(item):
     settings = build_settings(item)
     before = json.dumps(settings, sort_keys=True)
@@ -139,7 +148,7 @@ def observe(item):
             record[f"configured_upstream[{label}]"] = capture(app.configured_preprocessing_upstream, key)
             record[f"uses_original[{label}]"] = capture(app.preprocessing_uses_original, key)
             record[f"problem[{label}]"] = capture(app.preprocessing_problem, key)
-            record[f"state[{label}]"] = capture(app.processing_input_state, key)
+            record[f"state[{label}]"] = without_mode(capture(app.processing_input_state, key))
         record["active_stages"] = capture(lambda: [stage.key for stage in app.active_stages()])
         if item["regime"] == "pipeline":
             record["pipeline_plan"] = capture(app.pipeline_plan)
