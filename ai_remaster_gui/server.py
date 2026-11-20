@@ -4403,7 +4403,7 @@ def preprocessing_input_for(settings, stage_key=None):
             if key == 'dust':
                 return dust_stage.output_for(current,values)
             return outputs[key](current,values,profile)
-        return video_order.input_for(settings,stage_key,source,stage_plan.ordered_video_stages(settings,()),output)
+        return stage_plan.input_chain(settings,stage_key,source,stage_plan.ordered_video_stages(settings,()),output)
     for key in preprocessing_order(settings):
         if key == stage_key:
             break
