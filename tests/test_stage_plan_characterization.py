@@ -21,7 +21,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from ai_remaster_gui import server
+from ai_remaster_gui import config, paths, server
 from ai_remaster_gui.runtime_settings import base_settings
 
 GOLDEN = Path(__file__).parent / "fixtures" / "stage_plan_golden.json"
@@ -128,7 +128,11 @@ def observe(item):
         "soundtrack_output_for": _stub("audio.mp4"),
         "colorized_output_for_manifest": lambda manifest, *a, **k: f"{manifest}/colour.mkv" if manifest else "",
     }
+    golden_root = Path(r"I:\ai-remaster-pipeline-stage-plan")
     with ExitStack() as stack:
+        stack.enter_context(patch.object(paths, "ROOT", golden_root))
+        stack.enter_context(patch.object(config, "ROOT", golden_root))
+        stack.enter_context(patch.object(server, "ROOT", golden_root))
         stack.enter_context(patch.object(app, "settings", settings))
         stack.enter_context(patch.object(app, "queue_running", item["queue"], create=True))
         stack.enter_context(patch.object(app, "apply_auto_upscale_target"))
