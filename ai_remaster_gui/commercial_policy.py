@@ -47,12 +47,17 @@ def stage_issue(
         elif method != 'telea':
             reasons.append('unknown Dust & Scratches repair method')
         if det not in ('dart', 'dart_harness'):
-            try:
-                from film_defect_detectors import DEFAULT_REGISTRY
-                if not DEFAULT_REGISTRY.has(det, commercial_only=True):
+            from .dust_e2_adapter import DETECTOR_NAME as E2_DETECTOR_NAME, E2_DETECTOR_INFO
+            if det == E2_DETECTOR_NAME:
+                if not E2_DETECTOR_INFO.get('commercial_cleared', False):
                     reasons.append(f'detector {det!r} is not cleared for commercial use')
-            except ImportError:
-                pass
+            else:
+                try:
+                    from film_defect_detectors import DEFAULT_REGISTRY
+                    if not DEFAULT_REGISTRY.has(det, commercial_only=True):
+                        reasons.append(f'detector {det!r} is not cleared for commercial use')
+                except ImportError:
+                    pass
     elif stage == "cleanup":
         if _on(values, "ai_descratch"):
             reasons.append("ProPainter / AI DeScratch is non-commercial (NTU S-Lab License 1.0)")

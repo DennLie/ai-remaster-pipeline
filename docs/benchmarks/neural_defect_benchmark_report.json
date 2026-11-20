@@ -1,0 +1,1881 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-14T21:56:01Z",
+    "execution_mode": "quick_validation",
+    "elapsed_seconds": 375.67,
+    "gpu_device": "NVIDIA GeForce RTX 4090",
+    "gpu_vram_total": "24.0 GB",
+    "platform": "Windows 11 (AMD64)",
+    "python_executable": "I:\\ai-remaster-pipeline\\.venv\\Scripts\\python.exe"
+  },
+  "ground_truth_inventory": {
+    "synthetic_frames": 4,
+    "historical_frames": 4,
+    "negative_control_frames": 20,
+    "total_evaluated_frames": 28,
+    "strictly_no_pseudolabels_as_gt": true
+  },
+  "candidate_evaluations": {
+    "farneback_3f": {
+      "metadata": {
+        "display_name": "Farneback 3F",
+        "family": "classical_optical_flow",
+        "license": "BSD-3-Clause (OpenCV)",
+        "commercial_cleared": true,
+        "supports_scratch": true,
+        "supports_dust": true,
+        "min_frames": 3,
+        "default_config": {
+          "sensitivity": 0.65
+        }
+      },
+      "combined_metrics": {
+        "tp": 2703,
+        "fp": 6108,
+        "fn": 40156,
+        "tn": 3977915,
+        "ignored": 68142,
+        "precision": 0.306776,
+        "precision_defined": true,
+        "recall": 0.063067,
+        "recall_defined": true,
+        "f1": 0.104626,
+        "iou": 0.0552,
+        "false_positive_rate": 0.00153312,
+        "prediction_coverage": 0.002188,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 170,
+        "fp": 56,
+        "fn": 41450,
+        "tn": 4053348,
+        "ignored": 0,
+        "precision": 0.752212,
+        "precision_defined": true,
+        "recall": 0.004085,
+        "recall_defined": true,
+        "f1": 0.008125,
+        "iou": 0.004079,
+        "false_positive_rate": 1.382e-05,
+        "prediction_coverage": 5.5e-05,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "tp": 140,
+        "fp": 9133,
+        "fn": 1099,
+        "tn": 4084652,
+        "ignored": 0,
+        "precision": 0.015098,
+        "precision_defined": true,
+        "recall": 0.112994,
+        "recall_defined": true,
+        "f1": 0.026636,
+        "iou": 0.013498,
+        "false_positive_rate": 0.00223094,
+        "prediction_coverage": 0.002264,
+        "ground_truth_coverage": 0.000303,
+        "evaluated_pixels": 4095024
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.0016909163528471985,
+        "film_grain_fpr": 0.003229777018229167,
+        "architectural_edges_fpr": 0.0,
+        "portrait_faces_fpr": 0.0,
+        "motion_fpr": 0.0
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.001763775,
+        "continuity_score": 0.375,
+        "missed_defect_rate": 0.625,
+        "temporal_motion_fpr": 0.0034202349999999998
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 208.66,
+        "total_time_ms": 5842.48,
+        "fps": 4.8,
+        "peak_ram_mb": 51.9,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "dis_flow": {
+      "metadata": {
+        "display_name": "DIS Flow 3F",
+        "family": "classical_optical_flow",
+        "license": "Apache-2.0 / BSD (OpenCV)",
+        "commercial_cleared": true,
+        "supports_scratch": true,
+        "supports_dust": true,
+        "min_frames": 3,
+        "default_config": {
+          "sensitivity": 0.65
+        }
+      },
+      "combined_metrics": {
+        "tp": 5685,
+        "fp": 8755,
+        "fn": 37174,
+        "tn": 3975268,
+        "ignored": 68142,
+        "precision": 0.393698,
+        "precision_defined": true,
+        "recall": 0.132644,
+        "recall_defined": true,
+        "f1": 0.198433,
+        "iou": 0.110145,
+        "false_positive_rate": 0.00219753,
+        "prediction_coverage": 0.003586,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 41620,
+        "tn": 4053404,
+        "ignored": 0,
+        "precision": 0.0,
+        "precision_defined": false,
+        "recall": 0.0,
+        "recall_defined": true,
+        "f1": 0.0,
+        "iou": 0.0,
+        "false_positive_rate": 0.0,
+        "prediction_coverage": 0.0,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "tp": 273,
+        "fp": 15580,
+        "fn": 966,
+        "tn": 4078205,
+        "ignored": 0,
+        "precision": 0.017221,
+        "precision_defined": true,
+        "recall": 0.220339,
+        "recall_defined": true,
+        "f1": 0.031945,
+        "iou": 0.016232,
+        "false_positive_rate": 0.00380577,
+        "prediction_coverage": 0.003871,
+        "ground_truth_coverage": 0.000303,
+        "evaluated_pixels": 4095024
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.0023450872988702498,
+        "film_grain_fpr": 0.002643161349826389,
+        "architectural_edges_fpr": 0.0,
+        "portrait_faces_fpr": 0.0,
+        "motion_fpr": 0.0
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.0024622399999999997,
+        "continuity_score": 0.5,
+        "missed_defect_rate": 0.5,
+        "temporal_motion_fpr": 0.00442464
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 97.25,
+        "total_time_ms": 2723.09,
+        "fps": 10.3,
+        "peak_ram_mb": 77.75,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "ridge": {
+      "metadata": {
+        "display_name": "Temporal Ridge",
+        "family": "classical_steerable_filter",
+        "license": "In-tree Proprietary / Permissive",
+        "commercial_cleared": true,
+        "supports_scratch": true,
+        "supports_dust": false,
+        "min_frames": 3,
+        "default_config": {
+          "sensitivity": 0.65
+        }
+      },
+      "combined_metrics": {
+        "tp": 1601,
+        "fp": 66,
+        "fn": 41258,
+        "tn": 3983957,
+        "ignored": 68142,
+        "precision": 0.960408,
+        "precision_defined": true,
+        "recall": 0.037355,
+        "recall_defined": true,
+        "f1": 0.071913,
+        "iou": 0.037298,
+        "false_positive_rate": 1.657e-05,
+        "prediction_coverage": 0.000414,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 1601,
+        "fp": 183,
+        "fn": 40019,
+        "tn": 4053221,
+        "ignored": 0,
+        "precision": 0.897422,
+        "precision_defined": true,
+        "recall": 0.038467,
+        "recall_defined": true,
+        "f1": 0.073772,
+        "iou": 0.038299,
+        "false_positive_rate": 4.515e-05,
+        "prediction_coverage": 0.000436,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "status": "NOT_APPLICABLE"
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.00014093347027273765,
+        "film_grain_fpr": 0.0,
+        "architectural_edges_fpr": 0.0,
+        "portrait_faces_fpr": 0.0,
+        "motion_fpr": 0.0
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 1.258e-05,
+        "continuity_score": 0.125,
+        "missed_defect_rate": 0.875,
+        "temporal_motion_fpr": 2.494e-05
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 37.19,
+        "total_time_ms": 1041.43,
+        "fps": 26.9,
+        "peak_ram_mb": 67.7,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "consensus_5f": {
+      "metadata": {
+        "display_name": "Consensus 5F",
+        "family": "classical_temporal_consensus",
+        "license": "In-tree Proprietary / Permissive",
+        "commercial_cleared": true,
+        "supports_scratch": true,
+        "supports_dust": true,
+        "min_frames": 3,
+        "default_config": {
+          "sensitivity": 0.65
+        }
+      },
+      "combined_metrics": {
+        "tp": 6178,
+        "fp": 56259,
+        "fn": 36681,
+        "tn": 3927764,
+        "ignored": 68142,
+        "precision": 0.098948,
+        "precision_defined": true,
+        "recall": 0.144147,
+        "recall_defined": true,
+        "f1": 0.117345,
+        "iou": 0.06233,
+        "false_positive_rate": 0.01412115,
+        "prediction_coverage": 0.015505,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 1871,
+        "fp": 1736,
+        "fn": 39749,
+        "tn": 4051668,
+        "ignored": 0,
+        "precision": 0.518714,
+        "precision_defined": true,
+        "recall": 0.044954,
+        "recall_defined": true,
+        "f1": 0.082738,
+        "iou": 0.043154,
+        "false_positive_rate": 0.00042828,
+        "prediction_coverage": 0.000881,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "tp": 516,
+        "fp": 59668,
+        "fn": 723,
+        "tn": 4034117,
+        "ignored": 0,
+        "precision": 0.008574,
+        "precision_defined": true,
+        "recall": 0.416465,
+        "recall_defined": true,
+        "f1": 0.016802,
+        "iou": 0.008472,
+        "false_positive_rate": 0.01457526,
+        "prediction_coverage": 0.014697,
+        "ground_truth_coverage": 0.000303,
+        "evaluated_pixels": 4095024
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.016768515348624898,
+        "film_grain_fpr": 0.009858873155381944,
+        "architectural_edges_fpr": 0.0,
+        "portrait_faces_fpr": 0.0,
+        "motion_fpr": 0.0
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.0085872,
+        "continuity_score": 1.0,
+        "missed_defect_rate": 0.0,
+        "temporal_motion_fpr": 0.029647485
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 274.09,
+        "total_time_ms": 7674.51,
+        "fps": 3.6,
+        "peak_ram_mb": 92.77,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "dart_harness": {
+      "metadata": {
+        "display_name": "DART MaskNet",
+        "family": "neural_dilation_pyramid",
+        "license": "Restricted Research (RTN upstream)",
+        "commercial_cleared": false,
+        "supports_scratch": true,
+        "supports_dust": true,
+        "min_frames": 2,
+        "default_config": {
+          "run_inference": true,
+          "threshold": 160
+        }
+      },
+      "combined_metrics": {
+        "tp": 40579,
+        "fp": 103821,
+        "fn": 2280,
+        "tn": 3880202,
+        "ignored": 68142,
+        "precision": 0.281018,
+        "precision_defined": true,
+        "recall": 0.946802,
+        "recall_defined": true,
+        "f1": 0.4334,
+        "iou": 0.27665,
+        "false_positive_rate": 0.02605934,
+        "prediction_coverage": 0.035859,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 17712,
+        "fp": 24616,
+        "fn": 23908,
+        "tn": 4028788,
+        "ignored": 0,
+        "precision": 0.418446,
+        "precision_defined": true,
+        "recall": 0.425565,
+        "recall_defined": true,
+        "f1": 0.421976,
+        "iou": 0.267407,
+        "false_positive_rate": 0.00607292,
+        "prediction_coverage": 0.010336,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "tp": 560,
+        "fp": 35583,
+        "fn": 679,
+        "tn": 4058202,
+        "ignored": 0,
+        "precision": 0.015494,
+        "precision_defined": true,
+        "recall": 0.451977,
+        "recall_defined": true,
+        "f1": 0.029961,
+        "iou": 0.015208,
+        "false_positive_rate": 0.00869196,
+        "prediction_coverage": 0.008826,
+        "ground_truth_coverage": 0.000303,
+        "evaluated_pixels": 4095024
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.03025989957777017,
+        "film_grain_fpr": 0.002880520290798611,
+        "architectural_edges_fpr": 0.0893368191189236,
+        "portrait_faces_fpr": 0.18117777506510419,
+        "motion_fpr": 0.03239780002170139
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.010493455,
+        "continuity_score": 1.0,
+        "missed_defect_rate": 0.0,
+        "temporal_motion_fpr": 0.028581745000000002
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 3240.75,
+        "total_time_ms": 90740.92,
+        "fps": 0.3,
+        "peak_ram_mb": 46.84,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "bopb": {
+      "metadata": {
+        "display_name": "Microsoft BOPB UNet",
+        "family": "neural_unet_scratch",
+        "license": "Microsoft Research Non-Commercial",
+        "commercial_cleared": false,
+        "supports_scratch": true,
+        "supports_dust": false,
+        "min_frames": 1,
+        "default_config": {
+          "threshold": 0.4,
+          "tile_size": 0
+        }
+      },
+      "combined_metrics": {
+        "tp": 19375,
+        "fp": 26305,
+        "fn": 23484,
+        "tn": 3957718,
+        "ignored": 68142,
+        "precision": 0.424146,
+        "precision_defined": true,
+        "recall": 0.452064,
+        "recall_defined": true,
+        "f1": 0.43766,
+        "iou": 0.280131,
+        "false_positive_rate": 0.00660262,
+        "prediction_coverage": 0.011344,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 18443,
+        "fp": 30998,
+        "fn": 23177,
+        "tn": 4022406,
+        "ignored": 0,
+        "precision": 0.37303,
+        "precision_defined": true,
+        "recall": 0.443128,
+        "recall_defined": true,
+        "f1": 0.405069,
+        "iou": 0.253973,
+        "false_positive_rate": 0.0076474,
+        "prediction_coverage": 0.012073,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "status": "NOT_APPLICABLE"
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.005520655026817299,
+        "film_grain_fpr": 0.0,
+        "architectural_edges_fpr": 0.006795247395833333,
+        "portrait_faces_fpr": 0.004306369357638889,
+        "motion_fpr": 0.0
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.002719145,
+        "continuity_score": 1.0,
+        "missed_defect_rate": 0.0,
+        "temporal_motion_fpr": 0.010832195
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 3524.68,
+        "total_time_ms": 98691.13,
+        "fps": 0.3,
+        "peak_ram_mb": 51.0,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "film_artefact_segmenter": {
+      "metadata": {
+        "display_name": "Film Artefact Segmenter (FAS)",
+        "family": "neural_multitask_segmenter",
+        "license": "MIT Clean-room reproduction",
+        "commercial_cleared": true,
+        "supports_scratch": true,
+        "supports_dust": true,
+        "min_frames": 1,
+        "default_config": {
+          "threshold": 0.5,
+          "scratch_threshold": 0.5,
+          "dust_threshold": 0.5,
+          "tile_size": 0
+        }
+      },
+      "combined_metrics": {
+        "tp": 20188,
+        "fp": 7179,
+        "fn": 22671,
+        "tn": 3976844,
+        "ignored": 68142,
+        "precision": 0.737677,
+        "precision_defined": true,
+        "recall": 0.471033,
+        "recall_defined": true,
+        "f1": 0.574944,
+        "iou": 0.403453,
+        "false_positive_rate": 0.00180195,
+        "prediction_coverage": 0.006796,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 14901,
+        "fp": 2977,
+        "fn": 26719,
+        "tn": 4050427,
+        "ignored": 0,
+        "precision": 0.833482,
+        "precision_defined": true,
+        "recall": 0.358025,
+        "recall_defined": true,
+        "f1": 0.500891,
+        "iou": 0.334126,
+        "false_positive_rate": 0.00073444,
+        "prediction_coverage": 0.004366,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "tp": 967,
+        "fp": 7648,
+        "fn": 272,
+        "tn": 4086137,
+        "ignored": 0,
+        "precision": 0.112246,
+        "precision_defined": true,
+        "recall": 0.780468,
+        "recall_defined": true,
+        "f1": 0.196265,
+        "iou": 0.108811,
+        "false_positive_rate": 0.0018682,
+        "prediction_coverage": 0.002104,
+        "ground_truth_coverage": 0.000303,
+        "evaluated_pixels": 4095024
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.0008658564418578112,
+        "film_grain_fpr": 0.00017123752170138888,
+        "architectural_edges_fpr": 0.027248806423611112,
+        "portrait_faces_fpr": 0.014763726128472222,
+        "motion_fpr": 0.00787353515625
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.00106018,
+        "continuity_score": 1.0,
+        "missed_defect_rate": 0.0,
+        "temporal_motion_fpr": 0.002875615
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 1172.07,
+        "total_time_ms": 32817.94,
+        "fps": 0.9,
+        "peak_ram_mb": 45.98,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "cnn_blotches": {
+      "metadata": {
+        "display_name": "CNN Blotches & Scratches",
+        "family": "neural_cnn_detector",
+        "license": "MIT Clean-room reproduction",
+        "commercial_cleared": true,
+        "supports_scratch": true,
+        "supports_dust": true,
+        "min_frames": 1,
+        "default_config": {
+          "threshold": 0.5,
+          "scratch_threshold": 0.5,
+          "dust_threshold": 0.5,
+          "tile_size": 0
+        }
+      },
+      "combined_metrics": {
+        "tp": 18184,
+        "fp": 3600,
+        "fn": 24675,
+        "tn": 3980423,
+        "ignored": 68142,
+        "precision": 0.834741,
+        "precision_defined": true,
+        "recall": 0.424275,
+        "recall_defined": true,
+        "f1": 0.562598,
+        "iou": 0.391399,
+        "false_positive_rate": 0.00090361,
+        "prediction_coverage": 0.00541,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "tp": 13943,
+        "fp": 2885,
+        "fn": 27677,
+        "tn": 4050519,
+        "ignored": 0,
+        "precision": 0.82856,
+        "precision_defined": true,
+        "recall": 0.335007,
+        "recall_defined": true,
+        "f1": 0.477108,
+        "iou": 0.313291,
+        "false_positive_rate": 0.00071175,
+        "prediction_coverage": 0.004109,
+        "ground_truth_coverage": 0.010164,
+        "evaluated_pixels": 4095024
+      },
+      "dust_metrics": {
+        "tp": 166,
+        "fp": 4531,
+        "fn": 1073,
+        "tn": 4089254,
+        "ignored": 0,
+        "precision": 0.035342,
+        "precision_defined": true,
+        "recall": 0.133979,
+        "recall_defined": true,
+        "f1": 0.05593,
+        "iou": 0.028769,
+        "false_positive_rate": 0.0011068,
+        "prediction_coverage": 0.001147,
+        "ground_truth_coverage": 0.000303,
+        "evaluated_pixels": 4095024
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.0004633116512609837,
+        "film_grain_fpr": 0.0,
+        "architectural_edges_fpr": 0.0013495551215277778,
+        "portrait_faces_fpr": 0.001437717013888889,
+        "motion_fpr": 0.0001220703125
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.000254715,
+        "continuity_score": 1.0,
+        "missed_defect_rate": 0.0,
+        "temporal_motion_fpr": 0.000986055
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 1060.17,
+        "total_time_ms": 29684.67,
+        "fps": 0.9,
+        "peak_ram_mb": 45.98,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "patchcore": {
+      "metadata": {
+        "display_name": "PatchCore Anomaly Detector",
+        "family": "neural_memory_bank_anomaly",
+        "license": "Apache-2.0 (Anomalib)",
+        "commercial_cleared": true,
+        "supports_scratch": false,
+        "supports_dust": false,
+        "min_frames": 1,
+        "default_config": {
+          "threshold": 0.5,
+          "tile_size": 0
+        }
+      },
+      "combined_metrics": {
+        "tp": 42859,
+        "fp": 3978559,
+        "fn": 0,
+        "tn": 5464,
+        "ignored": 68142,
+        "precision": 0.010658,
+        "precision_defined": true,
+        "recall": 1.0,
+        "recall_defined": true,
+        "f1": 0.021091,
+        "iou": 0.010658,
+        "false_positive_rate": 0.99862852,
+        "prediction_coverage": 0.998643,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "status": "NOT_APPLICABLE"
+      },
+      "dust_metrics": {
+        "status": "NOT_APPLICABLE"
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.9983099395184298,
+        "film_grain_fpr": 1.0,
+        "architectural_edges_fpr": 0.9995320638020834,
+        "portrait_faces_fpr": 0.9996270073784722,
+        "motion_fpr": 0.9994405110677084
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.000170025,
+        "continuity_score": 1.0,
+        "missed_defect_rate": 0.0,
+        "temporal_motion_fpr": 0.9999270849999999
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 1781.26,
+        "total_time_ms": 49875.24,
+        "fps": 0.6,
+        "peak_ram_mb": 44.31,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    },
+    "padim": {
+      "metadata": {
+        "display_name": "PaDiM Anomaly Detector",
+        "family": "neural_gaussian_anomaly",
+        "license": "Apache-2.0 (Anomalib)",
+        "commercial_cleared": true,
+        "supports_scratch": false,
+        "supports_dust": false,
+        "min_frames": 1,
+        "default_config": {
+          "threshold": 0.5,
+          "tile_size": 0
+        }
+      },
+      "combined_metrics": {
+        "tp": 42859,
+        "fp": 3970310,
+        "fn": 0,
+        "tn": 13713,
+        "ignored": 68142,
+        "precision": 0.01068,
+        "precision_defined": true,
+        "recall": 1.0,
+        "recall_defined": true,
+        "f1": 0.021133,
+        "iou": 0.01068,
+        "false_positive_rate": 0.996558,
+        "prediction_coverage": 0.996595,
+        "ground_truth_coverage": 0.010643,
+        "evaluated_pixels": 4026882
+      },
+      "scratch_metrics": {
+        "status": "NOT_APPLICABLE"
+      },
+      "dust_metrics": {
+        "status": "NOT_APPLICABLE"
+      },
+      "nuisance_fpr": {
+        "clean_archival_fpr": 0.994771197078626,
+        "film_grain_fpr": 1.0,
+        "architectural_edges_fpr": 1.0,
+        "portrait_faces_fpr": 1.0,
+        "motion_fpr": 1.0
+      },
+      "temporal_metrics": {
+        "mask_flicker_rate": 0.000760765,
+        "continuity_score": 1.0,
+        "missed_defect_rate": 0.0,
+        "temporal_motion_fpr": 0.999987795
+      },
+      "efficiency": {
+        "latency_ms_per_frame": 1949.19,
+        "total_time_ms": 54577.18,
+        "fps": 0.5,
+        "peak_ram_mb": 44.31,
+        "peak_vram_mb": 0.0
+      },
+      "success": true,
+      "error": ""
+    }
+  },
+  "calibrated_presets": {
+    "fast_preview": {
+      "name": "fast_preview",
+      "label": "Fast Interactive Preview",
+      "detector": "dis_flow",
+      "parameters": {
+        "sensitivity": 0.2
+      },
+      "commercial_cleared": true,
+      "expected_metrics": {
+        "f1": 0.1984,
+        "precision": 0.3937,
+        "recall": 0.1326,
+        "latency_ms_per_frame": 97.25
+      },
+      "target_tradeoff": "Ultra-low latency (< 100 ms/frame) with balanced sensitivity for real-time scrub preview.",
+      "evidence": "Calibrated on dis_flow at threshold=0.20."
+    },
+    "balanced": {
+      "name": "balanced",
+      "label": "Balanced Production Master",
+      "detector": "dart_harness",
+      "parameters": {
+        "run_inference": true,
+        "threshold": 204
+      },
+      "commercial_cleared": false,
+      "expected_metrics": {
+        "f1": 0.6143,
+        "precision": 0.4725,
+        "recall": 0.8776,
+        "latency_ms_per_frame": 3240.75
+      },
+      "target_tradeoff": "Peak F1 trade-off between defect detection recall and false positive suppression.",
+      "evidence": "Calibrated on dart_harness achieving maximum F1=0.6143 at threshold=0.80."
+    },
+    "high_quality_precision": {
+      "name": "high_quality_precision",
+      "label": "High Quality Precision (Face & Edge Safe)",
+      "detector": "cnn_blotches",
+      "parameters": {
+        "threshold": 0.8,
+        "tile_size": 0
+      },
+      "commercial_cleared": true,
+      "expected_metrics": {
+        "f1": 0.4622,
+        "precision": 0.8659,
+        "recall": 0.3152,
+        "face_fpr": 0.000197,
+        "edge_fpr": 2e-05,
+        "latency_ms_per_frame": 1060.17
+      },
+      "target_tradeoff": "Strict suppression of false positives on human faces, eyes, and high-contrast edges.",
+      "evidence": "Calibrated on cnn_blotches at threshold=0.80 yielding Precision=0.8659."
+    },
+    "high_recall": {
+      "name": "high_recall",
+      "label": "High Recall Defect Capture",
+      "detector": "dart_harness",
+      "parameters": {
+        "run_inference": true,
+        "threshold": 128
+      },
+      "commercial_cleared": false,
+      "expected_metrics": {
+        "f1": 0.315,
+        "precision": 0.1881,
+        "recall": 0.9697,
+        "latency_ms_per_frame": 3240.75
+      },
+      "target_tradeoff": "Maximizes recall to capture faint, translucent hairline scratches and micro-dust particles.",
+      "evidence": "Calibrated on dart_harness at threshold=0.50 yielding Recall=0.9697."
+    },
+    "archival_preservation": {
+      "name": "archival_preservation",
+      "label": "Archival Preservation (Grain & Texture Safe)",
+      "detector": "ridge",
+      "parameters": {
+        "sensitivity": 0.2
+      },
+      "commercial_cleared": true,
+      "expected_metrics": {
+        "f1": 0.0719,
+        "precision": 0.9604,
+        "recall": 0.0374,
+        "grain_fpr": 0.0,
+        "latency_ms_per_frame": 37.19
+      },
+      "target_tradeoff": "Conservative restoration strictly preserving photographic film grain and authentic archival texture.",
+      "evidence": "Calibrated on ridge at threshold=0.20 with Grain FPR <= 0.0000%."
+    }
+  },
+  "threshold_sweeps": {
+    "farneback_3f": [
+      {
+        "candidate": "farneback_3f",
+        "threshold": 0.2,
+        "precision": 0.306776,
+        "recall": 0.063067,
+        "f1": 0.104626,
+        "iou": 0.0552,
+        "val_fpr": 0.00153312,
+        "negative_fpr": 0.000984138674215273,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0016909163528471985,
+          "film_grain_fpr": 0.003229777018229167,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 208.6599321441359,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "farneback_3f",
+        "threshold": 0.35,
+        "precision": 0.306776,
+        "recall": 0.063067,
+        "f1": 0.104626,
+        "iou": 0.0552,
+        "val_fpr": 0.00153312,
+        "negative_fpr": 0.000984138674215273,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0016909163528471985,
+          "film_grain_fpr": 0.003229777018229167,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 208.6599321441359,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "farneback_3f",
+        "threshold": 0.5,
+        "precision": 0.306776,
+        "recall": 0.063067,
+        "f1": 0.104626,
+        "iou": 0.0552,
+        "val_fpr": 0.00153312,
+        "negative_fpr": 0.000984138674215273,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0016909163528471985,
+          "film_grain_fpr": 0.003229777018229167,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 208.6599321441359,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "farneback_3f",
+        "threshold": 0.65,
+        "precision": 0.306776,
+        "recall": 0.063067,
+        "f1": 0.104626,
+        "iou": 0.0552,
+        "val_fpr": 0.00153312,
+        "negative_fpr": 0.000984138674215273,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0016909163528471985,
+          "film_grain_fpr": 0.003229777018229167,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 208.6599321441359,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "farneback_3f",
+        "threshold": 0.8,
+        "precision": 0.306776,
+        "recall": 0.063067,
+        "f1": 0.104626,
+        "iou": 0.0552,
+        "val_fpr": 0.00153312,
+        "negative_fpr": 0.000984138674215273,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0016909163528471985,
+          "film_grain_fpr": 0.003229777018229167,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 208.6599321441359,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "dis_flow": [
+      {
+        "candidate": "dis_flow",
+        "threshold": 0.2,
+        "precision": 0.393698,
+        "recall": 0.132644,
+        "f1": 0.198433,
+        "iou": 0.110145,
+        "val_fpr": 0.00219753,
+        "negative_fpr": 0.0009976497297393278,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0023450872988702498,
+          "film_grain_fpr": 0.002643161349826389,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 97.25312142940571,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dis_flow",
+        "threshold": 0.35,
+        "precision": 0.393698,
+        "recall": 0.132644,
+        "f1": 0.198433,
+        "iou": 0.110145,
+        "val_fpr": 0.00219753,
+        "negative_fpr": 0.0009976497297393278,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0023450872988702498,
+          "film_grain_fpr": 0.002643161349826389,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 97.25312142940571,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dis_flow",
+        "threshold": 0.5,
+        "precision": 0.393698,
+        "recall": 0.132644,
+        "f1": 0.198433,
+        "iou": 0.110145,
+        "val_fpr": 0.00219753,
+        "negative_fpr": 0.0009976497297393278,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0023450872988702498,
+          "film_grain_fpr": 0.002643161349826389,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 97.25312142940571,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dis_flow",
+        "threshold": 0.65,
+        "precision": 0.393698,
+        "recall": 0.132644,
+        "f1": 0.198433,
+        "iou": 0.110145,
+        "val_fpr": 0.00219753,
+        "negative_fpr": 0.0009976497297393278,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0023450872988702498,
+          "film_grain_fpr": 0.002643161349826389,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 97.25312142940571,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dis_flow",
+        "threshold": 0.8,
+        "precision": 0.393698,
+        "recall": 0.132644,
+        "f1": 0.198433,
+        "iou": 0.110145,
+        "val_fpr": 0.00219753,
+        "negative_fpr": 0.0009976497297393278,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0023450872988702498,
+          "film_grain_fpr": 0.002643161349826389,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 97.25312142940571,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "ridge": [
+      {
+        "candidate": "ridge",
+        "threshold": 0.2,
+        "precision": 0.960408,
+        "recall": 0.037355,
+        "f1": 0.071913,
+        "iou": 0.037298,
+        "val_fpr": 1.657e-05,
+        "negative_fpr": 2.818669405454753e-05,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.00014093347027273765,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 37.19392857497691,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "ridge",
+        "threshold": 0.35,
+        "precision": 0.960408,
+        "recall": 0.037355,
+        "f1": 0.071913,
+        "iou": 0.037298,
+        "val_fpr": 1.657e-05,
+        "negative_fpr": 2.818669405454753e-05,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.00014093347027273765,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 37.19392857497691,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "ridge",
+        "threshold": 0.5,
+        "precision": 0.960408,
+        "recall": 0.037355,
+        "f1": 0.071913,
+        "iou": 0.037298,
+        "val_fpr": 1.657e-05,
+        "negative_fpr": 2.818669405454753e-05,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.00014093347027273765,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 37.19392857497691,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "ridge",
+        "threshold": 0.65,
+        "precision": 0.960408,
+        "recall": 0.037355,
+        "f1": 0.071913,
+        "iou": 0.037298,
+        "val_fpr": 1.657e-05,
+        "negative_fpr": 2.818669405454753e-05,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.00014093347027273765,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 37.19392857497691,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "ridge",
+        "threshold": 0.8,
+        "precision": 0.960408,
+        "recall": 0.037355,
+        "f1": 0.071913,
+        "iou": 0.037298,
+        "val_fpr": 1.657e-05,
+        "negative_fpr": 2.818669405454753e-05,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.00014093347027273765,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 37.19392857497691,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "consensus_5f": [
+      {
+        "candidate": "consensus_5f",
+        "threshold": 0.2,
+        "precision": 0.098948,
+        "recall": 0.144147,
+        "f1": 0.117345,
+        "iou": 0.06233,
+        "val_fpr": 0.01412115,
+        "negative_fpr": 0.005325477700801369,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.016768515348624898,
+          "film_grain_fpr": 0.009858873155381944,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 274.08973571229063,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "consensus_5f",
+        "threshold": 0.35,
+        "precision": 0.098948,
+        "recall": 0.144147,
+        "f1": 0.117345,
+        "iou": 0.06233,
+        "val_fpr": 0.01412115,
+        "negative_fpr": 0.005325477700801369,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.016768515348624898,
+          "film_grain_fpr": 0.009858873155381944,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 274.08973571229063,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "consensus_5f",
+        "threshold": 0.5,
+        "precision": 0.098948,
+        "recall": 0.144147,
+        "f1": 0.117345,
+        "iou": 0.06233,
+        "val_fpr": 0.01412115,
+        "negative_fpr": 0.005325477700801369,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.016768515348624898,
+          "film_grain_fpr": 0.009858873155381944,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 274.08973571229063,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "consensus_5f",
+        "threshold": 0.65,
+        "precision": 0.098948,
+        "recall": 0.144147,
+        "f1": 0.117345,
+        "iou": 0.06233,
+        "val_fpr": 0.01412115,
+        "negative_fpr": 0.005325477700801369,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.016768515348624898,
+          "film_grain_fpr": 0.009858873155381944,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 274.08973571229063,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "consensus_5f",
+        "threshold": 0.8,
+        "precision": 0.098948,
+        "recall": 0.144147,
+        "f1": 0.117345,
+        "iou": 0.06233,
+        "val_fpr": 0.01412115,
+        "negative_fpr": 0.005325477700801369,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.016768515348624898,
+          "film_grain_fpr": 0.009858873155381944,
+          "architectural_edges_fpr": 0.0,
+          "portrait_faces_fpr": 0.0,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 274.08973571229063,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "dart_harness": [
+      {
+        "candidate": "dart_harness",
+        "threshold": 0.2,
+        "precision": 0.065299,
+        "recall": 0.999347,
+        "f1": 0.122588,
+        "iou": 0.065296,
+        "val_fpr": 0.15388691,
+        "negative_fpr": 0.47046597068432855,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.16704068241469816,
+          "film_grain_fpr": 0.7442762586805556,
+          "architectural_edges_fpr": 0.2846662733289931,
+          "portrait_faces_fpr": 0.3933478461371528,
+          "motion_fpr": 0.7629987928602431
+        },
+        "latency_ms_per_frame": 3240.747032138253,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dart_harness",
+        "threshold": 0.35,
+        "precision": 0.118564,
+        "recall": 0.983597,
+        "f1": 0.211619,
+        "iou": 0.11833,
+        "val_fpr": 0.0786642,
+        "negative_fpr": 0.14752388944665396,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.08605728631747118,
+          "film_grain_fpr": 0.1691368950737847,
+          "architectural_edges_fpr": 0.1415523952907986,
+          "portrait_faces_fpr": 0.25459798177083337,
+          "motion_fpr": 0.08627488878038195
+        },
+        "latency_ms_per_frame": 3240.747032138253,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dart_harness",
+        "threshold": 0.5,
+        "precision": 0.188056,
+        "recall": 0.969715,
+        "f1": 0.315021,
+        "iou": 0.186958,
+        "val_fpr": 0.0450404,
+        "negative_fpr": 0.0921722635131822,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.05077627524820267,
+          "film_grain_fpr": 0.022081163194444448,
+          "architectural_edges_fpr": 0.11342027452256945,
+          "portrait_faces_fpr": 0.2236412896050347,
+          "motion_fpr": 0.050942314995659724
+        },
+        "latency_ms_per_frame": 3240.747032138253,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dart_harness",
+        "threshold": 0.65,
+        "precision": 0.300564,
+        "recall": 0.940643,
+        "f1": 0.455562,
+        "iou": 0.29497,
+        "val_fpr": 0.02354806,
+        "negative_fpr": 0.06329687444743554,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.027515120392559628,
+          "film_grain_fpr": 0.001903957790798611,
+          "architectural_edges_fpr": 0.08870442708333333,
+          "portrait_faces_fpr": 0.16880459255642363,
+          "motion_fpr": 0.0295562744140625
+        },
+        "latency_ms_per_frame": 3240.747032138253,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "dart_harness",
+        "threshold": 0.8,
+        "precision": 0.472513,
+        "recall": 0.877575,
+        "f1": 0.614279,
+        "iou": 0.443292,
+        "val_fpr": 0.0105391,
+        "negative_fpr": 0.034223796236922704,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.012965023393814903,
+          "film_grain_fpr": 5.764431423611111e-05,
+          "architectural_edges_fpr": 0.0763515896267361,
+          "portrait_faces_fpr": 0.06697591145833333,
+          "motion_fpr": 0.014768812391493054
+        },
+        "latency_ms_per_frame": 3240.747032138253,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "bopb": [
+      {
+        "candidate": "bopb",
+        "threshold": 0.2,
+        "precision": 0.36588,
+        "recall": 0.474673,
+        "f1": 0.413236,
+        "iou": 0.260427,
+        "val_fpr": 0.0088501,
+        "negative_fpr": 0.004880355979486726,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.007276332306287801,
+          "film_grain_fpr": 1.6954210069444444e-06,
+          "architectural_edges_fpr": 0.010592990451388888,
+          "portrait_faces_fpr": 0.00653076171875,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 3524.6831999975257,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "bopb",
+        "threshold": 0.35,
+        "precision": 0.410426,
+        "recall": 0.45687,
+        "f1": 0.432404,
+        "iou": 0.275839,
+        "val_fpr": 0.0070602,
+        "negative_fpr": 0.003618335143887415,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.005850736049298186,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.007480197482638889,
+          "portrait_faces_fpr": 0.0047607421875,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 3524.6831999975257,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "bopb",
+        "threshold": 0.5,
+        "precision": 0.448331,
+        "recall": 0.442567,
+        "f1": 0.445431,
+        "iou": 0.28653,
+        "val_fpr": 0.0058584,
+        "negative_fpr": 0.0027688130833594853,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.004960059340408536,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.005221896701388889,
+          "portrait_faces_fpr": 0.003662109375,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 3524.6831999975257,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "bopb",
+        "threshold": 0.65,
+        "precision": 0.485621,
+        "recall": 0.428661,
+        "f1": 0.455367,
+        "iou": 0.294806,
+        "val_fpr": 0.00488451,
+        "negative_fpr": 0.0020275847609741715,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.004224295332648636,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0031534830729166665,
+          "portrait_faces_fpr": 0.0027601453993055555,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 3524.6831999975257,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "bopb",
+        "threshold": 0.8,
+        "precision": 0.537466,
+        "recall": 0.410696,
+        "f1": 0.465606,
+        "iou": 0.303446,
+        "val_fpr": 0.00380219,
+        "negative_fpr": 0.0013851779959655178,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0033587241812164785,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0020005967881944445,
+          "portrait_faces_fpr": 0.0015665690104166667,
+          "motion_fpr": 0.0
+        },
+        "latency_ms_per_frame": 3524.6831999975257,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "film_artefact_segmenter": [
+      {
+        "candidate": "film_artefact_segmenter",
+        "threshold": 0.2,
+        "precision": 0.477049,
+        "recall": 0.614457,
+        "f1": 0.537104,
+        "iou": 0.367151,
+        "val_fpr": 0.00724619,
+        "negative_fpr": 0.020575164466401404,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.004912701129750086,
+          "film_grain_fpr": 0.002314249674479167,
+          "architectural_edges_fpr": 0.058892144097222224,
+          "portrait_faces_fpr": 0.028374565972222224,
+          "motion_fpr": 0.008382161458333334
+        },
+        "latency_ms_per_frame": 1172.0694607148678,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "film_artefact_segmenter",
+        "threshold": 0.35,
+        "precision": 0.65152,
+        "recall": 0.521897,
+        "f1": 0.579549,
+        "iou": 0.408004,
+        "val_fpr": 0.00300299,
+        "negative_fpr": 0.01459195940324672,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0017080337783863973,
+          "film_grain_fpr": 0.0004984537760416666,
+          "architectural_edges_fpr": 0.04348415798611111,
+          "portrait_faces_fpr": 0.019253200954861112,
+          "motion_fpr": 0.008015950520833334
+        },
+        "latency_ms_per_frame": 1172.0694607148678,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "film_artefact_segmenter",
+        "threshold": 0.5,
+        "precision": 0.737677,
+        "recall": 0.471033,
+        "f1": 0.574944,
+        "iou": 0.403453,
+        "val_fpr": 0.00180195,
+        "negative_fpr": 0.010184632334378507,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0008658564418578112,
+          "film_grain_fpr": 0.00017123752170138888,
+          "architectural_edges_fpr": 0.027248806423611112,
+          "portrait_faces_fpr": 0.014763726128472222,
+          "motion_fpr": 0.00787353515625
+        },
+        "latency_ms_per_frame": 1172.0694607148678,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "film_artefact_segmenter",
+        "threshold": 0.65,
+        "precision": 0.81087,
+        "recall": 0.426445,
+        "f1": 0.558938,
+        "iou": 0.387866,
+        "val_fpr": 0.00107002,
+        "negative_fpr": 0.007020499607614225,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0003785803948419491,
+          "film_grain_fpr": 6.951226128472222e-05,
+          "architectural_edges_fpr": 0.016642252604166668,
+          "portrait_faces_fpr": 0.010226779513888888,
+          "motion_fpr": 0.007785373263888889
+        },
+        "latency_ms_per_frame": 1172.0694607148678,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "film_artefact_segmenter",
+        "threshold": 0.8,
+        "precision": 0.865303,
+        "recall": 0.364078,
+        "f1": 0.512514,
+        "iou": 0.34455,
+        "val_fpr": 0.00060969,
+        "negative_fpr": 0.004099673458547599,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.00016518315645326943,
+          "film_grain_fpr": 3.5603841145833336e-05,
+          "architectural_edges_fpr": 0.0155029296875,
+          "portrait_faces_fpr": 0.0021769205729166665,
+          "motion_fpr": 0.002617730034722222
+        },
+        "latency_ms_per_frame": 1172.0694607148678,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "cnn_blotches": [
+      {
+        "candidate": "cnn_blotches",
+        "threshold": 0.2,
+        "precision": 0.707468,
+        "recall": 0.510838,
+        "f1": 0.593285,
+        "iou": 0.421752,
+        "val_fpr": 0.00227233,
+        "negative_fpr": 0.021204715642711775,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.001585644185781125,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.08021375868055555,
+          "portrait_faces_fpr": 0.016364203559027776,
+          "motion_fpr": 0.007859971788194444
+        },
+        "latency_ms_per_frame": 1060.1667214297256,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "cnn_blotches",
+        "threshold": 0.35,
+        "precision": 0.798614,
+        "recall": 0.457174,
+        "f1": 0.581476,
+        "iou": 0.409916,
+        "val_fpr": 0.0012402,
+        "negative_fpr": 0.010512353614065056,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0007157936779641675,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.03959825303819445,
+          "portrait_faces_fpr": 0.007073296440972222,
+          "motion_fpr": 0.005174424913194444
+        },
+        "latency_ms_per_frame": 1060.1667214297256,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "cnn_blotches",
+        "threshold": 0.5,
+        "precision": 0.834741,
+        "recall": 0.424275,
+        "f1": 0.562598,
+        "iou": 0.391399,
+        "val_fpr": 0.00090361,
+        "negative_fpr": 0.0006745308198355301,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.0004633116512609837,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0013495551215277778,
+          "portrait_faces_fpr": 0.001437717013888889,
+          "motion_fpr": 0.0001220703125
+        },
+        "latency_ms_per_frame": 1060.1667214297256,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "cnn_blotches",
+        "threshold": 0.65,
+        "precision": 0.856569,
+        "recall": 0.373434,
+        "f1": 0.520116,
+        "iou": 0.351457,
+        "val_fpr": 0.00067269,
+        "negative_fpr": 0.00015941921258653805,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.000322378180988246,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 0.0001220703125,
+          "portrait_faces_fpr": 0.00031195746527777775,
+          "motion_fpr": 4.0690104166666664e-05
+        },
+        "latency_ms_per_frame": 1060.1667214297256,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "cnn_blotches",
+        "threshold": 0.8,
+        "precision": 0.865868,
+        "recall": 0.315243,
+        "f1": 0.462207,
+        "iou": 0.300565,
+        "val_fpr": 0.00052535,
+        "negative_fpr": 9.574292821498534e-05,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.00024135570010270455,
+          "film_grain_fpr": 0.0,
+          "architectural_edges_fpr": 2.0345052083333332e-05,
+          "portrait_faces_fpr": 0.00019666883680555556,
+          "motion_fpr": 2.0345052083333332e-05
+        },
+        "latency_ms_per_frame": 1060.1667214297256,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "patchcore": [
+      {
+        "candidate": "patchcore",
+        "threshold": 0.2,
+        "precision": 0.010643,
+        "recall": 1.0,
+        "f1": 0.021062,
+        "iou": 0.010643,
+        "val_fpr": 1.0,
+        "negative_fpr": 1.0,
+        "regime_fpr": {
+          "clean_archival_fpr": 1.0,
+          "film_grain_fpr": 1.0,
+          "architectural_edges_fpr": 1.0,
+          "portrait_faces_fpr": 1.0,
+          "motion_fpr": 1.0
+        },
+        "latency_ms_per_frame": 1781.2585142902597,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "patchcore",
+        "threshold": 0.35,
+        "precision": 0.010643,
+        "recall": 1.0,
+        "f1": 0.021062,
+        "iou": 0.010643,
+        "val_fpr": 1.0,
+        "negative_fpr": 1.0,
+        "regime_fpr": {
+          "clean_archival_fpr": 1.0,
+          "film_grain_fpr": 1.0,
+          "architectural_edges_fpr": 1.0,
+          "portrait_faces_fpr": 1.0,
+          "motion_fpr": 1.0
+        },
+        "latency_ms_per_frame": 1781.2585142902597,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "patchcore",
+        "threshold": 0.5,
+        "precision": 0.010658,
+        "recall": 1.0,
+        "f1": 0.021091,
+        "iou": 0.010658,
+        "val_fpr": 0.99862852,
+        "negative_fpr": 0.9993819043533387,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.9983099395184298,
+          "film_grain_fpr": 1.0,
+          "architectural_edges_fpr": 0.9995320638020834,
+          "portrait_faces_fpr": 0.9996270073784722,
+          "motion_fpr": 0.9994405110677084
+        },
+        "latency_ms_per_frame": 1781.2585142902597,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "patchcore",
+        "threshold": 0.65,
+        "precision": 0.011873,
+        "recall": 0.999697,
+        "f1": 0.023468,
+        "iou": 0.011873,
+        "val_fpr": 0.89502721,
+        "negative_fpr": 0.9574269176057848,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.9046120050211114,
+          "film_grain_fpr": 0.950927734375,
+          "architectural_edges_fpr": 0.9752197265625,
+          "portrait_faces_fpr": 0.9823269314236112,
+          "motion_fpr": 0.9740481906467013
+        },
+        "latency_ms_per_frame": 1781.2585142902597,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "patchcore",
+        "threshold": 0.8,
+        "precision": 0.023473,
+        "recall": 0.904127,
+        "f1": 0.045757,
+        "iou": 0.023414,
+        "val_fpr": 0.4046435,
+        "negative_fpr": 0.5119016267117054,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.41284234851078394,
+          "film_grain_fpr": 0.009653727213541668,
+          "architectural_edges_fpr": 0.7900797526041666,
+          "portrait_faces_fpr": 0.6014879014756944,
+          "motion_fpr": 0.7454444037543402
+        },
+        "latency_ms_per_frame": 1781.2585142902597,
+        "peak_vram_mb": 0.0
+      }
+    ],
+    "padim": [
+      {
+        "candidate": "padim",
+        "threshold": 0.2,
+        "precision": 0.010643,
+        "recall": 1.0,
+        "f1": 0.021062,
+        "iou": 0.010643,
+        "val_fpr": 1.0,
+        "negative_fpr": 1.0,
+        "regime_fpr": {
+          "clean_archival_fpr": 1.0,
+          "film_grain_fpr": 1.0,
+          "architectural_edges_fpr": 1.0,
+          "portrait_faces_fpr": 1.0,
+          "motion_fpr": 1.0
+        },
+        "latency_ms_per_frame": 1949.1851035750838,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "padim",
+        "threshold": 0.35,
+        "precision": 0.010643,
+        "recall": 1.0,
+        "f1": 0.021062,
+        "iou": 0.010643,
+        "val_fpr": 1.0,
+        "negative_fpr": 1.0,
+        "regime_fpr": {
+          "clean_archival_fpr": 1.0,
+          "film_grain_fpr": 1.0,
+          "architectural_edges_fpr": 1.0,
+          "portrait_faces_fpr": 1.0,
+          "motion_fpr": 1.0
+        },
+        "latency_ms_per_frame": 1949.1851035750838,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "padim",
+        "threshold": 0.5,
+        "precision": 0.01068,
+        "recall": 1.0,
+        "f1": 0.021133,
+        "iou": 0.01068,
+        "val_fpr": 0.996558,
+        "negative_fpr": 0.9989542394157251,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.994771197078626,
+          "film_grain_fpr": 1.0,
+          "architectural_edges_fpr": 1.0,
+          "portrait_faces_fpr": 1.0,
+          "motion_fpr": 1.0
+        },
+        "latency_ms_per_frame": 1949.1851035750838,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "padim",
+        "threshold": 0.65,
+        "precision": 0.011098,
+        "recall": 1.0,
+        "f1": 0.021952,
+        "iou": 0.011098,
+        "val_fpr": 0.95860365,
+        "negative_fpr": 0.9882716782276153,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.9414601163984936,
+          "film_grain_fpr": 0.9998982747395833,
+          "architectural_edges_fpr": 1.0,
+          "portrait_faces_fpr": 1.0,
+          "motion_fpr": 1.0
+        },
+        "latency_ms_per_frame": 1949.1851035750838,
+        "peak_vram_mb": 0.0
+      },
+      {
+        "candidate": "padim",
+        "threshold": 0.8,
+        "precision": 0.01218,
+        "recall": 0.998087,
+        "f1": 0.024066,
+        "iou": 0.012179,
+        "val_fpr": 0.8708268,
+        "negative_fpr": 0.9591471260555746,
+        "regime_fpr": {
+          "clean_archival_fpr": 0.8471679219445395,
+          "film_grain_fpr": 0.9746551513671875,
+          "architectural_edges_fpr": 0.9967244466145834,
+          "portrait_faces_fpr": 0.9817165798611112,
+          "motion_fpr": 0.9954715304904513
+        },
+        "latency_ms_per_frame": 1949.1851035750838,
+        "peak_vram_mb": 0.0
+      }
+    ]
+  }
+}

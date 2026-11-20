@@ -320,6 +320,33 @@ class DefectBenchmarkTests(unittest.TestCase):
         self.assertEqual(dm["iou"], round(4 / 5, 6))
         self.assertEqual(dm["false_positive_rate"], round(1 / 96, 8))
 
+    def test_extended_scratch_orientations_branching_and_telecine_cadence(self):
+        base = [np.full((64, 80, 3), 120, dtype=np.uint8) for _ in range(6)]
+        for cfg in [
+            bench.ExtendedScratchConfig(orientation="diagonal", angle_deg=35.0, curvature=4.0, width=3, duration=4, seed=10),
+            bench.ExtendedScratchConfig(orientation="horizontal", angle_deg=3.0, width=2, bright=False, duration=4, seed=20),
+            bench.ExtendedScratchConfig(orientation="vertical", width=6, branching=True, flank_ignore_px=1, duration=4, seed=30),
+        ]:
+            damaged, gt_3tier, exact = bench.inject_extended_scratches(base, cfg)
+            self.assertEqual(len(damaged), 6)
+            self.assertTrue(any(np.any(m == 255) for m in exact))
+            for orig, dmg, ex, g3 in zip(base, damaged, exact, gt_3tier):
+                self.assertTrue(np.array_equal(dmg[ex == 0], orig[ex == 0]))
+                self.assertTrue(set(np.unique(g3).tolist()).issubset({0, 127, 255}))
+                if cfg.width >= 5 and np.any(ex == 255):
+                    self.assertIn(127, np.unique(g3).tolist())
+
+        # Telecine cadence verification
+        damaged, gt_3tier, exact = bench.inject_extended_scratches(
+            base,
+            bench.ExtendedScratchConfig(orientation="vertical", duration=6, seed=99),
+        )
+        tele = bench.apply_telecine_cadence(base, damaged, gt_3tier, exact, duplicate_every=3, target_length=8)
+        self.assertEqual(len(tele["damaged_frames"]), 8)
+        self.assertEqual(tele["duplicate_indices"], [3, 7])
+        self.assertTrue(np.array_equal(tele["damaged_frames"][2], tele["damaged_frames"][3]))
+        self.assertTrue(np.array_equal(tele["gt_masks"][2], tele["gt_masks"][3]))
+
 
 if __name__ == "__main__":
     unittest.main()

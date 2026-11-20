@@ -7,6 +7,29 @@ from .config import ASPECT_PREVIEW_DIR, FILE_PREVIEW_DIR, MEDIA_CLIP_DIR, PREVIE
 from .paths import rel, resolve
 
 
+def _protected_project_dirs() -> tuple[Path, ...]:
+    return (
+        ROOT / "manifests" / "dust_masks",
+        ROOT / "manifests" / "outpaint_masks",
+        ROOT / "manifests" / "references",
+        ROOT / "manifests" / "outpaint_chunks",
+    )
+
+
+def is_protected_project_path(path: Path) -> bool:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    for protected in _protected_project_dirs():
+        try:
+            resolved.relative_to(protected.resolve())
+            return True
+        except (ValueError, OSError):
+            continue
+    return False
+
+
 def human_size(size: int) -> str:
     value = float(size)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -69,6 +92,12 @@ def cache_categories() -> tuple[dict, ...]:
                 ROOT / "intermediate" / "outpaint_prepared",
                 ROOT / "intermediate" / "outpainted",
             ),
+        },
+        {
+            "key": "dust",
+            "title": "Dust & Scratches",
+            "description": "Manual Dust & Scratches bitmask edits (manifests/dust_masks/) are project state and are not removed by cache clearing.",
+            "folders": (),
         },
         {
             "key": "shots",
@@ -140,7 +169,7 @@ def cache_category_files(category: dict) -> list[dict]:
         if not folder.exists():
             continue
         for path in folder.rglob("*"):
-            if not cache_file_is_listable(path):
+            if not cache_file_is_listable(path) or is_protected_project_path(path):
                 continue
             try:
                 stat = path.stat()
@@ -209,6 +238,8 @@ def delete_cache_category(category_key: str) -> dict:
     return {"deleted": deleted, "bytes": bytes_deleted}
 
 def cache_category_for_path(path: Path) -> dict | None:
+    if is_protected_project_path(path):
+        return None
     try:
         resolved = path.resolve()
     except OSError:

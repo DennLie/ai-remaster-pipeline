@@ -47,6 +47,10 @@ venv/
 /tools/dart/
 /tools/dart-installer/
 /tools/.locks/
+/tools/anomalib/
+/tools/bopb/
+/tools/checkpoints/
+/tools/neural_defects/
 /evaluation/
 /tmp*/
 
@@ -79,3 +83,14 @@ venv/
 
 # Impeccable engine binary (downloaded on demand)
 /.opencode/skills/impeccable/scripts/bin/
+
+
+# Runtime benchmark binary archives and provenance exports
+/docs/benchmarks/visual_audit.zip
+/exports/dust_mask_provenance/
+
+# Local backup and scratch scripts
+/ai_remaster_gui/frame_inspector.py.bak.20261102-170905
+/ai_remaster_gui/static/js/render-helpers.js.bak-20261102-173423
+/arp_cleanup_compare_fix.ps1
+/arp_cleanup_compare_fix_v2.ps1

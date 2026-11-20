@@ -51,6 +51,49 @@ class ScratchConfig:
 
 
 @dataclass(frozen=True)
+class ExtendedScratchConfig:
+    """Extended multi-regime scratch injector config for Track B real-video validation."""
+
+    orientation: str = "vertical"  # "vertical" | "diagonal" | "horizontal"
+    angle_deg: float = 0.0
+    width: int = 2
+    opacity: float = 0.8
+    bright: bool = True
+    curvature: float = 0.0
+    branching: bool = False
+    span_fraction: tuple[float, float] = (0.0, 1.0)
+    duration: int = 5
+    drift_px: float = 0.0
+    flank_ignore_px: int | None = None
+    seed: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.orientation not in ("vertical", "diagonal", "horizontal"):
+            raise ValueError(f"Unsupported orientation {self.orientation!r}")
+        if not -89.0 <= self.angle_deg <= 89.0:
+            raise ValueError(f"angle_deg must be in [-89.0, 89.0], got {self.angle_deg}")
+        if self.orientation == "vertical" and not -15.0 <= self.angle_deg <= 15.0:
+            raise ValueError(f"Vertical scratch angle_deg must be in [-15.0, 15.0], got {self.angle_deg}")
+        if self.orientation == "diagonal" and not (20.0 <= abs(self.angle_deg) <= 65.0):
+            raise ValueError(f"Diagonal scratch |angle_deg| must be in [20.0, 65.0], got {self.angle_deg}")
+        if self.orientation == "horizontal" and not -15.0 <= self.angle_deg <= 15.0:
+            raise ValueError(f"Horizontal scratch angle_deg must be in [-15.0, 15.0], got {self.angle_deg}")
+        if not 1 <= self.width <= 16:
+            raise ValueError(f"width must be in [1, 16], got {self.width}")
+        if not 0.15 <= self.opacity <= 1.0:
+            raise ValueError(f"opacity must be in [0.15, 1.0], got {self.opacity}")
+        s0, s1 = self.span_fraction
+        if not (0.0 <= s0 < s1 <= 1.0):
+            raise ValueError(f"span_fraction must satisfy 0.0 <= start < end <= 1.0, got {self.span_fraction}")
+        if not 1 <= self.duration <= 72:
+            raise ValueError(f"duration must be in [1, 72], got {self.duration}")
+        if not 0.0 <= self.drift_px <= 10.0:
+            raise ValueError(f"drift_px must be in [0.0, 10.0], got {self.drift_px}")
+        if self.flank_ignore_px is not None and not 0 <= self.flank_ignore_px <= 4:
+            raise ValueError(f"flank_ignore_px must be in [0, 4], got {self.flank_ignore_px}")
+
+
+@dataclass(frozen=True)
 class DustConfig:
     """Configuration for synthetic transient dust and chemical blotch injection."""
 
@@ -178,6 +221,217 @@ def inject_scratches(
             )
 
     return perturbed, gt_masks
+
+
+def _build_polyline_pts(
+    *,
+    orientation: str,
+    angle_deg: float,
+    curvature: float,
+    span_fraction: tuple[float, float],
+    center_pos: float,
+    height: int,
+    width: int,
+) -> np.ndarray:
+    """Construct integer polyline points (N, 2) for vertical, diagonal, or horizontal scratches."""
+    s0, s1 = span_fraction
+    slope = math.tan(math.radians(angle_deg))
+    if orientation == "horizontal":
+        x_start = int(round(s0 * max(1, width - 1)))
+        x_end = int(round(s1 * max(1, width - 1)))
+        xs = np.linspace(x_start, max(x_start + 1, x_end), num=max(2, abs(x_end - x_start) + 1))
+        x_mid = 0.5 * (x_start + x_end)
+        half_span = max(0.5 * (x_end - x_start), 1.0)
+        norm_s = (xs - x_mid) / half_span
+        ys = center_pos + (xs - x_mid) * slope + curvature * (norm_s**2 - 0.5)
+    else:
+        y_start = int(round(s0 * max(1, height - 1)))
+        y_end = int(round(s1 * max(1, height - 1)))
+        ys = np.linspace(y_start, max(y_start + 1, y_end), num=max(2, abs(y_end - y_start) + 1))
+        y_mid = 0.5 * (y_start + y_end)
+        half_span = max(0.5 * (y_end - y_start), 1.0)
+        norm_s = (ys - y_mid) / half_span
+        xs = center_pos + (ys - y_mid) * slope + curvature * (norm_s**2 - 0.5)
+
+    pts = np.stack([np.round(xs).astype(np.int32), np.round(ys).astype(np.int32)], axis=1)
+    valid = (pts[:, 0] >= 0) & (pts[:, 0] < width) & (pts[:, 1] >= 0) & (pts[:, 1] < height)
+    if np.any(valid):
+        pts = pts[valid]
+    else:
+        pts[:, 0] = np.clip(pts[:, 0], 0, width - 1)
+        pts[:, 1] = np.clip(pts[:, 1], 0, height - 1)
+    return pts
+
+
+def inject_extended_scratches(
+    frames: np.ndarray | Sequence[np.ndarray],
+    config: ExtendedScratchConfig | None = None,
+    *,
+    num_scratches: int = 1,
+) -> tuple[list[np.ndarray], list[np.ndarray], list[np.ndarray]]:
+    """Inject multi-regime synthetic scratches into a frame sequence with exact binary and 3-tier masks.
+
+    Returns (damaged_frames, gt_masks_3tier, exact_binary_masks) where:
+    - `gt_masks_3tier` uses {0=clean, 127=ignore boundary flank, 255=core scratch}
+    - `exact_binary_masks` uses {0, 255} marking every pixel perturbed in `damaged_frames`,
+      guaranteeing `damaged_frames[t][exact_binary_masks[t] == 0]` is identical to the input frame.
+    """
+    cfg = config or ExtendedScratchConfig()
+    if num_scratches < 1:
+        raise ValueError(f"num_scratches must be >= 1, got {num_scratches}")
+    damaged = _normalize_frame_sequence(frames)
+    num_frames = len(damaged)
+    height, width = damaged[0].shape[:2]
+    exact_masks = [np.zeros((height, width), dtype=np.uint8) for _ in range(num_frames)]
+    gt_3tier = [np.zeros((height, width), dtype=np.uint8) for _ in range(num_frames)]
+    rng = np.random.default_rng(cfg.seed)
+
+    span = min(cfg.duration, num_frames)
+    max_start = max(0, num_frames - span)
+    flank_px = cfg.flank_ignore_px if cfg.flank_ignore_px is not None else (1 if cfg.width >= 5 else 0)
+
+    if cfg.orientation == "horizontal":
+        margin = max(cfg.width, min(height // 6, 16))
+        low_pos = margin if height > 2 * margin else 0
+        high_pos = (height - margin) if height > 2 * margin else height
+    else:
+        margin = max(cfg.width, min(width // 6, 16))
+        low_pos = margin if width > 2 * margin else 0
+        high_pos = (width - margin) if width > 2 * margin else width
+
+    for _ in range(num_scratches):
+        t0 = int(rng.integers(0, max_start + 1)) if max_start > 0 else 0
+        pos0 = float(rng.uniform(low_pos, max(low_pos + 1, high_pos)))
+        drift_sign = 1.0 if num_scratches == 1 else float(rng.choice([-1.0, 1.0]))
+        branch_frac = float(rng.uniform(0.30, 0.55))
+        branch_angle_offset = float(rng.choice([-1.0, 1.0]) * rng.uniform(18.0, 32.0))
+
+        for dt in range(span):
+            t = t0 + dt
+            center_pos = pos0 + drift_sign * cfg.drift_px * dt
+            pts = _build_polyline_pts(
+                orientation=cfg.orientation,
+                angle_deg=cfg.angle_deg,
+                curvature=cfg.curvature,
+                span_fraction=cfg.span_fraction,
+                center_pos=center_pos,
+                height=height,
+                width=width,
+            )
+            scratch_layer = np.zeros((height, width), dtype=np.uint8)
+            if pts.shape[0] >= 2:
+                cv2.polylines(
+                    scratch_layer,
+                    [pts.reshape(-1, 1, 2)],
+                    isClosed=False,
+                    color=255,
+                    thickness=cfg.width,
+                    lineType=cv2.LINE_8,
+                )
+
+            if cfg.branching and pts.shape[0] >= 8:
+                pivot_idx = min(pts.shape[0] - 2, max(1, int(round(branch_frac * pts.shape[0]))))
+                px0, py0 = int(pts[pivot_idx, 0]), int(pts[pivot_idx, 1])
+                branch_len = max(12, int(round(0.35 * max(height, width) * (cfg.span_fraction[1] - cfg.span_fraction[0]))))
+                b_ang = cfg.angle_deg + branch_angle_offset
+                if cfg.orientation == "horizontal":
+                    bx1 = int(np.clip(px0 + branch_len, 0, width - 1))
+                    by1 = int(np.clip(round(py0 + math.tan(math.radians(b_ang)) * branch_len * 0.4), 0, height - 1))
+                else:
+                    by1 = int(np.clip(py0 + branch_len, 0, height - 1))
+                    bx1 = int(np.clip(round(px0 + math.tan(math.radians(b_ang)) * (by1 - py0)), 0, width - 1))
+                cv2.line(
+                    scratch_layer,
+                    (px0, py0),
+                    (bx1, by1),
+                    color=255,
+                    thickness=max(1, cfg.width // 2),
+                    lineType=cv2.LINE_8,
+                )
+
+            exact_masks[t] = np.where(scratch_layer > 0, np.uint8(255), exact_masks[t])
+            gt_3tier[t] = np.where(scratch_layer > 0, np.uint8(255), gt_3tier[t])
+            if flank_px > 0 and np.any(scratch_layer > 0):
+                k_sz = 2 * flank_px + 1
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_sz, k_sz))
+                dilated = cv2.dilate(scratch_layer, kernel) > 0
+                halo = dilated & (exact_masks[t] == 0) & (gt_3tier[t] == 0)
+                gt_3tier[t][halo] = 127
+
+            damaged[t] = _apply_mask_perturbation(
+                damaged[t],
+                scratch_layer,
+                strength=cfg.opacity,
+                bright=cfg.bright,
+            )
+
+    return damaged, gt_3tier, exact_masks
+
+
+def apply_telecine_cadence(
+    clean_frames: Sequence[np.ndarray],
+    damaged_frames: Sequence[np.ndarray],
+    gt_masks: Sequence[np.ndarray],
+    exact_binary_masks: Sequence[np.ndarray] | None = None,
+    *,
+    duplicate_every: int = 3,
+    target_length: int | None = None,
+) -> dict[str, Any]:
+    """Simulate telecine pulldown frame repetition while keeping exact clean references and GT masks."""
+    if duplicate_every < 2:
+        raise ValueError(f"duplicate_every must be >= 2, got {duplicate_every}")
+    n = len(clean_frames)
+    if not (n == len(damaged_frames) == len(gt_masks)):
+        raise ValueError("clean_frames, damaged_frames, and gt_masks must have equal length")
+    if exact_binary_masks is not None and len(exact_binary_masks) != n:
+        raise ValueError("exact_binary_masks length must match frame count")
+
+    tele_clean: list[np.ndarray] = []
+    tele_damaged: list[np.ndarray] = []
+    tele_gt: list[np.ndarray] = []
+    tele_exact: list[np.ndarray] = []
+    duplicate_indices: list[int] = []
+    source_indices: list[int] = []
+
+    for idx in range(n):
+        tele_clean.append(clean_frames[idx].copy())
+        tele_damaged.append(damaged_frames[idx].copy())
+        tele_gt.append(gt_masks[idx].copy())
+        if exact_binary_masks is not None:
+            tele_exact.append(exact_binary_masks[idx].copy())
+        source_indices.append(idx)
+
+        if target_length is not None and len(tele_damaged) >= target_length:
+            break
+
+        if (idx + 1) % duplicate_every == 0:
+            duplicate_indices.append(len(tele_damaged))
+            tele_clean.append(clean_frames[idx].copy())
+            tele_damaged.append(damaged_frames[idx].copy())
+            tele_gt.append(gt_masks[idx].copy())
+            if exact_binary_masks is not None:
+                tele_exact.append(exact_binary_masks[idx].copy())
+            source_indices.append(idx)
+            if target_length is not None and len(tele_damaged) >= target_length:
+                break
+
+    if target_length is not None:
+        tele_clean = tele_clean[:target_length]
+        tele_damaged = tele_damaged[:target_length]
+        tele_gt = tele_gt[:target_length]
+        if exact_binary_masks is not None:
+            tele_exact = tele_exact[:target_length]
+        source_indices = source_indices[:target_length]
+        duplicate_indices = [d for d in duplicate_indices if d < target_length]
+
+    return {
+        "clean_frames": tele_clean,
+        "damaged_frames": tele_damaged,
+        "gt_masks": tele_gt,
+        "exact_binary_masks": tele_exact if exact_binary_masks is not None else tele_gt,
+        "duplicate_indices": duplicate_indices,
+        "source_indices": source_indices,
+    }
 
 
 def inject_dust(

@@ -1,0 +1,78 @@
+{
+  "benchmark_gt": {
+    "PatchCore (BEFORE: Broken)": {
+      "coverage_pct": 99.77,
+      "intact_fpr_pct": 99.759,
+      "recall_pct": 100.0,
+      "precision_pct": 0.92,
+      "pixel_f1": 0.0183,
+      "iou": 0.0092,
+      "mean_intact_score": 0.8109,
+      "mean_defect_score": 0.8985,
+      "latency_ms": 674.4
+    },
+    "PatchCore (AFTER: Recovered)": {
+      "coverage_pct": 16.47,
+      "intact_fpr_pct": 14.645,
+      "recall_pct": 88.0,
+      "precision_pct": 5.29,
+      "pixel_f1": 0.0998,
+      "iou": 0.0525,
+      "mean_intact_score": 0.5729,
+      "mean_defect_score": 0.7871,
+      "latency_ms": 91.3
+    },
+    "PaDiM (BEFORE: Broken)": {
+      "coverage_pct": 100.0,
+      "intact_fpr_pct": 100.0,
+      "recall_pct": 100.0,
+      "precision_pct": 0.92,
+      "pixel_f1": 0.0182,
+      "iou": 0.0092,
+      "mean_intact_score": 0.9817,
+      "mean_defect_score": 0.999,
+      "latency_ms": 201.7
+    },
+    "PaDiM (AFTER: Recovered)": {
+      "coverage_pct": 5.15,
+      "intact_fpr_pct": 4.478,
+      "recall_pct": 47.41,
+      "precision_pct": 8.96,
+      "pixel_f1": 0.1506,
+      "iou": 0.0815,
+      "mean_intact_score": 0.2621,
+      "mean_defect_score": 0.4769,
+      "latency_ms": 40.6
+    }
+  },
+  "neighbors_archival": {
+    "PatchCore (BEFORE: Broken)": {
+      "mean_coverage_pct": 100.0,
+      "max_coverage_pct": 100.0,
+      "mean_latency_ms": 116.8,
+      "effective_fps": 8.6,
+      "safety_guard_triggered (>30%)": true
+    },
+    "PatchCore (AFTER: Recovered)": {
+      "mean_coverage_pct": 20.54,
+      "max_coverage_pct": 20.91,
+      "mean_latency_ms": 38.3,
+      "effective_fps": 26.1,
+      "safety_guard_triggered (>30%)": false
+    },
+    "PaDiM (BEFORE: Broken)": {
+      "mean_coverage_pct": 100.0,
+      "max_coverage_pct": 100.0,
+      "mean_latency_ms": 128.6,
+      "effective_fps": 7.8,
+      "safety_guard_triggered (>30%)": true
+    },
+    "PaDiM (AFTER: Recovered)": {
+      "mean_coverage_pct": 0.8,
+      "max_coverage_pct": 0.94,
+      "mean_latency_ms": 17.7,
+      "effective_fps": 56.5,
+      "safety_guard_triggered (>30%)": false
+    }
+  }
+}

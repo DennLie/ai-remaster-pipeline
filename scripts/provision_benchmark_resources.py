@@ -422,7 +422,13 @@ def provision_artefact(
 
     target_dir = Path(target_dir).resolve()
     manifest_file = target_dir / "manifest.csv"
-    if not force and manifest_file.is_file() and (target_dir / "ground_truth").is_dir():
+    if (
+        not force
+        and manifest_file.is_file()
+        and (target_dir / "ground_truth").is_dir()
+        and (target_dir / "ground_truth_scratch").is_dir()
+        and (target_dir / "ground_truth_dust").is_dir()
+    ):
         return {
             "status": "cached",
             "target_dir": str(target_dir),
@@ -495,13 +501,17 @@ def provision_artefact(
         # Use full sample_id to prevent name collision across samples
         clip_name = f"artefact_{sample_id}"
 
-        # Generate class-specific GT mask preserving ignore regions for other defects
+        # Generate class-specific GT masks preserving ignore regions for other defects
+        gt_combined = da.convert_artefact_segmentation_mask(ann_raw, mode="combined")
+        gt_scratch = da.convert_artefact_segmentation_mask(ann_raw, mode="scratch")
+        gt_dust = da.convert_artefact_segmentation_mask(ann_raw, mode="dust")
+
         if 4 in s["target_classes"]:
             damage_type = "scratch"
-            gt_mask = da.convert_artefact_segmentation_mask(ann_raw, mode="scratch")
+            gt_mask = gt_scratch
         else:
             damage_type = "dust"
-            gt_mask = da.convert_artefact_segmentation_mask(ann_raw, mode="dust")
+            gt_mask = gt_dust
 
         records.append(
             {
@@ -511,6 +521,9 @@ def provision_artefact(
                 "damage_type": damage_type,
                 "label_provenance": "manual_segmentation_gt",
                 "gt_mask": gt_mask,
+                "gt_scratch_mask": gt_scratch,
+                "gt_dust_mask": gt_dust,
+                "gt_combined_mask": gt_combined,
                 "image": img_bgr,
             }
         )

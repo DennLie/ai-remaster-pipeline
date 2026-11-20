@@ -80,7 +80,7 @@ class DefectDetectorRegistryTests(unittest.TestCase):
     def test_contract_and_registry_discovery_and_aliases(self) -> None:
         registry = fdd.build_default_registry()
         available = registry.list_available(commercial_only=True)
-        for expected in ("farneback_3f", "dis_flow", "ridge", "consensus_5f", "legacy"):
+        for expected in ("farneback_3f", "dis_flow", "ridge", "consensus_5f", "legacy", "temporal_scratch"):
             self.assertIn(expected, available)
         self.assertNotIn("dart_harness", available)
 
@@ -88,7 +88,7 @@ class DefectDetectorRegistryTests(unittest.TestCase):
         self.assertIn("dart_harness", all_with_restricted)
 
         with_aliases = registry.list_available(commercial_only=True, include_aliases=True)
-        for alias in ("temporal", "dis", "multiscale_ridge", "median_5f", "spatial_scratch"):
+        for alias in ("temporal", "dis", "multiscale_ridge", "median_5f", "spatial_scratch", "temporal_fissure", "temporal_flow"):
             self.assertIn(alias, with_aliases)
 
         # Primary and alias lookups resolve to identical strategy instances
@@ -97,13 +97,15 @@ class DefectDetectorRegistryTests(unittest.TestCase):
         self.assertIs(registry.get("ridge"), registry.get("multiscale_ridge"))
         self.assertIs(registry.get("consensus_5f"), registry.get("median_5f"))
         self.assertIs(registry.get("legacy"), registry.get("spatial_scratch"))
+        self.assertIs(registry.get("temporal_scratch"), registry.get("temporal_fissure"))
+        self.assertIs(registry.get("temporal_scratch"), registry.get("temporal_flow"))
 
         # Schema and descriptor inspection
         descriptions = registry.describe_all(commercial_only=True)
-        self.assertEqual(len(descriptions), 5)
+        self.assertEqual(len(descriptions), 10)
         for desc in descriptions:
             self.assertTrue(desc["commercial_cleared"])
-            self.assertIn("sensitivity", desc["schema"])
+            self.assertTrue("sensitivity" in desc["schema"] or "threshold" in desc["schema"])
 
     def test_custom_registration_replacement_and_unregistration(self) -> None:
         registry = fdd.DefectDetectorRegistry()
@@ -225,9 +227,10 @@ class DefectDetectorRegistryTests(unittest.TestCase):
 
         for name in fdd.list_defect_detectors(commercial_only=True):
             detector = fdd.get_defect_detector(name)
+            cfg = {"sensitivity": 0.65} if "sensitivity" in detector.schema else {"threshold": 0.5}
             with self.subTest(detector=name):
-                res_s = detector.detect(scratch_frames, {"sensitivity": 0.65})
-                res_d = detector.detect(dust_frames, {"sensitivity": 0.65})
+                res_s = detector.detect(scratch_frames, cfg)
+                res_d = detector.detect(dust_frames, cfg)
 
                 for res in (res_s, res_d):
                     self.assertIsInstance(res, fdd.DefectMaskResult)
@@ -335,7 +338,19 @@ class DefectDetectorRegistryTests(unittest.TestCase):
         for det_name in ("legacy", "temporal", "ridge", "farneback_3f", "dis_flow", "consensus_5f", "dart"):
             self.assertIn(det_name, dust.DETECTORS)
         avail_names = {d["name"] for d in dust.available_detectors(commercial_only=True)}
-        self.assertEqual(avail_names, {"farneback_3f", "dis_flow", "ridge", "consensus_5f", "legacy"})
+        expected_avail = {
+            "farneback_3f",
+            "dis_flow",
+            "ridge",
+            "consensus_5f",
+            "legacy",
+            "film_artefact_segmenter",
+            "cnn_blotches",
+            "patchcore",
+            "padim",
+            "temporal_scratch",
+        }
+        self.assertEqual(avail_names, expected_avail)
 
         with tempfile.TemporaryDirectory() as td, patch.object(dust, "ROOT", Path(td)):
             source = Path(td) / "source.mkv"
@@ -392,6 +407,99 @@ class DefectDetectorRegistryTests(unittest.TestCase):
                 dust.digest(dust.folder_for(source, values) / "effective_mask.mkv"),
                 dust.digest(dust.folder_for(source, changed_repair) / "effective_mask.mkv"),
             )
+
+    def test_phase7_expanded_roster_and_calibrated_presets(self) -> None:
+        registry = fdd.DEFAULT_REGISTRY
+
+        # 1. Roster verification
+        expected_roster = {
+            "farneback_3f": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+            "dis_flow": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+            "ridge": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+            "consensus_5f": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+            "legacy": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+            "dart_harness": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, False),
+            "bopb": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, False),
+            "film_artefact_segmenter": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+            "cnn_blotches": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+            "patchcore": (fdd.ReadinessState.TRAINED_EXPERIMENTAL, True),
+            "padim": (fdd.ReadinessState.TRAINED_EXPERIMENTAL, True),
+            "correl_net": (fdd.ReadinessState.TRAINING_REQUIRED, False),
+            "temporal_scratch": (fdd.ReadinessState.PRETRAINED_OPERATIONAL, True),
+        }
+        for det_name, (expected_readiness, expected_commercial) in expected_roster.items():
+            self.assertTrue(registry.has(det_name, commercial_only=False), f"Missing {det_name}")
+            det = registry.get(det_name, commercial_only=False)
+            self.assertEqual(det.readiness_state, expected_readiness, f"Wrong readiness for {det_name}")
+            self.assertEqual(det.commercial_cleared, expected_commercial, f"Wrong commercial state for {det_name}")
+
+        # Check aliases
+        self.assertTrue(registry.has("arp_legacy"))
+        self.assertIs(registry.get("arp_legacy"), registry.get("legacy"))
+        self.assertTrue(registry.has("bopb_scratch_detector", commercial_only=False))
+        self.assertIs(registry.get("bopb_scratch_detector", commercial_only=False), registry.get("bopb", commercial_only=False))
+        self.assertTrue(registry.has("dart", commercial_only=False))
+        self.assertTrue(registry.has("temporal_fissure"))
+        self.assertIs(registry.get("temporal_fissure"), registry.get("temporal_scratch"))
+
+        # 2. Active selector gating
+        # Operational and experimental models succeed
+        operational_det = fdd.get_detector("farneback_3f", require_executable=True)
+        self.assertEqual(operational_det.name, "farneback_3f")
+        experimental_det = fdd.get_detector("patchcore", require_executable=True)
+        self.assertEqual(experimental_det.name, "patchcore")
+
+        # Training-required model blocked by active selector gating
+        with self.assertRaises(fdd.DetectorNotExecutableError) as ctx:
+            fdd.get_detector("correl_net", commercial_only=False, require_executable=True)
+        self.assertIn("cannot be activated for execution", str(ctx.exception))
+        self.assertIn("Actionable guidance", str(ctx.exception))
+
+        with self.assertRaises(fdd.DetectorNotExecutableError) as ctx2:
+            registry.detect("correl_net", self.clean_frames, commercial_only=False)
+        self.assertIn("cannot be executed", str(ctx2.exception))
+        self.assertIn("Actionable guidance", str(ctx2.exception))
+
+        # 3. Presets verification (16 benchmark presets)
+        preset_names = [
+            # 10 baseline presets and aliases
+            "dart_optimal_f1",
+            "dart_high_recall",
+            "dart_fast_preview",
+            "dart_temporal_stable",
+            "dart_clean_plate",
+            "dis_flow_balanced",
+            "farneback_fast",
+            "temporal_ridge",
+            "consensus_5f",
+            "legacy_baseline",
+            # 6 new empirical presets
+            "bopb_scratch_balanced",
+            "bopb_scratch_high_recall",
+            "film_artefact_balanced",
+            "cnn_blotches_precision",
+            "patchcore_anomaly_research",
+            "padim_anomaly_research",
+            # Phase 4 temporal scratch preset
+            "temporal_scratch_balanced",
+        ]
+        for pname in preset_names:
+            preset = fdd.get_preset(pname)
+            self.assertIsInstance(preset, fdd.DefectDetectorPreset)
+            self.assertIsInstance(preset.repair_policy, fdd.RepairInclusionPolicy)
+            as_d = preset.as_dict()
+            self.assertIn("repair_policy", as_d)
+            self.assertIn("evidence", as_d)
+            self.assertIn("checkpoint_sha256", as_d)
+            self.assertIn("license_status", as_d)
+
+        # 4. Commercial filtering on presets
+        commercial_presets = fdd.list_presets(commercial_only=True)
+        for comm_p in ("film_artefact_balanced", "cnn_blotches_precision", "patchcore_anomaly_research", "padim_anomaly_research", "farneback_fast", "dis_flow_balanced", "temporal_ridge", "consensus_5f", "legacy_baseline", "temporal_scratch_balanced"):
+            self.assertIn(comm_p, commercial_presets)
+
+        for non_comm_p in ("bopb_scratch_balanced", "bopb_scratch_high_recall", "dart_optimal_f1", "dart_high_recall", "dart_fast_preview", "dart_temporal_stable", "dart_clean_plate"):
+            self.assertNotIn(non_comm_p, commercial_presets)
 
 
 if __name__ == "__main__":
