@@ -1,0 +1,110 @@
+[
+  {
+    "id": "farneback_3f",
+    "name": "Farneback 3F",
+    "precision_pct": 0.0,
+    "recall_pct": 0.0,
+    "pixel_f1": 0.0,
+    "iou": 0.0,
+    "intact_fpr_pct": 0.0,
+    "coverage_pct": 0.0,
+    "latency_ms": 2358.7,
+    "fps": 0.4
+  },
+  {
+    "id": "dis_flow",
+    "name": "DIS Flow",
+    "precision_pct": 0.0,
+    "recall_pct": 0.0,
+    "pixel_f1": 0.0,
+    "iou": 0.0,
+    "intact_fpr_pct": 0.0,
+    "coverage_pct": 0.0,
+    "latency_ms": 880.2,
+    "fps": 1.1
+  },
+  {
+    "id": "ridge",
+    "name": "Temporal Ridge",
+    "precision_pct": 89.84,
+    "recall_pct": 11.49,
+    "pixel_f1": 0.2038,
+    "iou": 0.1134,
+    "intact_fpr_pct": 0.012,
+    "coverage_pct": 0.13,
+    "latency_ms": 157.6,
+    "fps": 6.3
+  },
+  {
+    "id": "consensus_5f",
+    "name": "Consensus 5F",
+    "precision_pct": 5.32,
+    "recall_pct": 10.58,
+    "pixel_f1": 0.0708,
+    "iou": 0.0367,
+    "intact_fpr_pct": 1.751,
+    "coverage_pct": 1.85,
+    "latency_ms": 4129.8,
+    "fps": 0.2
+  },
+  {
+    "id": "bopb",
+    "name": "BOPB UNet",
+    "precision_pct": 50.85,
+    "recall_pct": 33.0,
+    "pixel_f1": 0.4002,
+    "iou": 0.2502,
+    "intact_fpr_pct": 0.296,
+    "coverage_pct": 0.63,
+    "latency_ms": 5395.3,
+    "fps": 0.2
+  },
+  {
+    "id": "film_artefact_segmenter",
+    "name": "Film Artefact Segmenter",
+    "precision_pct": 63.32,
+    "recall_pct": 55.12,
+    "pixel_f1": 0.5893,
+    "iou": 0.4178,
+    "intact_fpr_pct": 0.297,
+    "coverage_pct": 0.81,
+    "latency_ms": 262.0,
+    "fps": 3.8
+  },
+  {
+    "id": "cnn_blotches",
+    "name": "CNN Blotches & Scratches",
+    "precision_pct": 61.05,
+    "recall_pct": 41.96,
+    "pixel_f1": 0.4973,
+    "iou": 0.331,
+    "intact_fpr_pct": 0.249,
+    "coverage_pct": 0.63,
+    "latency_ms": 132.3,
+    "fps": 7.6
+  },
+  {
+    "id": "patchcore",
+    "name": "PatchCore (Recovered)",
+    "precision_pct": 20.63,
+    "recall_pct": 62.68,
+    "pixel_f1": 0.3105,
+    "iou": 0.1838,
+    "intact_fpr_pct": 2.24,
+    "coverage_pct": 3.47,
+    "latency_ms": 264.5,
+    "fps": 3.8
+  },
+  {
+    "id": "padim",
+    "name": "PaDiM (Recovered)",
+    "precision_pct": 13.71,
+    "recall_pct": 28.36,
+    "pixel_f1": 0.1848,
+    "iou": 0.1018,
+    "intact_fpr_pct": 1.659,
+    "coverage_pct": 2.04,
+    "latency_ms": 234.5,
+    "fps": 4.3
+  }
+]

@@ -1,0 +1,172 @@
+{
+  "FAS (Baseline)": {
+    "config": {
+      "name": "FAS (Baseline)",
+      "detector": "film_artefact_segmenter",
+      "preset": "film_artefact_balanced",
+      "enable_temporal_scratch": "false"
+    },
+    "total_time_seconds": 10.33,
+    "effective_fps": 6.97,
+    "frame_25": {
+      "scratch_recall_pct": 0.0,
+      "precision_local_pct": 0.0,
+      "pixel_f1_local": 0.0,
+      "scratch_roi_detected_pixels": 0,
+      "clean_roi_fpr_pct": 0.4271,
+      "full_frame_non_scratch_fpr_pct": 0.1126,
+      "mask_coverage_pct": 0.1121,
+      "scratch_channel_pixels": 64,
+      "uncertain_channel_pixels": 0
+    },
+    "sequence_active_20_35": {
+      "mean_scratch_recall_pct": 0.0,
+      "frames_with_detection": 0,
+      "detection_frequency_pct": 0.0,
+      "mean_clean_roi_fpr_pct": 0.5391,
+      "mean_mask_coverage_pct": 0.1068
+    },
+    "sequence_full_72": {
+      "mean_mask_coverage_pct": 0.1061,
+      "max_mask_coverage_pct": 0.1267,
+      "mean_clean_roi_fpr_pct": 0.3478,
+      "safety_guard_compliant": true
+    }
+  },
+  "FAS + Temporal Scratch (Option 2)": {
+    "config": {
+      "name": "FAS + Temporal Scratch (Option 2)",
+      "detector": "film_artefact_segmenter",
+      "preset": "film_artefact_balanced",
+      "enable_temporal_scratch": "true"
+    },
+    "total_time_seconds": 24.47,
+    "effective_fps": 2.94,
+    "frame_25": {
+      "scratch_recall_pct": 42.63,
+      "precision_local_pct": 99.51,
+      "pixel_f1_local": 0.596851,
+      "scratch_roi_detected_pixels": 819,
+      "clean_roi_fpr_pct": 0.2292,
+      "full_frame_non_scratch_fpr_pct": 0.3643,
+      "mask_coverage_pct": 0.4813,
+      "scratch_channel_pixels": 2233,
+      "uncertain_channel_pixels": 709
+    },
+    "sequence_active_20_35": {
+      "mean_scratch_recall_pct": 9.92,
+      "frames_with_detection": 12,
+      "detection_frequency_pct": 75.0,
+      "mean_clean_roi_fpr_pct": 0.8412,
+      "mean_mask_coverage_pct": 0.3022
+    },
+    "sequence_full_72": {
+      "mean_mask_coverage_pct": 0.2705,
+      "max_mask_coverage_pct": 0.6645,
+      "mean_clean_roi_fpr_pct": 0.6539,
+      "safety_guard_compliant": true
+    }
+  },
+  "Temporal Scratch (Standalone)": {
+    "config": {
+      "name": "Temporal Scratch (Standalone)",
+      "detector": "temporal_scratch",
+      "preset": "temporal_scratch_balanced",
+      "enable_temporal_scratch": "false"
+    },
+    "total_time_seconds": 18.77,
+    "effective_fps": 3.84,
+    "frame_25": {
+      "scratch_recall_pct": 42.63,
+      "precision_local_pct": 99.51,
+      "pixel_f1_local": 0.596851,
+      "scratch_roi_detected_pixels": 819,
+      "clean_roi_fpr_pct": 0.0,
+      "full_frame_non_scratch_fpr_pct": 0.2991,
+      "mask_coverage_pct": 0.4164,
+      "scratch_channel_pixels": 2878,
+      "uncertain_channel_pixels": 0
+    },
+    "sequence_active_20_35": {
+      "mean_scratch_recall_pct": 9.92,
+      "frames_with_detection": 12,
+      "detection_frequency_pct": 75.0,
+      "mean_clean_roi_fpr_pct": 0.5514,
+      "mean_mask_coverage_pct": 0.2423
+    },
+    "sequence_full_72": {
+      "mean_mask_coverage_pct": 0.2139,
+      "max_mask_coverage_pct": 0.6034,
+      "mean_clean_roi_fpr_pct": 0.4884,
+      "safety_guard_compliant": true
+    }
+  },
+  "PatchCore (Baseline)": {
+    "config": {
+      "name": "PatchCore (Baseline)",
+      "detector": "patchcore",
+      "preset": "patchcore_anomaly_research",
+      "enable_temporal_scratch": "false"
+    },
+    "total_time_seconds": 6.22,
+    "effective_fps": 11.58,
+    "frame_25": {
+      "scratch_recall_pct": 100.0,
+      "precision_local_pct": 68.09,
+      "pixel_f1_local": 0.810169,
+      "scratch_roi_detected_pixels": 2808,
+      "clean_roi_fpr_pct": 100.0,
+      "full_frame_non_scratch_fpr_pct": 96.0312,
+      "mask_coverage_pct": 96.0473,
+      "scratch_channel_pixels": 0,
+      "uncertain_channel_pixels": 0
+    },
+    "sequence_active_20_35": {
+      "mean_scratch_recall_pct": 100.0,
+      "frames_with_detection": 16,
+      "detection_frequency_pct": 100.0,
+      "mean_clean_roi_fpr_pct": 100.0,
+      "mean_mask_coverage_pct": 95.5941
+    },
+    "sequence_full_72": {
+      "mean_mask_coverage_pct": 94.9019,
+      "max_mask_coverage_pct": 96.1733,
+      "mean_clean_roi_fpr_pct": 100.0,
+      "safety_guard_compliant": false
+    }
+  },
+  "PatchCore + Temporal Scratch (Option 2)": {
+    "config": {
+      "name": "PatchCore + Temporal Scratch (Option 2)",
+      "detector": "patchcore",
+      "preset": "patchcore_anomaly_research",
+      "enable_temporal_scratch": "true"
+    },
+    "total_time_seconds": 22.1,
+    "effective_fps": 3.26,
+    "frame_25": {
+      "scratch_recall_pct": 100.0,
+      "precision_local_pct": 68.09,
+      "pixel_f1_local": 0.810169,
+      "scratch_roi_detected_pixels": 2808,
+      "clean_roi_fpr_pct": 100.0,
+      "full_frame_non_scratch_fpr_pct": 96.0312,
+      "mask_coverage_pct": 96.0473,
+      "scratch_channel_pixels": 2169,
+      "uncertain_channel_pixels": 709
+    },
+    "sequence_active_20_35": {
+      "mean_scratch_recall_pct": 100.0,
+      "frames_with_detection": 16,
+      "detection_frequency_pct": 100.0,
+      "mean_clean_roi_fpr_pct": 100.0,
+      "mean_mask_coverage_pct": 95.5941
+    },
+    "sequence_full_72": {
+      "mean_mask_coverage_pct": 94.9019,
+      "max_mask_coverage_pct": 96.1733,
+      "mean_clean_roi_fpr_pct": 100.0,
+      "safety_guard_compliant": false
+    }
+  }
+}

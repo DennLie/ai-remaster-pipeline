@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -37,11 +38,53 @@ PROVENANCE_TIERS = frozenset({
     "synthetic_parametric_gt",
     "restoration_diff_proxy",
     "model_pseudo_label",
+    "quarantined_temporal_diff_pseudo_label",
 })
 
 MANUAL_PROVENANCE_TIERS = frozenset({
     "manual_polygon_gt",
     "manual_segmentation_gt",
+})
+
+QUARANTINED_PROVENANCE_TIERS = frozenset({
+    "restoration_diff_proxy",
+    "model_pseudo_label",
+    "quarantined_temporal_diff_pseudo_label",
+})
+
+DEV_DIAGNOSTIC_SPLITS = frozenset({
+    "dev",
+    "development",
+    "diagnostic",
+    "dev_diagnostic",
+    "pilot",
+})
+
+LOCKED_HOLDOUT_SPLITS = frozenset({
+    "locked_holdout",
+    "final_holdout",
+})
+
+SPLIT_ROLES = DEV_DIAGNOSTIC_SPLITS | LOCKED_HOLDOUT_SPLITS | frozenset({
+    "test",
+    "eval",
+    "unassigned",
+})
+
+CONTAMINATED_DEV_CLIPS = frozenset({
+    "Neighbors_72",
+    "neighbors_pilot",
+    "dart_neighbors_72",
+    "paleface_seq_a",
+    "paleface_seq_b",
+    "college_seq_c",
+    "neighbors_seq_d",
+    "neighbors_seq_d_vert",
+    "neighbors_seq_d_horiz",
+    "absdeg_000",
+    "000",
+    "absdeg_020",
+    "020",
 })
 
 # FilmDamageSimulator (`daniela997/FilmDamageSimulator`) class mapping
@@ -114,12 +157,41 @@ def validate_provenance_separation(
             )
 
     has_manual = bool(set(counts) & MANUAL_PROVENANCE_TIERS)
-    has_unverified = bool(set(counts) & {"restoration_diff_proxy", "model_pseudo_label"})
+    has_unverified = bool(set(counts) & QUARANTINED_PROVENANCE_TIERS)
     if has_manual and has_unverified:
         raise ValueError(
-            "Refusing to mix manual ground-truth annotations with model_pseudo_label or "
+            "Refusing to mix manual ground-truth annotations with quarantined pseudo-labels or "
             f"restoration_diff_proxy in the same evaluation cohort: {counts}"
         )
+    return counts
+
+
+def validate_split_isolation(
+    samples: Sequence[Mapping[str, Any]],
+    *,
+    allow_holdout_for_tuning: bool = False,
+) -> dict[str, int]:
+    """Validate split roles and reject contaminated development clips in locked holdouts."""
+    counts: dict[str, int] = {}
+    contaminated_lower = {c.lower() for c in CONTAMINATED_DEV_CLIPS}
+    for idx, row in enumerate(samples):
+        clip = str(row.get("clip") or "").strip()
+        split = str(row.get("split") or "").strip()
+        if split and split not in SPLIT_ROLES:
+            raise ValueError(
+                f"Sample {idx} (clip={clip!r}) has unrecognized split {split!r}; "
+                f"expected one of {sorted(SPLIT_ROLES)}"
+            )
+        if clip.lower() in contaminated_lower and split in LOCKED_HOLDOUT_SPLITS:
+            raise ValueError(
+                f"Contaminated dev/diagnostic clip {clip!r} cannot be placed in locked holdout split {split!r}"
+            )
+        if not allow_holdout_for_tuning and split in LOCKED_HOLDOUT_SPLITS:
+            raise ValueError(
+                f"Locked holdout split {split!r} (clip={clip!r}) is disallowed during tuning/calibration"
+            )
+        key = split or "unspecified"
+        counts[key] = counts.get(key, 0) + 1
     return counts
 
 
@@ -507,3 +579,200 @@ def evaluate_nuisance_fp_breakdown(
         counts = bdm.confusion(masked_gt, pred_mask, threshold=threshold)
         out[region_name] = bdm.metrics(counts)
     return out
+
+
+def evaluate_false_positive_severity(
+    gt_mask: np.ndarray,
+    pred_mask: np.ndarray,
+    threshold: int = 128,
+) -> dict[str, Any]:
+    """Quantify connected-component severity of false positives on intact pixels.
+
+    Prevents isolated severe structural errors from being hidden by whole-frame averaging.
+    """
+    if gt_mask.shape != pred_mask.shape or gt_mask.ndim != 2 or pred_mask.ndim != 2:
+        raise ValueError(f"Expected matching 2D masks, got gt={gt_mask.shape}, pred={pred_mask.shape}")
+    if gt_mask.dtype != np.uint8 or pred_mask.dtype != np.uint8:
+        raise ValueError("Expected uint8 masks")
+
+    valid = gt_mask != 127
+    fp_map = ((pred_mask >= threshold) & (gt_mask == 0) & valid).astype(np.uint8) * 255
+    fp_pixel_count = int(np.count_nonzero(fp_map))
+    if fp_pixel_count == 0:
+        return {
+            "fp_pixel_count": 0,
+            "fp_component_count": 0,
+            "max_fp_component_area": 0,
+            "max_fp_component_height": 0,
+            "max_fp_component_width": 0,
+            "severe_structural_fp_count": 0,
+        }
+
+    n_labels, _labels, stats, _ = cv2.connectedComponentsWithStats(fp_map, connectivity=8)
+    max_area = 0
+    max_h = 0
+    max_w = 0
+    severe_count = 0
+    for i in range(1, n_labels):
+        cw = int(stats[i, cv2.CC_STAT_WIDTH])
+        ch = int(stats[i, cv2.CC_STAT_HEIGHT])
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        max_area = max(max_area, area)
+        max_h = max(max_h, ch)
+        max_w = max(max_w, cw)
+        if ch >= 15 or area >= 25:
+            severe_count += 1
+
+    return {
+        "fp_pixel_count": fp_pixel_count,
+        "fp_component_count": max(0, n_labels - 1),
+        "max_fp_component_area": max_area,
+        "max_fp_component_height": max_h,
+        "max_fp_component_width": max_w,
+        "severe_structural_fp_count": severe_count,
+    }
+
+
+def evaluate_structural_negative_controls(
+    pred_mask: np.ndarray,
+    repair_mask: np.ndarray,
+    negative_control_rois: Sequence[Mapping[str, Any]],
+    threshold: int = 128,
+) -> dict[str, Any]:
+    """Evaluate detector and conservative repair-mask leakage on critical negative-control ROIs.
+
+    Requires strict zero repair-mask leakage (`repair_leak_pixels == 0`) across all
+    designated critical structural ROIs.
+    """
+    if pred_mask.shape != repair_mask.shape or pred_mask.ndim != 2 or repair_mask.ndim != 2:
+        raise ValueError(f"Expected matching 2D masks, got pred={pred_mask.shape}, repair={repair_mask.shape}")
+    if pred_mask.dtype != np.uint8 or repair_mask.dtype != np.uint8:
+        raise ValueError("Expected uint8 masks")
+
+    h, w = pred_mask.shape
+    pred_bin = pred_mask >= threshold
+    repair_bin = repair_mask >= threshold
+    rois_out: list[dict[str, Any]] = []
+    total_det_leak = 0
+    total_rep_leak = 0
+
+    for roi in negative_control_rois:
+        ymin = max(0, int(roi["ymin"]))
+        ymax = min(h, int(roi["ymax"]))
+        xmin = max(0, int(roi["xmin"]))
+        xmax = min(w, int(roi["xmax"]))
+        roi_area = max(0, (ymax - ymin) * (xmax - xmin))
+        pred_slice = pred_bin[ymin:ymax, xmin:xmax]
+        rep_slice = repair_bin[ymin:ymax, xmin:xmax]
+
+        det_leak = int(np.count_nonzero(pred_slice))
+        rep_leak = int(np.count_nonzero(rep_slice))
+        max_comp_h = 0
+        if rep_leak > 0:
+            n_lbl, _lbl, stats, _ = cv2.connectedComponentsWithStats(rep_slice.astype(np.uint8) * 255, connectivity=8)
+            if n_lbl > 1:
+                max_comp_h = int(np.max(stats[1:, cv2.CC_STAT_HEIGHT]))
+
+        total_det_leak += det_leak
+        total_rep_leak += rep_leak
+        rois_out.append({
+            "name": str(roi.get("name", "negative_control")),
+            "description": str(roi.get("description", "")),
+            "bbox": {"ymin": ymin, "ymax": ymax, "xmin": xmin, "xmax": xmax},
+            "roi_pixels": roi_area,
+            "detector_leak_pixels": det_leak,
+            "repair_leak_pixels": rep_leak,
+            "detector_leak_fpr": round(det_leak / max(1, roi_area), 6),
+            "repair_leak_fpr": round(rep_leak / max(1, roi_area), 6),
+            "max_leak_component_height": max_comp_h,
+            "strict_zero_leak_passed": bool(rep_leak == 0),
+        })
+
+    return {
+        "rois": rois_out,
+        "total_detector_leak_pixels": total_det_leak,
+        "total_repair_leak_pixels": total_rep_leak,
+        "strict_safety_gate_passed": all(r["strict_zero_leak_passed"] for r in rois_out),
+    }
+
+
+def evaluate_exact_reference_restoration(
+    clean_ref_bgr: np.ndarray,
+    damaged_bgr: np.ndarray,
+    repaired_bgr: np.ndarray,
+    gt_mask: np.ndarray,
+    repair_mask: np.ndarray,
+) -> dict[str, Any]:
+    """Measure reconstruction quality and intact-region collateral safety against exact clean reference."""
+    if clean_ref_bgr.shape != damaged_bgr.shape or clean_ref_bgr.shape != repaired_bgr.shape:
+        raise ValueError("Clean, damaged, and repaired frames must have identical shapes")
+    if gt_mask.shape != clean_ref_bgr.shape[:2] or repair_mask.shape != clean_ref_bgr.shape[:2]:
+        raise ValueError("Masks must match frame spatial dimensions")
+
+    clean_f = clean_ref_bgr.astype(np.float32)
+    damaged_f = damaged_bgr.astype(np.float32)
+    repaired_f = repaired_bgr.astype(np.float32)
+
+    defect_idx = gt_mask == 255
+    intact_idx = gt_mask == 0
+    valid_idx = gt_mask != 127
+
+    has_defect = bool(np.any(defect_idx))
+    if has_defect:
+        dmg_mse = float(np.mean((damaged_f[defect_idx] - clean_f[defect_idx]) ** 2))
+        rep_mse = float(np.mean((repaired_f[defect_idx] - clean_f[defect_idx]) ** 2))
+        dmg_psnr = 10.0 * math.log10((255.0 ** 2) / max(dmg_mse, 1e-6))
+        rep_psnr = 10.0 * math.log10((255.0 ** 2) / max(rep_mse, 1e-6))
+        psnr_gain = rep_psnr - dmg_psnr
+    else:
+        dmg_mse = 0.0
+        rep_mse = 0.0
+        dmg_psnr = 0.0
+        rep_psnr = 0.0
+        psnr_gain = 0.0
+
+    intact_total = int(np.count_nonzero(intact_idx))
+    if intact_total > 0:
+        if clean_ref_bgr.ndim == 3:
+            modified_map = np.any(repaired_bgr != clean_ref_bgr, axis=2) & intact_idx
+        else:
+            modified_map = (repaired_bgr != clean_ref_bgr) & intact_idx
+        intact_modified_px = int(np.count_nonzero(modified_map))
+        intact_diff = np.abs(repaired_f[intact_idx] - clean_f[intact_idx])
+        intact_max_diff = float(np.max(intact_diff))
+        intact_mean_diff = float(np.mean(intact_diff))
+        intact_mse = float(np.mean((repaired_f[intact_idx] - clean_f[intact_idx]) ** 2))
+        intact_psnr = 10.0 * math.log10((255.0 ** 2) / intact_mse) if intact_mse > 0.0 else 100.0
+    else:
+        intact_modified_px = 0
+        intact_max_diff = 0.0
+        intact_mean_diff = 0.0
+        intact_mse = 0.0
+        intact_psnr = 100.0
+
+    rep_bin = repair_mask >= 128
+    rep_valid = rep_bin & valid_idx
+    rep_tp = int(np.count_nonzero(rep_valid & defect_idx))
+    rep_fp = int(np.count_nonzero(rep_valid & intact_idx))
+    rep_prec = (rep_tp / (rep_tp + rep_fp)) if (rep_tp + rep_fp) > 0 else 0.0
+
+    return {
+        "has_defect_pixels": has_defect,
+        "defect_pixels": int(np.count_nonzero(defect_idx)),
+        "damaged_mse": round(dmg_mse, 4),
+        "repaired_mse": round(rep_mse, 4),
+        "damaged_psnr_db": round(dmg_psnr, 3),
+        "repaired_psnr_db": round(rep_psnr, 3),
+        "psnr_gain_db": round(psnr_gain, 3),
+        "repair_mask_pixels": int(np.count_nonzero(rep_bin)),
+        "repair_mask_tp": rep_tp,
+        "repair_mask_fp": rep_fp,
+        "repair_mask_precision": round(rep_prec, 6),
+        "intact_total_pixels": intact_total,
+        "intact_pixels_modified_count": intact_modified_px,
+        "intact_pixels_modified_fpr": round(intact_modified_px / max(1, intact_total), 8),
+        "intact_max_abs_diff": round(intact_max_diff, 4),
+        "intact_mean_abs_diff": round(intact_mean_diff, 6),
+        "intact_mse": round(intact_mse, 6),
+        "intact_psnr_db": round(intact_psnr, 3),
+    }

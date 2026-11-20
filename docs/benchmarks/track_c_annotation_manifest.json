@@ -1,0 +1,289 @@
+{
+  "protocol_version": "2.0.0",
+  "generated_at": "2026-11-18T15:40:17Z",
+  "pilot_pack_dir": ".cache/benchmarks/track_c_pilot_pack",
+  "exported_keyframes_count": 14,
+  "rules": [
+    "Inspect ONLY raw_frames/ and neighbor_strips/ (raw I_{t-2..t+2} frames).",
+    "NEVER inspect or derive masks from detector predictions, optical flow, temporal differences, or reconstruction residuals.",
+    "Encode 3-tier PNG masks strictly as: 0 = confirmed intact, 127 = uncertain boundary / unreviewed, 255 = confirmed defect.",
+    "Templates are initialized to 127 (unreviewed); annotators must explicitly paint confirmed intact regions as 0 and defects as 255.",
+    "Include real transient scratches, real persistent film-locked scratches, and critical structural negative-control ROIs.",
+    "Distinguish this 14-keyframe dev_diagnostic pilot from both scene-level holdouts and the final film-level locked holdout (>=30 unseen keyframes across >=3 unseen film titles)."
+  ],
+  "reclassified_dev_diagnostic_datasets": [
+    "AbsoluteDegradation clip 000 (dev_diagnostic)",
+    "AbsoluteDegradation clip 010 (dev_diagnostic)",
+    "AbsoluteDegradation clip 020 & its 6 extended synthetic regimes (reclassified from locked_holdout to dev_diagnostic)",
+    "Neighbors_72.mkv, paleface_seq_a.mkv, paleface_seq_b.mkv, college_seq_c.mkv, neighbors_seq_d.mkv (all dev_diagnostic)"
+  ],
+  "locked_holdout_plan": {
+    "status": "RESERVED_UNTOUCHED",
+    "policy": "Do NOT inspect, tune against, or run detector ablations on locked holdout assets until final candidate verification.",
+    "scene_level_holdout_only": [
+      "Uninspected late scenes of evaluation/Neighbors_original.webm (>03:00): same film title as dev Neighbors_72, so valid only as a scene-level holdout, NEVER as an independent film-level holdout."
+    ],
+    "track_b_unseen_synthetic_holdout": [
+      "Uninspected clean archival video substrates (e.g. .cache/stabilization-benchmark/development-smoothing-20261105-01 Corner in Wheat clean frames after pre-defect screening, plus additional unseen film substrates outside Neighbors/Paleface/College)",
+      "Fresh independent random seeds (20261201..20261210) covering bright/dark, vertical/diagonal/horizontal, fine/broad, transient/persistent, and telecine cadences"
+    ],
+    "track_c_unseen_archival_holdout": [
+      "Minimum 3 genuinely unseen film titles (excluding Neighbors, The Paleface, and College) with >=30 independently human-annotated keyframes + critical structural negative controls.",
+      "Neighbors_original.webm (>03:00) may be reported separately as a scene-level holdout only and must NOT count toward the 3 unseen film titles."
+    ]
+  },
+  "pilot_keyframes": [
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 0,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000000.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000000.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000000_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000000_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000000_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 12,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000012.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000012.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000012_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000012_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000012_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 23,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000023.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000023.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000023_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000023_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000023_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 25,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000025.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000025.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000025_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000025_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000025_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 36,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000036.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000036.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000036_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000036_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000036_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 48,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000048.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000048.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000048_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000048_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000048_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 61,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000061.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000061.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000061_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000061_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000061_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 62,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000062.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000062.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000062_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000062_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000062_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "neighbors_72",
+      "frame_index": 71,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/Neighbors_72.mkv",
+      "source_sha256": "63b1c49d061e31c8238a20711a491c6eb5d557ca0a58faf5051b0b35d27287d0",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/raw_frames/frame_000071.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/neighbor_strips/strip_000071.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000071_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000071_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_72/templates/frame_000071_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen raw strip I_{t-2..t+2} for transient & persistent linear scratches plus intact architecture; Frame 25 ROI (x:180..192, y:48..282) is confirmed intact pipe (GT=0 negative control)."
+    },
+    {
+      "clip_id": "paleface_seq_a",
+      "frame_index": 8,
+      "split": "dev_diagnostic",
+      "resolution": [
+        640,
+        480
+      ],
+      "source_video": "evaluation/cross_film_validation/paleface_seq_a.mkv",
+      "source_sha256": "687e179651d44fb5bf8f1bcf342ec54b1832c87303c4f2ac5ae7af1e261f5773",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_a/raw_frames/frame_000008.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_a/neighbor_strips/strip_000008.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_a/templates/frame_000008_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_a/templates/frame_000008_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_a/templates/frame_000008_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen for transient/persistent scratches across moving cabin exterior & verify intact actor silhouette negative-control ROI (x:258..268, y:188..381)."
+    },
+    {
+      "clip_id": "paleface_seq_b",
+      "frame_index": 7,
+      "split": "dev_diagnostic",
+      "resolution": [
+        640,
+        480
+      ],
+      "source_video": "evaluation/cross_film_validation/paleface_seq_b.mkv",
+      "source_sha256": "fa28c3c57e64c64f8cde1b9a4e2dd06996d129edf0ab1e11cab1e9264898d238",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_b/raw_frames/frame_000007.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_b/neighbor_strips/strip_000007.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_b/templates/frame_000007_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_b/templates/frame_000007_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/paleface_seq_b/templates/frame_000007_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen for diagonal/branching/transient damage & verify intact static wall/curtain crack negative-control ROI (x:200..280, y:80..180)."
+    },
+    {
+      "clip_id": "college_seq_c",
+      "frame_index": 8,
+      "split": "dev_diagnostic",
+      "resolution": [
+        640,
+        480
+      ],
+      "source_video": "evaluation/cross_film_validation/college_seq_c.mkv",
+      "source_sha256": "32bbf7b46104e087866ed1309a127d011797a17a9314b76f5fbc2d68ad4bdcad",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/college_seq_c/raw_frames/frame_000008.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/college_seq_c/neighbor_strips/strip_000008.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/college_seq_c/templates/frame_000008_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/college_seq_c/templates/frame_000008_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/college_seq_c/templates/frame_000008_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen for scratches/dust across classroom sequence & verify classroom door jamb / moving student negative-control ROI (x:280..340, y:150..280)."
+    },
+    {
+      "clip_id": "neighbors_seq_d",
+      "frame_index": 2,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/cross_film_validation/neighbors_seq_d.mkv",
+      "source_sha256": "ff59b783f970c41ea2a0e4674072752c63c82a89b790968aa49decaf4b5f96a7",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/raw_frames/frame_000002.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/neighbor_strips/strip_000002.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/templates/frame_000002_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/templates/frame_000002_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/templates/frame_000002_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen for transient and multi-frame persistent street-scene defects & verify telephone pole negative-control ROI (x:150..220, y:200..400)."
+    },
+    {
+      "clip_id": "neighbors_seq_d",
+      "frame_index": 30,
+      "split": "dev_diagnostic",
+      "resolution": [
+        960,
+        720
+      ],
+      "source_video": "evaluation/cross_film_validation/neighbors_seq_d.mkv",
+      "source_sha256": "ff59b783f970c41ea2a0e4674072752c63c82a89b790968aa49decaf4b5f96a7",
+      "raw_frame_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/raw_frames/frame_000030.png",
+      "neighbor_strip_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/neighbor_strips/strip_000030.png",
+      "scratch_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/templates/frame_000030_scratch_gt.png",
+      "dust_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/templates/frame_000030_dust_gt.png",
+      "neg_control_template_path": ".cache/benchmarks/track_c_pilot_pack/neighbors_seq_d/templates/frame_000030_neg_control_gt.png",
+      "annotation_status": "pending_human_annotation",
+      "notes": "Screen for transient and multi-frame persistent street-scene defects & verify telephone pole negative-control ROI (x:150..220, y:200..400)."
+    }
+  ]
+}

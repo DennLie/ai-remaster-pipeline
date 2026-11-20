@@ -41,11 +41,12 @@ def detect_sequence(frames, sensitivity=0.65):
         mask = np.zeros_like(evidence)
         for i in range(1, n):
             _, _, cw, ch, area = stats[i]
-            if cw <= 7 and ch >= min_height and ch >= 8*cw and area >= min_height//2:
+            max_w = max(14, int(w * 0.015))
+            if cw <= max_w and ch >= min_height and (ch >= 3 * cw or ch >= 35) and area >= min_height // 2:
                 mask[labels == i] = 255
         if np.any(mask):
             mask = cv2.dilate(mask, np.ones((1, 3), np.uint8))
-        if np.mean(mask > 0) > .03:
+        if np.mean(mask > 0) > 0.30:
             mask[:] = 0
         result.append(mask)
     return result

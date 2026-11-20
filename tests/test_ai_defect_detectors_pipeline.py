@@ -41,6 +41,23 @@ class TestBenchmarkPresets(unittest.TestCase):
             "dart_high_recall",
             "dart_conservative",
             "custom",
+            # Classical preset aliases
+            "farneback_fast",
+            "dis_flow_balanced",
+            "temporal_ridge",
+            "consensus_5f",
+            "legacy_baseline",
+            # DART specialized presets
+            "dart_fast_preview",
+            "dart_temporal_stable",
+            "dart_clean_plate",
+            # Phase 7 empirical presets
+            "bopb_scratch_balanced",
+            "bopb_scratch_high_recall",
+            "film_artefact_balanced",
+            "cnn_blotches_precision",
+            "patchcore_anomaly_research",
+            "padim_anomaly_research",
         }
         self.assertEqual(set(fdd.BENCHMARK_PRESETS.keys()), expected)
 
@@ -68,9 +85,10 @@ class TestBenchmarkPresets(unittest.TestCase):
 
     def test_commercial_preset_filtering(self) -> None:
         all_presets = fdd.list_presets(commercial_only=False)
-        self.assertEqual(len(all_presets), 11)
+        self.assertEqual(len(all_presets), 25)
 
         comm_presets = fdd.list_presets(commercial_only=True)
+        self.assertEqual(len(comm_presets), 17)
         self.assertIn("balanced", comm_presets)
         self.assertIn("fast_preview", comm_presets)
         self.assertIn("high_quality_precision", comm_presets)
@@ -78,9 +96,15 @@ class TestBenchmarkPresets(unittest.TestCase):
         self.assertIn("dust_focused", comm_presets)
         self.assertIn("high_recall", comm_presets)
         self.assertIn("conservative_low_fp", comm_presets)
+        self.assertIn("film_artefact_balanced", comm_presets)
+        self.assertIn("cnn_blotches_precision", comm_presets)
+        self.assertIn("patchcore_anomaly_research", comm_presets)
+        self.assertIn("padim_anomaly_research", comm_presets)
         self.assertNotIn("dart_optimal_f1", comm_presets)
         self.assertNotIn("dart_high_recall", comm_presets)
         self.assertNotIn("dart_conservative", comm_presets)
+        self.assertNotIn("bopb_scratch_balanced", comm_presets)
+        self.assertNotIn("bopb_scratch_high_recall", comm_presets)
 
     def test_preset_resolution_exact_and_custom(self) -> None:
         name, res = fdd.resolve_preset({"preset": "dart_optimal_f1"})

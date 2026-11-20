@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-11-18T12:52:34Z",
+  "invalidated_claims": [
+    {
+      "claim": "Neighbors_72 Frame 25 Hard Quality Gate PASSED (+37.87% recall gain)",
+      "source": "docs/benchmarks/temporal_scratch_quality_gate.json",
+      "reason": "SCRATCH_ROI (x=180..192, y=48..282) is an intact building wall vertical pipe (GT=0 negative control), not film damage.",
+      "status": "INVALIDATED_AND_QUARANTINED"
+    },
+    {
+      "claim": "Option 2 FAS + Temporal Scratch 0.0% -> 42.8% recall gain on Neighbors_72 Frame 25",
+      "source": "docs/benchmarks/temporal_scratch_option2_benchmark.json",
+      "reason": "Derived from the same invalidated Frame 25 architectural pipe contrast mask.",
+      "status": "INVALIDATED_AND_QUARANTINED"
+    },
+    {
+      "claim": "Cross-film validation metrics using unregistered absdiff(f, min(f_prev, f_next)) pseudo-masks and min-neighbor PSNR",
+      "source": "docs/benchmarks/cross_film_generalization_benchmark.json",
+      "reason": "Circular evaluation against temporal-difference thresholds and non-independent neighbor proxy reference.",
+      "status": "QUARANTINED_DIAGNOSTIC_ONLY"
+    },
+    {
+      "claim": "DART 72 precomputed Neighbors masks as ground truth",
+      "source": "evaluation/dart_trial_01/masks",
+      "reason": "Model predictions (label_provenance='model_pseudo_label'), never independent ground truth.",
+      "status": "QUARANTINED_PSEUDO_LABEL"
+    }
+  ]
+}

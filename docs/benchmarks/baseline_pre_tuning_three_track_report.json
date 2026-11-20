@@ -1,0 +1,4893 @@
+{
+  "timestamp": "2026-11-18T12:52:34Z",
+  "isolation": {
+    "current_python": "I:\\ai-remaster-pipeline\\.venv\\Scripts\\python.exe",
+    "is_isolated": true,
+    "violations": [],
+    "dart_python": "I:\\DART\\.venv\\Scripts\\python.exe",
+    "absdeg_python": "I:\\ai-remaster-pipeline\\.cache\\absolute-degradation-v1\\.venv\\Scripts\\python.exe",
+    "reusable_dart_env_ready": true,
+    "reusable_absdeg_env_ready": true
+  },
+  "quarantine_notice_path": "docs/benchmarks/historical_claims_quarantine_notice.json",
+  "track_c_annotation_manifest_path": "docs/benchmarks/track_c_annotation_manifest.json",
+  "visual_summary_path": "docs/benchmarks/visuals/three_track_validation_summary.png",
+  "track_a": {
+    "track": "Track A \u2014 Real Annotated Still Images (Spatial Evaluation Only)",
+    "temporal_evaluation_policy": "Single still frames have 0 temporal motion context; all multi-frame detectors are strictly marked INSUFFICIENT_TEMPORAL_CONTEXT without fabricating sequences.",
+    "datasets": {
+      "film_damage_simulator": {
+        "provenance_tier": "manual_polygon_gt",
+        "commercial_cleared": true,
+        "samples_count": 2,
+        "invalid_samples": [],
+        "candidates": {
+          "film_artefact_segmenter": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 1226,
+              "fp": 303,
+              "fn": 25393,
+              "tn": 2070230,
+              "ignored": 0,
+              "precision": 0.801831,
+              "precision_defined": true,
+              "recall": 0.046057,
+              "recall_defined": true,
+              "f1": 0.087111,
+              "iou": 0.045539,
+              "false_positive_rate": 0.00014634,
+              "prediction_coverage": 0.000729,
+              "ground_truth_coverage": 0.012693,
+              "evaluated_pixels": 2097152
+            },
+            "scratch_metrics": {
+              "tp": 1,
+              "fp": 2,
+              "fn": 22236,
+              "tn": 2070531,
+              "ignored": 4382,
+              "precision": 0.333333,
+              "precision_defined": true,
+              "recall": 4.5e-05,
+              "recall_defined": true,
+              "f1": 9e-05,
+              "iou": 4.5e-05,
+              "false_positive_rate": 9.7e-07,
+              "prediction_coverage": 1e-06,
+              "ground_truth_coverage": 0.010626,
+              "evaluated_pixels": 2092770
+            },
+            "dust_metrics": {
+              "tp": 630,
+              "fp": 184,
+              "fn": 3752,
+              "tn": 2070349,
+              "ignored": 22237,
+              "precision": 0.773956,
+              "precision_defined": true,
+              "recall": 0.14377,
+              "recall_defined": true,
+              "f1": 0.242494,
+              "iou": 0.137976,
+              "false_positive_rate": 8.887e-05,
+              "prediction_coverage": 0.000392,
+              "ground_truth_coverage": 0.002112,
+              "evaluated_pixels": 2074915
+            },
+            "fp_severity": {
+              "fp_pixel_count": 303,
+              "fp_component_count": 49,
+              "max_fp_component_area": 25,
+              "max_fp_component_height": 7,
+              "severe_structural_fp_count": 2
+            },
+            "mean_latency_ms": 574.82,
+            "per_sample": [
+              {
+                "clip": "Scan_10",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 1792,
+                  "ymax": 2816,
+                  "xmin": 3840,
+                  "xmax": 4864
+                },
+                "metrics": {
+                  "tp": 0,
+                  "fp": 0,
+                  "fn": 5162,
+                  "tn": 1043414,
+                  "ignored": 0,
+                  "precision": 0.0,
+                  "precision_defined": false,
+                  "recall": 0.0,
+                  "recall_defined": true,
+                  "f1": 0.0,
+                  "iou": 0.0,
+                  "false_positive_rate": 0.0,
+                  "prediction_coverage": 0.0,
+                  "ground_truth_coverage": 0.004923,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 0,
+                  "fp_component_count": 0,
+                  "max_fp_component_area": 0,
+                  "max_fp_component_height": 0,
+                  "max_fp_component_width": 0,
+                  "severe_structural_fp_count": 0
+                }
+              },
+              {
+                "clip": "Scan_8",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 768,
+                  "ymax": 1792,
+                  "xmin": 1280,
+                  "xmax": 2304
+                },
+                "metrics": {
+                  "tp": 1226,
+                  "fp": 303,
+                  "fn": 20231,
+                  "tn": 1026816,
+                  "ignored": 0,
+                  "precision": 0.801831,
+                  "precision_defined": true,
+                  "recall": 0.057138,
+                  "recall_defined": true,
+                  "f1": 0.106674,
+                  "iou": 0.056342,
+                  "false_positive_rate": 0.000295,
+                  "prediction_coverage": 0.001458,
+                  "ground_truth_coverage": 0.020463,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 303,
+                  "fp_component_count": 49,
+                  "max_fp_component_area": 25,
+                  "max_fp_component_height": 7,
+                  "max_fp_component_width": 6,
+                  "severe_structural_fp_count": 2
+                }
+              }
+            ]
+          },
+          "cnn_blotches": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 2235,
+              "fp": 1061,
+              "fn": 24384,
+              "tn": 2069472,
+              "ignored": 0,
+              "precision": 0.678095,
+              "precision_defined": true,
+              "recall": 0.083963,
+              "recall_defined": true,
+              "f1": 0.149423,
+              "iou": 0.080744,
+              "false_positive_rate": 0.00051243,
+              "prediction_coverage": 0.001572,
+              "ground_truth_coverage": 0.012693,
+              "evaluated_pixels": 2097152
+            },
+            "scratch_metrics": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 22237,
+              "tn": 2070533,
+              "ignored": 4382,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.010626,
+              "evaluated_pixels": 2092770
+            },
+            "dust_metrics": {
+              "tp": 1431,
+              "fp": 992,
+              "fn": 2951,
+              "tn": 2069541,
+              "ignored": 22237,
+              "precision": 0.59059,
+              "precision_defined": true,
+              "recall": 0.326563,
+              "recall_defined": true,
+              "f1": 0.420573,
+              "iou": 0.266282,
+              "false_positive_rate": 0.0004791,
+              "prediction_coverage": 0.001168,
+              "ground_truth_coverage": 0.002112,
+              "evaluated_pixels": 2074915
+            },
+            "fp_severity": {
+              "fp_pixel_count": 1061,
+              "fp_component_count": 63,
+              "max_fp_component_area": 44,
+              "max_fp_component_height": 9,
+              "severe_structural_fp_count": 16
+            },
+            "mean_latency_ms": 261.93,
+            "per_sample": [
+              {
+                "clip": "Scan_10",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 1792,
+                  "ymax": 2816,
+                  "xmin": 3840,
+                  "xmax": 4864
+                },
+                "metrics": {
+                  "tp": 24,
+                  "fp": 0,
+                  "fn": 5138,
+                  "tn": 1043414,
+                  "ignored": 0,
+                  "precision": 1.0,
+                  "precision_defined": true,
+                  "recall": 0.004649,
+                  "recall_defined": true,
+                  "f1": 0.009256,
+                  "iou": 0.004649,
+                  "false_positive_rate": 0.0,
+                  "prediction_coverage": 2.3e-05,
+                  "ground_truth_coverage": 0.004923,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 0,
+                  "fp_component_count": 0,
+                  "max_fp_component_area": 0,
+                  "max_fp_component_height": 0,
+                  "max_fp_component_width": 0,
+                  "severe_structural_fp_count": 0
+                }
+              },
+              {
+                "clip": "Scan_8",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 768,
+                  "ymax": 1792,
+                  "xmin": 1280,
+                  "xmax": 2304
+                },
+                "metrics": {
+                  "tp": 2211,
+                  "fp": 1061,
+                  "fn": 19246,
+                  "tn": 1026058,
+                  "ignored": 0,
+                  "precision": 0.675733,
+                  "precision_defined": true,
+                  "recall": 0.103043,
+                  "recall_defined": true,
+                  "f1": 0.178818,
+                  "iou": 0.098188,
+                  "false_positive_rate": 0.00103299,
+                  "prediction_coverage": 0.00312,
+                  "ground_truth_coverage": 0.020463,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 1061,
+                  "fp_component_count": 63,
+                  "max_fp_component_area": 44,
+                  "max_fp_component_height": 9,
+                  "max_fp_component_width": 7,
+                  "severe_structural_fp_count": 16
+                }
+              }
+            ]
+          },
+          "legacy": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 1080,
+              "fp": 111340,
+              "fn": 25539,
+              "tn": 1959193,
+              "ignored": 0,
+              "precision": 0.009607,
+              "precision_defined": true,
+              "recall": 0.040573,
+              "recall_defined": true,
+              "f1": 0.015535,
+              "iou": 0.007828,
+              "false_positive_rate": 0.05377359,
+              "prediction_coverage": 0.053606,
+              "ground_truth_coverage": 0.012693,
+              "evaluated_pixels": 2097152
+            },
+            "scratch_metrics": {
+              "tp": 825,
+              "fp": 111340,
+              "fn": 21412,
+              "tn": 1959193,
+              "ignored": 4382,
+              "precision": 0.007355,
+              "precision_defined": true,
+              "recall": 0.0371,
+              "recall_defined": true,
+              "f1": 0.012277,
+              "iou": 0.006176,
+              "false_positive_rate": 0.05377359,
+              "prediction_coverage": 0.053596,
+              "ground_truth_coverage": 0.010626,
+              "evaluated_pixels": 2092770
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 111340,
+              "fp_component_count": 895,
+              "max_fp_component_area": 5007,
+              "max_fp_component_height": 1024,
+              "severe_structural_fp_count": 769
+            },
+            "mean_latency_ms": 74.35,
+            "per_sample": [
+              {
+                "clip": "Scan_10",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 1792,
+                  "ymax": 2816,
+                  "xmin": 3840,
+                  "xmax": 4864
+                },
+                "metrics": {
+                  "tp": 342,
+                  "fp": 71656,
+                  "fn": 4820,
+                  "tn": 971758,
+                  "ignored": 0,
+                  "precision": 0.00475,
+                  "precision_defined": true,
+                  "recall": 0.066253,
+                  "recall_defined": true,
+                  "f1": 0.008865,
+                  "iou": 0.004452,
+                  "false_positive_rate": 0.06867456,
+                  "prediction_coverage": 0.068663,
+                  "ground_truth_coverage": 0.004923,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 71656,
+                  "fp_component_count": 502,
+                  "max_fp_component_area": 5007,
+                  "max_fp_component_height": 1024,
+                  "max_fp_component_width": 5,
+                  "severe_structural_fp_count": 435
+                }
+              },
+              {
+                "clip": "Scan_8",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 768,
+                  "ymax": 1792,
+                  "xmin": 1280,
+                  "xmax": 2304
+                },
+                "metrics": {
+                  "tp": 738,
+                  "fp": 39684,
+                  "fn": 20719,
+                  "tn": 987435,
+                  "ignored": 0,
+                  "precision": 0.018257,
+                  "precision_defined": true,
+                  "recall": 0.034394,
+                  "recall_defined": true,
+                  "f1": 0.023853,
+                  "iou": 0.01207,
+                  "false_positive_rate": 0.03863622,
+                  "prediction_coverage": 0.038549,
+                  "ground_truth_coverage": 0.020463,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 39684,
+                  "fp_component_count": 393,
+                  "max_fp_component_area": 1605,
+                  "max_fp_component_height": 807,
+                  "max_fp_component_width": 2,
+                  "severe_structural_fp_count": 334
+                }
+              }
+            ]
+          },
+          "bopb": {
+            "status": "EVALUATED",
+            "commercial_cleared": false,
+            "combined_metrics": {
+              "tp": 12342,
+              "fp": 4823,
+              "fn": 14277,
+              "tn": 2065710,
+              "ignored": 0,
+              "precision": 0.719021,
+              "precision_defined": true,
+              "recall": 0.463654,
+              "recall_defined": true,
+              "f1": 0.563768,
+              "iou": 0.392532,
+              "false_positive_rate": 0.00232935,
+              "prediction_coverage": 0.008185,
+              "ground_truth_coverage": 0.012693,
+              "evaluated_pixels": 2097152
+            },
+            "scratch_metrics": {
+              "tp": 10142,
+              "fp": 4823,
+              "fn": 12095,
+              "tn": 2065710,
+              "ignored": 4382,
+              "precision": 0.677715,
+              "precision_defined": true,
+              "recall": 0.456087,
+              "recall_defined": true,
+              "f1": 0.54524,
+              "iou": 0.374797,
+              "false_positive_rate": 0.00232935,
+              "prediction_coverage": 0.007151,
+              "ground_truth_coverage": 0.010626,
+              "evaluated_pixels": 2092770
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 4823,
+              "fp_component_count": 204,
+              "max_fp_component_area": 644,
+              "max_fp_component_height": 53,
+              "severe_structural_fp_count": 65
+            },
+            "mean_latency_ms": 9838.06,
+            "per_sample": [
+              {
+                "clip": "Scan_10",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 1792,
+                  "ymax": 2816,
+                  "xmin": 3840,
+                  "xmax": 4864
+                },
+                "metrics": {
+                  "tp": 1826,
+                  "fp": 101,
+                  "fn": 3336,
+                  "tn": 1043313,
+                  "ignored": 0,
+                  "precision": 0.947587,
+                  "precision_defined": true,
+                  "recall": 0.353739,
+                  "recall_defined": true,
+                  "f1": 0.515164,
+                  "iou": 0.34695,
+                  "false_positive_rate": 9.68e-05,
+                  "prediction_coverage": 0.001838,
+                  "ground_truth_coverage": 0.004923,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 101,
+                  "fp_component_count": 19,
+                  "max_fp_component_area": 40,
+                  "max_fp_component_height": 14,
+                  "max_fp_component_width": 14,
+                  "severe_structural_fp_count": 1
+                }
+              },
+              {
+                "clip": "Scan_8",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 768,
+                  "ymax": 1792,
+                  "xmin": 1280,
+                  "xmax": 2304
+                },
+                "metrics": {
+                  "tp": 10516,
+                  "fp": 4722,
+                  "fn": 10941,
+                  "tn": 1022397,
+                  "ignored": 0,
+                  "precision": 0.690117,
+                  "precision_defined": true,
+                  "recall": 0.490096,
+                  "recall_defined": true,
+                  "f1": 0.573157,
+                  "iou": 0.401696,
+                  "false_positive_rate": 0.00459733,
+                  "prediction_coverage": 0.014532,
+                  "ground_truth_coverage": 0.020463,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 4722,
+                  "fp_component_count": 185,
+                  "max_fp_component_area": 644,
+                  "max_fp_component_height": 53,
+                  "max_fp_component_width": 121,
+                  "severe_structural_fp_count": 64
+                }
+              }
+            ]
+          },
+          "patchcore": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 4982,
+              "fp": 4304,
+              "fn": 21637,
+              "tn": 2066229,
+              "ignored": 0,
+              "precision": 0.536507,
+              "precision_defined": true,
+              "recall": 0.18716,
+              "recall_defined": true,
+              "f1": 0.27751,
+              "iou": 0.16111,
+              "false_positive_rate": 0.00207869,
+              "prediction_coverage": 0.004428,
+              "ground_truth_coverage": 0.012693,
+              "evaluated_pixels": 2097152
+            },
+            "scratch_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 4304,
+              "fp_component_count": 107,
+              "max_fp_component_area": 359,
+              "max_fp_component_height": 39,
+              "severe_structural_fp_count": 50
+            },
+            "mean_latency_ms": 2032.59,
+            "per_sample": [
+              {
+                "clip": "Scan_10",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 1792,
+                  "ymax": 2816,
+                  "xmin": 3840,
+                  "xmax": 4864
+                },
+                "metrics": {
+                  "tp": 867,
+                  "fp": 1029,
+                  "fn": 4295,
+                  "tn": 1042385,
+                  "ignored": 0,
+                  "precision": 0.457278,
+                  "precision_defined": true,
+                  "recall": 0.167958,
+                  "recall_defined": true,
+                  "f1": 0.245679,
+                  "iou": 0.140042,
+                  "false_positive_rate": 0.00098619,
+                  "prediction_coverage": 0.001808,
+                  "ground_truth_coverage": 0.004923,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 1029,
+                  "fp_component_count": 25,
+                  "max_fp_component_area": 142,
+                  "max_fp_component_height": 16,
+                  "max_fp_component_width": 25,
+                  "severe_structural_fp_count": 15
+                }
+              },
+              {
+                "clip": "Scan_8",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 768,
+                  "ymax": 1792,
+                  "xmin": 1280,
+                  "xmax": 2304
+                },
+                "metrics": {
+                  "tp": 4115,
+                  "fp": 3275,
+                  "fn": 17342,
+                  "tn": 1023844,
+                  "ignored": 0,
+                  "precision": 0.556834,
+                  "precision_defined": true,
+                  "recall": 0.191779,
+                  "recall_defined": true,
+                  "f1": 0.285298,
+                  "iou": 0.166384,
+                  "false_positive_rate": 0.00318853,
+                  "prediction_coverage": 0.007048,
+                  "ground_truth_coverage": 0.020463,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 3275,
+                  "fp_component_count": 82,
+                  "max_fp_component_area": 359,
+                  "max_fp_component_height": 39,
+                  "max_fp_component_width": 42,
+                  "severe_structural_fp_count": 35
+                }
+              }
+            ]
+          },
+          "padim": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 3152,
+              "fp": 8796,
+              "fn": 23467,
+              "tn": 2061737,
+              "ignored": 0,
+              "precision": 0.26381,
+              "precision_defined": true,
+              "recall": 0.118412,
+              "recall_defined": true,
+              "f1": 0.163456,
+              "iou": 0.089002,
+              "false_positive_rate": 0.00424818,
+              "prediction_coverage": 0.005697,
+              "ground_truth_coverage": 0.012693,
+              "evaluated_pixels": 2097152
+            },
+            "scratch_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 8796,
+              "fp_component_count": 190,
+              "max_fp_component_area": 267,
+              "max_fp_component_height": 21,
+              "severe_structural_fp_count": 122
+            },
+            "mean_latency_ms": 211.12,
+            "per_sample": [
+              {
+                "clip": "Scan_10",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 1792,
+                  "ymax": 2816,
+                  "xmin": 3840,
+                  "xmax": 4864
+                },
+                "metrics": {
+                  "tp": 168,
+                  "fp": 756,
+                  "fn": 4994,
+                  "tn": 1042658,
+                  "ignored": 0,
+                  "precision": 0.181818,
+                  "precision_defined": true,
+                  "recall": 0.032546,
+                  "recall_defined": true,
+                  "f1": 0.055209,
+                  "iou": 0.028388,
+                  "false_positive_rate": 0.00072454,
+                  "prediction_coverage": 0.000881,
+                  "ground_truth_coverage": 0.004923,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 756,
+                  "fp_component_count": 24,
+                  "max_fp_component_area": 94,
+                  "max_fp_component_height": 13,
+                  "max_fp_component_width": 16,
+                  "severe_structural_fp_count": 14
+                }
+              },
+              {
+                "clip": "Scan_8",
+                "material": "35mm_film_scan",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 768,
+                  "ymax": 1792,
+                  "xmin": 1280,
+                  "xmax": 2304
+                },
+                "metrics": {
+                  "tp": 2984,
+                  "fp": 8040,
+                  "fn": 18473,
+                  "tn": 1019079,
+                  "ignored": 0,
+                  "precision": 0.270682,
+                  "precision_defined": true,
+                  "recall": 0.139069,
+                  "recall_defined": true,
+                  "f1": 0.183738,
+                  "iou": 0.101163,
+                  "false_positive_rate": 0.00782772,
+                  "prediction_coverage": 0.010513,
+                  "ground_truth_coverage": 0.020463,
+                  "evaluated_pixels": 1048576
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 8040,
+                  "fp_component_count": 166,
+                  "max_fp_component_area": 267,
+                  "max_fp_component_height": 21,
+                  "max_fp_component_width": 28,
+                  "severe_structural_fp_count": 108
+                }
+              }
+            ]
+          },
+          "temporal_scratch": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "fused_fas_temporal": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "farneback_3f": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "dis_flow": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "ridge": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "consensus_5f": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "dart_harness": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          }
+        }
+      },
+      "artefact": {
+        "provenance_tier": "manual_segmentation_gt",
+        "commercial_cleared": false,
+        "samples_count": 3,
+        "invalid_samples": [],
+        "candidates": {
+          "film_artefact_segmenter": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 5402,
+              "fp": 599519,
+              "fn": 36124,
+              "tn": 987825,
+              "ignored": 354106,
+              "precision": 0.00893,
+              "precision_defined": true,
+              "recall": 0.130087,
+              "recall_defined": true,
+              "f1": 0.016713,
+              "iou": 0.008427,
+              "false_positive_rate": 0.37768688,
+              "prediction_coverage": 0.371375,
+              "ground_truth_coverage": 0.025494,
+              "evaluated_pixels": 1628870
+            },
+            "scratch_metrics": {
+              "tp": 741,
+              "fp": 157288,
+              "fn": 4234,
+              "tn": 1430056,
+              "ignored": 390657,
+              "precision": 0.004689,
+              "precision_defined": true,
+              "recall": 0.148945,
+              "recall_defined": true,
+              "f1": 0.009092,
+              "iou": 0.004567,
+              "false_positive_rate": 0.09908879,
+              "prediction_coverage": 0.099245,
+              "ground_truth_coverage": 0.003124,
+              "evaluated_pixels": 1592319
+            },
+            "dust_metrics": {
+              "tp": 742,
+              "fp": 576329,
+              "fn": 35809,
+              "tn": 1011015,
+              "ignored": 359081,
+              "precision": 0.001286,
+              "precision_defined": true,
+              "recall": 0.0203,
+              "recall_defined": true,
+              "f1": 0.002418,
+              "iou": 0.001211,
+              "false_positive_rate": 0.36307757,
+              "prediction_coverage": 0.355362,
+              "ground_truth_coverage": 0.022508,
+              "evaluated_pixels": 1623895
+            },
+            "fp_severity": {
+              "fp_pixel_count": 599519,
+              "fp_component_count": 548,
+              "max_fp_component_area": 490678,
+              "max_fp_component_height": 1012,
+              "severe_structural_fp_count": 194
+            },
+            "mean_latency_ms": 101.68,
+            "per_sample": [
+              {
+                "clip": "artefact_clm6rns232em207179tkd3bza",
+                "material": "Paper",
+                "eval_shape": [
+                  512,
+                  349
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 512,
+                  "xmin": 0,
+                  "xmax": 349
+                },
+                "metrics": {
+                  "tp": 0,
+                  "fp": 394,
+                  "fn": 329,
+                  "tn": 154160,
+                  "ignored": 23805,
+                  "precision": 0.0,
+                  "precision_defined": true,
+                  "recall": 0.0,
+                  "recall_defined": true,
+                  "f1": 0.0,
+                  "iou": 0.0,
+                  "false_positive_rate": 0.00254927,
+                  "prediction_coverage": 0.002544,
+                  "ground_truth_coverage": 0.002124,
+                  "evaluated_pixels": 154883
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 394,
+                  "fp_component_count": 14,
+                  "max_fp_component_area": 108,
+                  "max_fp_component_height": 32,
+                  "max_fp_component_width": 47,
+                  "severe_structural_fp_count": 5
+                }
+              },
+              {
+                "clip": "artefact_clm6rns232emu07173m4ffv1c",
+                "material": "Paper",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 1024,
+                  "xmax": 2048
+                },
+                "metrics": {
+                  "tp": 4222,
+                  "fp": 593691,
+                  "fn": 753,
+                  "tn": 374379,
+                  "ignored": 75531,
+                  "precision": 0.007061,
+                  "precision_defined": true,
+                  "recall": 0.848643,
+                  "recall_defined": true,
+                  "f1": 0.014006,
+                  "iou": 0.007052,
+                  "false_positive_rate": 0.6132728,
+                  "prediction_coverage": 0.614476,
+                  "ground_truth_coverage": 0.005113,
+                  "evaluated_pixels": 973045
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 593691,
+                  "fp_component_count": 304,
+                  "max_fp_component_area": 490678,
+                  "max_fp_component_height": 1012,
+                  "max_fp_component_width": 878,
+                  "severe_structural_fp_count": 128
+                }
+              },
+              {
+                "clip": "artefact_clm6rns242en207174pc05aej",
+                "material": "Glass",
+                "eval_shape": [
+                  1024,
+                  738
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 0,
+                  "xmax": 738
+                },
+                "metrics": {
+                  "tp": 1180,
+                  "fp": 5434,
+                  "fn": 35042,
+                  "tn": 459286,
+                  "ignored": 254770,
+                  "precision": 0.178409,
+                  "precision_defined": true,
+                  "recall": 0.032577,
+                  "recall_defined": true,
+                  "f1": 0.055094,
+                  "iou": 0.028327,
+                  "false_positive_rate": 0.01169306,
+                  "prediction_coverage": 0.013203,
+                  "ground_truth_coverage": 0.072308,
+                  "evaluated_pixels": 500942
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 5434,
+                  "fp_component_count": 230,
+                  "max_fp_component_area": 307,
+                  "max_fp_component_height": 126,
+                  "max_fp_component_width": 96,
+                  "severe_structural_fp_count": 61
+                }
+              }
+            ]
+          },
+          "cnn_blotches": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 4053,
+              "fp": 576694,
+              "fn": 37473,
+              "tn": 1010650,
+              "ignored": 354106,
+              "precision": 0.006979,
+              "precision_defined": true,
+              "recall": 0.097602,
+              "recall_defined": true,
+              "f1": 0.013026,
+              "iou": 0.006556,
+              "false_positive_rate": 0.36330751,
+              "prediction_coverage": 0.356534,
+              "ground_truth_coverage": 0.025494,
+              "evaluated_pixels": 1628870
+            },
+            "scratch_metrics": {
+              "tp": 0,
+              "fp": 4037,
+              "fn": 4975,
+              "tn": 1583307,
+              "ignored": 390657,
+              "precision": 0.0,
+              "precision_defined": true,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.00254324,
+              "prediction_coverage": 0.002535,
+              "ground_truth_coverage": 0.003124,
+              "evaluated_pixels": 1592319
+            },
+            "dust_metrics": {
+              "tp": 94,
+              "fp": 563820,
+              "fn": 36457,
+              "tn": 1023524,
+              "ignored": 359081,
+              "precision": 0.000167,
+              "precision_defined": true,
+              "recall": 0.002572,
+              "recall_defined": true,
+              "f1": 0.000313,
+              "iou": 0.000157,
+              "false_positive_rate": 0.35519711,
+              "prediction_coverage": 0.34726,
+              "ground_truth_coverage": 0.022508,
+              "evaluated_pixels": 1623895
+            },
+            "fp_severity": {
+              "fp_pixel_count": 576694,
+              "fp_component_count": 460,
+              "max_fp_component_area": 459045,
+              "max_fp_component_height": 1010,
+              "severe_structural_fp_count": 169
+            },
+            "mean_latency_ms": 117.1,
+            "per_sample": [
+              {
+                "clip": "artefact_clm6rns232em207179tkd3bza",
+                "material": "Paper",
+                "eval_shape": [
+                  512,
+                  349
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 512,
+                  "xmin": 0,
+                  "xmax": 349
+                },
+                "metrics": {
+                  "tp": 0,
+                  "fp": 187,
+                  "fn": 329,
+                  "tn": 154367,
+                  "ignored": 23805,
+                  "precision": 0.0,
+                  "precision_defined": true,
+                  "recall": 0.0,
+                  "recall_defined": true,
+                  "f1": 0.0,
+                  "iou": 0.0,
+                  "false_positive_rate": 0.00120993,
+                  "prediction_coverage": 0.001207,
+                  "ground_truth_coverage": 0.002124,
+                  "evaluated_pixels": 154883
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 187,
+                  "fp_component_count": 10,
+                  "max_fp_component_area": 64,
+                  "max_fp_component_height": 14,
+                  "max_fp_component_width": 15,
+                  "severe_structural_fp_count": 3
+                }
+              },
+              {
+                "clip": "artefact_clm6rns232emu07173m4ffv1c",
+                "material": "Paper",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 1024,
+                  "xmax": 2048
+                },
+                "metrics": {
+                  "tp": 3822,
+                  "fp": 572203,
+                  "fn": 1153,
+                  "tn": 395867,
+                  "ignored": 75531,
+                  "precision": 0.006635,
+                  "precision_defined": true,
+                  "recall": 0.768241,
+                  "recall_defined": true,
+                  "f1": 0.013157,
+                  "iou": 0.006622,
+                  "false_positive_rate": 0.59107606,
+                  "prediction_coverage": 0.591982,
+                  "ground_truth_coverage": 0.005113,
+                  "evaluated_pixels": 973045
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 572203,
+                  "fp_component_count": 272,
+                  "max_fp_component_area": 459045,
+                  "max_fp_component_height": 1010,
+                  "max_fp_component_width": 876,
+                  "severe_structural_fp_count": 123
+                }
+              },
+              {
+                "clip": "artefact_clm6rns242en207174pc05aej",
+                "material": "Glass",
+                "eval_shape": [
+                  1024,
+                  738
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 0,
+                  "xmax": 738
+                },
+                "metrics": {
+                  "tp": 231,
+                  "fp": 4304,
+                  "fn": 35991,
+                  "tn": 460416,
+                  "ignored": 254770,
+                  "precision": 0.050937,
+                  "precision_defined": true,
+                  "recall": 0.006377,
+                  "recall_defined": true,
+                  "f1": 0.011335,
+                  "iou": 0.0057,
+                  "false_positive_rate": 0.00926149,
+                  "prediction_coverage": 0.009053,
+                  "ground_truth_coverage": 0.072308,
+                  "evaluated_pixels": 500942
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 4304,
+                  "fp_component_count": 178,
+                  "max_fp_component_area": 593,
+                  "max_fp_component_height": 225,
+                  "max_fp_component_width": 11,
+                  "severe_structural_fp_count": 43
+                }
+              }
+            ]
+          },
+          "legacy": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 2974,
+              "fp": 86459,
+              "fn": 38552,
+              "tn": 1500885,
+              "ignored": 354106,
+              "precision": 0.033254,
+              "precision_defined": true,
+              "recall": 0.071618,
+              "recall_defined": true,
+              "f1": 0.045419,
+              "iou": 0.023237,
+              "false_positive_rate": 0.05446771,
+              "prediction_coverage": 0.054905,
+              "ground_truth_coverage": 0.025494,
+              "evaluated_pixels": 1628870
+            },
+            "scratch_metrics": {
+              "tp": 28,
+              "fp": 86459,
+              "fn": 4947,
+              "tn": 1500885,
+              "ignored": 390657,
+              "precision": 0.000324,
+              "precision_defined": true,
+              "recall": 0.005628,
+              "recall_defined": true,
+              "f1": 0.000612,
+              "iou": 0.000306,
+              "false_positive_rate": 0.05446771,
+              "prediction_coverage": 0.054315,
+              "ground_truth_coverage": 0.003124,
+              "evaluated_pixels": 1592319
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 86459,
+              "fp_component_count": 1247,
+              "max_fp_component_area": 11659,
+              "max_fp_component_height": 1024,
+              "severe_structural_fp_count": 649
+            },
+            "mean_latency_ms": 48.23,
+            "per_sample": [
+              {
+                "clip": "artefact_clm6rns232em207179tkd3bza",
+                "material": "Paper",
+                "eval_shape": [
+                  512,
+                  349
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 512,
+                  "xmin": 0,
+                  "xmax": 349
+                },
+                "metrics": {
+                  "tp": 0,
+                  "fp": 13253,
+                  "fn": 329,
+                  "tn": 141301,
+                  "ignored": 23805,
+                  "precision": 0.0,
+                  "precision_defined": true,
+                  "recall": 0.0,
+                  "recall_defined": true,
+                  "f1": 0.0,
+                  "iou": 0.0,
+                  "false_positive_rate": 0.08574996,
+                  "prediction_coverage": 0.085568,
+                  "ground_truth_coverage": 0.002124,
+                  "evaluated_pixels": 154883
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 13253,
+                  "fp_component_count": 40,
+                  "max_fp_component_area": 3751,
+                  "max_fp_component_height": 506,
+                  "max_fp_component_width": 9,
+                  "severe_structural_fp_count": 19
+                }
+              },
+              {
+                "clip": "artefact_clm6rns232emu07173m4ffv1c",
+                "material": "Paper",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 1024,
+                  "xmax": 2048
+                },
+                "metrics": {
+                  "tp": 28,
+                  "fp": 62008,
+                  "fn": 4947,
+                  "tn": 906062,
+                  "ignored": 75531,
+                  "precision": 0.000451,
+                  "precision_defined": true,
+                  "recall": 0.005628,
+                  "recall_defined": true,
+                  "f1": 0.000836,
+                  "iou": 0.000418,
+                  "false_positive_rate": 0.06405322,
+                  "prediction_coverage": 0.063755,
+                  "ground_truth_coverage": 0.005113,
+                  "evaluated_pixels": 973045
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 62008,
+                  "fp_component_count": 972,
+                  "max_fp_component_area": 11659,
+                  "max_fp_component_height": 1024,
+                  "max_fp_component_width": 13,
+                  "severe_structural_fp_count": 578
+                }
+              },
+              {
+                "clip": "artefact_clm6rns242en207174pc05aej",
+                "material": "Glass",
+                "eval_shape": [
+                  1024,
+                  738
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 0,
+                  "xmax": 738
+                },
+                "metrics": {
+                  "tp": 2946,
+                  "fp": 11198,
+                  "fn": 33276,
+                  "tn": 453522,
+                  "ignored": 254770,
+                  "precision": 0.208286,
+                  "precision_defined": true,
+                  "recall": 0.081332,
+                  "recall_defined": true,
+                  "f1": 0.116984,
+                  "iou": 0.062126,
+                  "false_positive_rate": 0.02409623,
+                  "prediction_coverage": 0.028235,
+                  "ground_truth_coverage": 0.072308,
+                  "evaluated_pixels": 500942
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 11198,
+                  "fp_component_count": 235,
+                  "max_fp_component_area": 1651,
+                  "max_fp_component_height": 800,
+                  "max_fp_component_width": 9,
+                  "severe_structural_fp_count": 52
+                }
+              }
+            ]
+          },
+          "bopb": {
+            "status": "EVALUATED",
+            "commercial_cleared": false,
+            "combined_metrics": {
+              "tp": 3208,
+              "fp": 11281,
+              "fn": 38318,
+              "tn": 1576063,
+              "ignored": 354106,
+              "precision": 0.221409,
+              "precision_defined": true,
+              "recall": 0.077253,
+              "recall_defined": true,
+              "f1": 0.114541,
+              "iou": 0.06075,
+              "false_positive_rate": 0.00710684,
+              "prediction_coverage": 0.008895,
+              "ground_truth_coverage": 0.025494,
+              "evaluated_pixels": 1628870
+            },
+            "scratch_metrics": {
+              "tp": 3,
+              "fp": 11281,
+              "fn": 4972,
+              "tn": 1576063,
+              "ignored": 390657,
+              "precision": 0.000266,
+              "precision_defined": true,
+              "recall": 0.000603,
+              "recall_defined": true,
+              "f1": 0.000369,
+              "iou": 0.000185,
+              "false_positive_rate": 0.00710684,
+              "prediction_coverage": 0.007087,
+              "ground_truth_coverage": 0.003124,
+              "evaluated_pixels": 1592319
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 11281,
+              "fp_component_count": 566,
+              "max_fp_component_area": 1011,
+              "max_fp_component_height": 467,
+              "severe_structural_fp_count": 87
+            },
+            "mean_latency_ms": 226.28,
+            "per_sample": [
+              {
+                "clip": "artefact_clm6rns232em207179tkd3bza",
+                "material": "Paper",
+                "eval_shape": [
+                  512,
+                  349
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 512,
+                  "xmin": 0,
+                  "xmax": 349
+                },
+                "metrics": {
+                  "tp": 127,
+                  "fp": 269,
+                  "fn": 202,
+                  "tn": 154285,
+                  "ignored": 23805,
+                  "precision": 0.320707,
+                  "precision_defined": true,
+                  "recall": 0.386018,
+                  "recall_defined": true,
+                  "f1": 0.350345,
+                  "iou": 0.212375,
+                  "false_positive_rate": 0.00174049,
+                  "prediction_coverage": 0.002557,
+                  "ground_truth_coverage": 0.002124,
+                  "evaluated_pixels": 154883
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 269,
+                  "fp_component_count": 24,
+                  "max_fp_component_area": 55,
+                  "max_fp_component_height": 36,
+                  "max_fp_component_width": 19,
+                  "severe_structural_fp_count": 2
+                }
+              },
+              {
+                "clip": "artefact_clm6rns232emu07173m4ffv1c",
+                "material": "Paper",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 1024,
+                  "xmax": 2048
+                },
+                "metrics": {
+                  "tp": 3,
+                  "fp": 6284,
+                  "fn": 4972,
+                  "tn": 961786,
+                  "ignored": 75531,
+                  "precision": 0.000477,
+                  "precision_defined": true,
+                  "recall": 0.000603,
+                  "recall_defined": true,
+                  "f1": 0.000533,
+                  "iou": 0.000266,
+                  "false_positive_rate": 0.00649127,
+                  "prediction_coverage": 0.006461,
+                  "ground_truth_coverage": 0.005113,
+                  "evaluated_pixels": 973045
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 6284,
+                  "fp_component_count": 274,
+                  "max_fp_component_area": 1011,
+                  "max_fp_component_height": 143,
+                  "max_fp_component_width": 166,
+                  "severe_structural_fp_count": 52
+                }
+              },
+              {
+                "clip": "artefact_clm6rns242en207174pc05aej",
+                "material": "Glass",
+                "eval_shape": [
+                  1024,
+                  738
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 0,
+                  "xmax": 738
+                },
+                "metrics": {
+                  "tp": 3078,
+                  "fp": 4728,
+                  "fn": 33144,
+                  "tn": 459992,
+                  "ignored": 254770,
+                  "precision": 0.394312,
+                  "precision_defined": true,
+                  "recall": 0.084976,
+                  "recall_defined": true,
+                  "f1": 0.13982,
+                  "iou": 0.075165,
+                  "false_positive_rate": 0.01017387,
+                  "prediction_coverage": 0.015583,
+                  "ground_truth_coverage": 0.072308,
+                  "evaluated_pixels": 500942
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 4728,
+                  "fp_component_count": 268,
+                  "max_fp_component_area": 729,
+                  "max_fp_component_height": 467,
+                  "max_fp_component_width": 230,
+                  "severe_structural_fp_count": 33
+                }
+              }
+            ]
+          },
+          "patchcore": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 9244,
+              "fp": 999792,
+              "fn": 32282,
+              "tn": 587552,
+              "ignored": 354106,
+              "precision": 0.009161,
+              "precision_defined": true,
+              "recall": 0.222608,
+              "recall_defined": true,
+              "f1": 0.017598,
+              "iou": 0.008877,
+              "false_positive_rate": 0.62985213,
+              "prediction_coverage": 0.61947,
+              "ground_truth_coverage": 0.025494,
+              "evaluated_pixels": 1628870
+            },
+            "scratch_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 999792,
+              "fp_component_count": 158,
+              "max_fp_component_area": 850537,
+              "max_fp_component_height": 1024,
+              "severe_structural_fp_count": 111
+            },
+            "mean_latency_ms": 80.19,
+            "per_sample": [
+              {
+                "clip": "artefact_clm6rns232em207179tkd3bza",
+                "material": "Paper",
+                "eval_shape": [
+                  512,
+                  349
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 512,
+                  "xmin": 0,
+                  "xmax": 349
+                },
+                "metrics": {
+                  "tp": 93,
+                  "fp": 15024,
+                  "fn": 236,
+                  "tn": 139530,
+                  "ignored": 23805,
+                  "precision": 0.006152,
+                  "precision_defined": true,
+                  "recall": 0.282675,
+                  "recall_defined": true,
+                  "f1": 0.012042,
+                  "iou": 0.006057,
+                  "false_positive_rate": 0.09720874,
+                  "prediction_coverage": 0.097603,
+                  "ground_truth_coverage": 0.002124,
+                  "evaluated_pixels": 154883
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 15024,
+                  "fp_component_count": 52,
+                  "max_fp_component_area": 2457,
+                  "max_fp_component_height": 103,
+                  "max_fp_component_width": 100,
+                  "severe_structural_fp_count": 40
+                }
+              },
+              {
+                "clip": "artefact_clm6rns232emu07173m4ffv1c",
+                "material": "Paper",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 1024,
+                  "xmax": 2048
+                },
+                "metrics": {
+                  "tp": 4975,
+                  "fp": 960571,
+                  "fn": 0,
+                  "tn": 7499,
+                  "ignored": 75531,
+                  "precision": 0.005153,
+                  "precision_defined": true,
+                  "recall": 1.0,
+                  "recall_defined": true,
+                  "f1": 0.010252,
+                  "iou": 0.005153,
+                  "false_positive_rate": 0.99225366,
+                  "prediction_coverage": 0.992293,
+                  "ground_truth_coverage": 0.005113,
+                  "evaluated_pixels": 973045
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 960571,
+                  "fp_component_count": 3,
+                  "max_fp_component_area": 850537,
+                  "max_fp_component_height": 1024,
+                  "max_fp_component_width": 893,
+                  "severe_structural_fp_count": 3
+                }
+              },
+              {
+                "clip": "artefact_clm6rns242en207174pc05aej",
+                "material": "Glass",
+                "eval_shape": [
+                  1024,
+                  738
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 0,
+                  "xmax": 738
+                },
+                "metrics": {
+                  "tp": 4176,
+                  "fp": 24197,
+                  "fn": 32046,
+                  "tn": 440523,
+                  "ignored": 254770,
+                  "precision": 0.147182,
+                  "precision_defined": true,
+                  "recall": 0.115289,
+                  "recall_defined": true,
+                  "f1": 0.129298,
+                  "iou": 0.069117,
+                  "false_positive_rate": 0.05206791,
+                  "prediction_coverage": 0.056639,
+                  "ground_truth_coverage": 0.072308,
+                  "evaluated_pixels": 500942
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 24197,
+                  "fp_component_count": 103,
+                  "max_fp_component_area": 3730,
+                  "max_fp_component_height": 178,
+                  "max_fp_component_width": 273,
+                  "severe_structural_fp_count": 68
+                }
+              }
+            ]
+          },
+          "padim": {
+            "status": "EVALUATED",
+            "commercial_cleared": true,
+            "combined_metrics": {
+              "tp": 5984,
+              "fp": 906012,
+              "fn": 35542,
+              "tn": 681332,
+              "ignored": 354106,
+              "precision": 0.006561,
+              "precision_defined": true,
+              "recall": 0.144102,
+              "recall_defined": true,
+              "f1": 0.012551,
+              "iou": 0.006315,
+              "false_positive_rate": 0.57077231,
+              "prediction_coverage": 0.559895,
+              "ground_truth_coverage": 0.025494,
+              "evaluated_pixels": 1628870
+            },
+            "scratch_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "dust_metrics": {
+              "status": "NOT_APPLICABLE"
+            },
+            "fp_severity": {
+              "fp_pixel_count": 906012,
+              "fp_component_count": 142,
+              "max_fp_component_area": 798599,
+              "max_fp_component_height": 1024,
+              "severe_structural_fp_count": 74
+            },
+            "mean_latency_ms": 63.97,
+            "per_sample": [
+              {
+                "clip": "artefact_clm6rns232em207179tkd3bza",
+                "material": "Paper",
+                "eval_shape": [
+                  512,
+                  349
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 512,
+                  "xmin": 0,
+                  "xmax": 349
+                },
+                "metrics": {
+                  "tp": 0,
+                  "fp": 2971,
+                  "fn": 329,
+                  "tn": 151583,
+                  "ignored": 23805,
+                  "precision": 0.0,
+                  "precision_defined": true,
+                  "recall": 0.0,
+                  "recall_defined": true,
+                  "f1": 0.0,
+                  "iou": 0.0,
+                  "false_positive_rate": 0.01922305,
+                  "prediction_coverage": 0.019182,
+                  "ground_truth_coverage": 0.002124,
+                  "evaluated_pixels": 154883
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 2971,
+                  "fp_component_count": 35,
+                  "max_fp_component_area": 378,
+                  "max_fp_component_height": 48,
+                  "max_fp_component_width": 32,
+                  "severe_structural_fp_count": 24
+                }
+              },
+              {
+                "clip": "artefact_clm6rns232emu07173m4ffv1c",
+                "material": "Paper",
+                "eval_shape": [
+                  1024,
+                  1024
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 1024,
+                  "xmax": 2048
+                },
+                "metrics": {
+                  "tp": 4822,
+                  "fp": 899908,
+                  "fn": 153,
+                  "tn": 68162,
+                  "ignored": 75531,
+                  "precision": 0.00533,
+                  "precision_defined": true,
+                  "recall": 0.969246,
+                  "recall_defined": true,
+                  "f1": 0.010601,
+                  "iou": 0.005329,
+                  "false_positive_rate": 0.9295898,
+                  "prediction_coverage": 0.929793,
+                  "ground_truth_coverage": 0.005113,
+                  "evaluated_pixels": 973045
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 899908,
+                  "fp_component_count": 26,
+                  "max_fp_component_area": 798599,
+                  "max_fp_component_height": 1024,
+                  "max_fp_component_width": 893,
+                  "severe_structural_fp_count": 16
+                }
+              },
+              {
+                "clip": "artefact_clm6rns242en207174pc05aej",
+                "material": "Glass",
+                "eval_shape": [
+                  1024,
+                  738
+                ],
+                "crop_bbox": {
+                  "ymin": 0,
+                  "ymax": 1024,
+                  "xmin": 0,
+                  "xmax": 738
+                },
+                "metrics": {
+                  "tp": 1162,
+                  "fp": 3133,
+                  "fn": 35060,
+                  "tn": 461587,
+                  "ignored": 254770,
+                  "precision": 0.270547,
+                  "precision_defined": true,
+                  "recall": 0.03208,
+                  "recall_defined": true,
+                  "f1": 0.057359,
+                  "iou": 0.029526,
+                  "false_positive_rate": 0.00674169,
+                  "prediction_coverage": 0.008574,
+                  "ground_truth_coverage": 0.072308,
+                  "evaluated_pixels": 500942
+                },
+                "fp_severity": {
+                  "fp_pixel_count": 3133,
+                  "fp_component_count": 81,
+                  "max_fp_component_area": 385,
+                  "max_fp_component_height": 26,
+                  "max_fp_component_width": 63,
+                  "severe_structural_fp_count": 34
+                }
+              }
+            ]
+          },
+          "temporal_scratch": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "fused_fas_temporal": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "farneback_3f": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "dis_flow": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "ridge": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "consensus_5f": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          },
+          "dart_harness": {
+            "status": "INSUFFICIENT_TEMPORAL_CONTEXT",
+            "reason": "Single still images cannot evaluate temporal detectors (min_frames >= 2..3); repeating stills is prohibited."
+          }
+        }
+      }
+    }
+  },
+  "track_b": {
+    "track": "Track B \u2014 Exact Synthetic Defects on Genuine Clean Archival Video",
+    "substrate": "AbsoluteDegradation clean references (010 dev_diagnostic, 020 locked_holdout)",
+    "regimes": [
+      {
+        "regime": "absdeg_010_seed_20261106",
+        "split": "dev_diagnostic",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Existing AbsoluteDegradation FilmScratchGenerator on real reference footage",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 108.61,
+            "axis1_detection_quality": {
+              "tp": 12704,
+              "fp": 6662,
+              "fn": 22404,
+              "tn": 5155309,
+              "ignored": 60721,
+              "precision": 0.655995,
+              "precision_defined": true,
+              "recall": 0.361855,
+              "recall_defined": true,
+              "f1": 0.466424,
+              "iou": 0.304142,
+              "false_positive_rate": 0.00129059,
+              "prediction_coverage": 0.003726,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 6662,
+                "fp_component_count": 1203,
+                "max_fp_component_area": 98,
+                "max_fp_component_height": 26,
+                "severe_structural_fp_count": 72
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.715937,
+              "recall": 0.331662,
+              "f1": 0.453321,
+              "repair_coverage_pct": 0.3129,
+              "intact_pixel_fpr_pct": 0.0895,
+              "structural_edge_repair_fpr_pct": 0.1825,
+              "structural_edge_repair_fp_pixels": 1407
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 13.425,
+                "mean_psnr_gain_db": 5.367,
+                "total_intact_pixels_modified": 4187,
+                "mean_intact_modified_fpr_pct": 0.08107,
+                "min_intact_psnr_db": 51.118
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 13.088,
+                "mean_psnr_gain_db": 5.029,
+                "total_intact_pixels_modified": 4424,
+                "mean_intact_modified_fpr_pct": 0.08566,
+                "min_intact_psnr_db": 42.717
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 194.63,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 35108,
+              "tn": 5161971,
+              "ignored": 60721,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 8.058,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 8.058,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 313.34,
+            "axis1_detection_quality": {
+              "tp": 11644,
+              "fp": 4620,
+              "fn": 23464,
+              "tn": 5157351,
+              "ignored": 60721,
+              "precision": 0.715937,
+              "precision_defined": true,
+              "recall": 0.331662,
+              "recall_defined": true,
+              "f1": 0.453321,
+              "iou": 0.293093,
+              "false_positive_rate": 0.00089501,
+              "prediction_coverage": 0.003129,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 4620,
+                "fp_component_count": 1075,
+                "max_fp_component_area": 77,
+                "max_fp_component_height": 25,
+                "severe_structural_fp_count": 48
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.715937,
+              "recall": 0.331662,
+              "f1": 0.453321,
+              "repair_coverage_pct": 0.3129,
+              "intact_pixel_fpr_pct": 0.0895,
+              "structural_edge_repair_fpr_pct": 0.1825,
+              "structural_edge_repair_fp_pixels": 1407
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 13.425,
+                "mean_psnr_gain_db": 5.367,
+                "total_intact_pixels_modified": 4187,
+                "mean_intact_modified_fpr_pct": 0.08107,
+                "min_intact_psnr_db": 51.118
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 13.088,
+                "mean_psnr_gain_db": 5.029,
+                "total_intact_pixels_modified": 4424,
+                "mean_intact_modified_fpr_pct": 0.08566,
+                "min_intact_psnr_db": 42.717
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 313.34,
+            "axis1_detection_quality": {
+              "tp": 11644,
+              "fp": 4620,
+              "fn": 23464,
+              "tn": 5157351,
+              "ignored": 60721,
+              "precision": 0.715937,
+              "precision_defined": true,
+              "recall": 0.331662,
+              "recall_defined": true,
+              "f1": 0.453321,
+              "iou": 0.293093,
+              "false_positive_rate": 0.00089501,
+              "prediction_coverage": 0.003129,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 4620,
+                "fp_component_count": 1075,
+                "max_fp_component_area": 77,
+                "max_fp_component_height": 25,
+                "severe_structural_fp_count": 48
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.715937,
+              "recall": 0.331662,
+              "f1": 0.453321,
+              "repair_coverage_pct": 0.3129,
+              "intact_pixel_fpr_pct": 0.0895,
+              "structural_edge_repair_fpr_pct": 0.1825,
+              "structural_edge_repair_fp_pixels": 1407
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 13.425,
+                "mean_psnr_gain_db": 5.367,
+                "total_intact_pixels_modified": 4187,
+                "mean_intact_modified_fpr_pct": 0.08107,
+                "min_intact_psnr_db": 51.118
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.058,
+                "mean_repaired_psnr_db": 13.088,
+                "mean_psnr_gain_db": 5.029,
+                "total_intact_pixels_modified": 4424,
+                "mean_intact_modified_fpr_pct": 0.08566,
+                "min_intact_psnr_db": 42.717
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "absdeg_020_seed_20261106",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Existing AbsoluteDegradation FilmScratchGenerator on real reference footage",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 141.08,
+            "axis1_detection_quality": {
+              "tp": 13061,
+              "fp": 8359,
+              "fn": 22047,
+              "tn": 5153612,
+              "ignored": 60721,
+              "precision": 0.609757,
+              "precision_defined": true,
+              "recall": 0.372023,
+              "recall_defined": true,
+              "f1": 0.462107,
+              "iou": 0.300481,
+              "false_positive_rate": 0.00161934,
+              "prediction_coverage": 0.004122,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 8359,
+                "fp_component_count": 1336,
+                "max_fp_component_area": 137,
+                "max_fp_component_height": 43,
+                "severe_structural_fp_count": 67
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.671238,
+              "recall": 0.347129,
+              "f1": 0.457607,
+              "repair_coverage_pct": 0.3494,
+              "intact_pixel_fpr_pct": 0.1156,
+              "structural_edge_repair_fpr_pct": 0.2027,
+              "structural_edge_repair_fp_pixels": 1567
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 13.578,
+                "mean_psnr_gain_db": 5.334,
+                "total_intact_pixels_modified": 5726,
+                "mean_intact_modified_fpr_pct": 0.11089,
+                "min_intact_psnr_db": 42.374
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 13.719,
+                "mean_psnr_gain_db": 5.476,
+                "total_intact_pixels_modified": 5719,
+                "mean_intact_modified_fpr_pct": 0.11076,
+                "min_intact_psnr_db": 41.084
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 214.77,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 35108,
+              "tn": 5161971,
+              "ignored": 60721,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 8.243,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 8.243,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 363.66,
+            "axis1_detection_quality": {
+              "tp": 12187,
+              "fp": 5969,
+              "fn": 22921,
+              "tn": 5156002,
+              "ignored": 60721,
+              "precision": 0.671238,
+              "precision_defined": true,
+              "recall": 0.347129,
+              "recall_defined": true,
+              "f1": 0.457607,
+              "iou": 0.296687,
+              "false_positive_rate": 0.00115634,
+              "prediction_coverage": 0.003494,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 5969,
+                "fp_component_count": 1206,
+                "max_fp_component_area": 82,
+                "max_fp_component_height": 27,
+                "severe_structural_fp_count": 38
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.671238,
+              "recall": 0.347129,
+              "f1": 0.457607,
+              "repair_coverage_pct": 0.3494,
+              "intact_pixel_fpr_pct": 0.1156,
+              "structural_edge_repair_fpr_pct": 0.2027,
+              "structural_edge_repair_fp_pixels": 1567
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 13.578,
+                "mean_psnr_gain_db": 5.334,
+                "total_intact_pixels_modified": 5726,
+                "mean_intact_modified_fpr_pct": 0.11089,
+                "min_intact_psnr_db": 42.374
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 13.719,
+                "mean_psnr_gain_db": 5.476,
+                "total_intact_pixels_modified": 5719,
+                "mean_intact_modified_fpr_pct": 0.11076,
+                "min_intact_psnr_db": 41.084
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 363.66,
+            "axis1_detection_quality": {
+              "tp": 12187,
+              "fp": 5969,
+              "fn": 22921,
+              "tn": 5156002,
+              "ignored": 60721,
+              "precision": 0.671238,
+              "precision_defined": true,
+              "recall": 0.347129,
+              "recall_defined": true,
+              "f1": 0.457607,
+              "iou": 0.296687,
+              "false_positive_rate": 0.00115634,
+              "prediction_coverage": 0.003494,
+              "ground_truth_coverage": 0.006755,
+              "evaluated_pixels": 5197079,
+              "fp_severity": {
+                "fp_pixel_count": 5969,
+                "fp_component_count": 1206,
+                "max_fp_component_area": 82,
+                "max_fp_component_height": 27,
+                "severe_structural_fp_count": 38
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.671238,
+              "recall": 0.347129,
+              "f1": 0.457607,
+              "repair_coverage_pct": 0.3494,
+              "intact_pixel_fpr_pct": 0.1156,
+              "structural_edge_repair_fpr_pct": 0.2027,
+              "structural_edge_repair_fp_pixels": 1567
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 13.578,
+                "mean_psnr_gain_db": 5.334,
+                "total_intact_pixels_modified": 5726,
+                "mean_intact_modified_fpr_pct": 0.11089,
+                "min_intact_psnr_db": 42.374
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.243,
+                "mean_repaired_psnr_db": 13.719,
+                "mean_psnr_gain_db": 5.476,
+                "total_intact_pixels_modified": 5719,
+                "mean_intact_modified_fpr_pct": 0.11076,
+                "min_intact_psnr_db": 41.084
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "absdeg_020_seed_20261107",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Existing AbsoluteDegradation FilmScratchGenerator on real reference footage",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 138.08,
+            "axis1_detection_quality": {
+              "tp": 9017,
+              "fp": 6746,
+              "fn": 13674,
+              "tn": 5187259,
+              "ignored": 41104,
+              "precision": 0.572036,
+              "precision_defined": true,
+              "recall": 0.397382,
+              "recall_defined": true,
+              "f1": 0.468976,
+              "iou": 0.306315,
+              "false_positive_rate": 0.00129881,
+              "prediction_coverage": 0.003022,
+              "ground_truth_coverage": 0.00435,
+              "evaluated_pixels": 5216696,
+              "fp_severity": {
+                "fp_pixel_count": 6746,
+                "fp_component_count": 1116,
+                "max_fp_component_area": 83,
+                "max_fp_component_height": 28,
+                "severe_structural_fp_count": 42
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.641308,
+              "recall": 0.372615,
+              "f1": 0.471359,
+              "repair_coverage_pct": 0.2527,
+              "intact_pixel_fpr_pct": 0.091,
+              "structural_edge_repair_fpr_pct": 0.1742,
+              "structural_edge_repair_fp_pixels": 1361
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 13.973,
+                "mean_psnr_gain_db": 7.984,
+                "total_intact_pixels_modified": 4530,
+                "mean_intact_modified_fpr_pct": 0.08726,
+                "min_intact_psnr_db": 49.616
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 14.208,
+                "mean_psnr_gain_db": 8.22,
+                "total_intact_pixels_modified": 4626,
+                "mean_intact_modified_fpr_pct": 0.08911,
+                "min_intact_psnr_db": 41.255
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 206.19,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 22691,
+              "tn": 5194005,
+              "ignored": 41104,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.00435,
+              "evaluated_pixels": 5216696,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 5.989,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 5.989,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 350.87,
+            "axis1_detection_quality": {
+              "tp": 8455,
+              "fp": 4729,
+              "fn": 14236,
+              "tn": 5189276,
+              "ignored": 41104,
+              "precision": 0.641308,
+              "precision_defined": true,
+              "recall": 0.372615,
+              "recall_defined": true,
+              "f1": 0.471359,
+              "iou": 0.308352,
+              "false_positive_rate": 0.00091047,
+              "prediction_coverage": 0.002527,
+              "ground_truth_coverage": 0.00435,
+              "evaluated_pixels": 5216696,
+              "fp_severity": {
+                "fp_pixel_count": 4729,
+                "fp_component_count": 975,
+                "max_fp_component_area": 67,
+                "max_fp_component_height": 25,
+                "severe_structural_fp_count": 19
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.641308,
+              "recall": 0.372615,
+              "f1": 0.471359,
+              "repair_coverage_pct": 0.2527,
+              "intact_pixel_fpr_pct": 0.091,
+              "structural_edge_repair_fpr_pct": 0.1742,
+              "structural_edge_repair_fp_pixels": 1361
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 13.973,
+                "mean_psnr_gain_db": 7.984,
+                "total_intact_pixels_modified": 4530,
+                "mean_intact_modified_fpr_pct": 0.08726,
+                "min_intact_psnr_db": 49.616
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 14.208,
+                "mean_psnr_gain_db": 8.22,
+                "total_intact_pixels_modified": 4626,
+                "mean_intact_modified_fpr_pct": 0.08911,
+                "min_intact_psnr_db": 41.255
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 350.87,
+            "axis1_detection_quality": {
+              "tp": 8455,
+              "fp": 4729,
+              "fn": 14236,
+              "tn": 5189276,
+              "ignored": 41104,
+              "precision": 0.641308,
+              "precision_defined": true,
+              "recall": 0.372615,
+              "recall_defined": true,
+              "f1": 0.471359,
+              "iou": 0.308352,
+              "false_positive_rate": 0.00091047,
+              "prediction_coverage": 0.002527,
+              "ground_truth_coverage": 0.00435,
+              "evaluated_pixels": 5216696,
+              "fp_severity": {
+                "fp_pixel_count": 4729,
+                "fp_component_count": 975,
+                "max_fp_component_area": 67,
+                "max_fp_component_height": 25,
+                "severe_structural_fp_count": 19
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.641308,
+              "recall": 0.372615,
+              "f1": 0.471359,
+              "repair_coverage_pct": 0.2527,
+              "intact_pixel_fpr_pct": 0.091,
+              "structural_edge_repair_fpr_pct": 0.1742,
+              "structural_edge_repair_fp_pixels": 1361
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 13.973,
+                "mean_psnr_gain_db": 7.984,
+                "total_intact_pixels_modified": 4530,
+                "mean_intact_modified_fpr_pct": 0.08726,
+                "min_intact_psnr_db": 49.616
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.989,
+                "mean_repaired_psnr_db": 14.208,
+                "mean_psnr_gain_db": 8.22,
+                "total_intact_pixels_modified": 4626,
+                "mean_intact_modified_fpr_pct": 0.08911,
+                "min_intact_psnr_db": 41.255
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "vertical_bright_drifting",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Bright vertical drifting scratch on moving real scene",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 110.8,
+            "axis1_detection_quality": {
+              "tp": 12635,
+              "fp": 5231,
+              "fn": 1,
+              "tn": 5239933,
+              "ignored": 0,
+              "precision": 0.707209,
+              "precision_defined": true,
+              "recall": 0.999921,
+              "recall_defined": true,
+              "f1": 0.82847,
+              "iou": 0.70717,
+              "false_positive_rate": 0.0009973,
+              "prediction_coverage": 0.003398,
+              "ground_truth_coverage": 0.002403,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 5231,
+                "fp_component_count": 658,
+                "max_fp_component_area": 77,
+                "max_fp_component_height": 20,
+                "severe_structural_fp_count": 42
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.791562,
+              "recall": 0.999288,
+              "f1": 0.883378,
+              "repair_coverage_pct": 0.3034,
+              "intact_pixel_fpr_pct": 0.0634,
+              "structural_edge_repair_fpr_pct": 0.1538,
+              "structural_edge_repair_fp_pixels": 1211
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 12.219,
+                "mean_psnr_gain_db": 7.629,
+                "total_intact_pixels_modified": 3230,
+                "mean_intact_modified_fpr_pct": 0.06158,
+                "min_intact_psnr_db": 51.441
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 28.039,
+                "mean_psnr_gain_db": 23.449,
+                "total_intact_pixels_modified": 3285,
+                "mean_intact_modified_fpr_pct": 0.06263,
+                "min_intact_psnr_db": 44.242
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 184.66,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 12636,
+              "tn": 5245164,
+              "ignored": 0,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.002403,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 4.59,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 4.59,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 303.29,
+            "axis1_detection_quality": {
+              "tp": 12627,
+              "fp": 3325,
+              "fn": 9,
+              "tn": 5241839,
+              "ignored": 0,
+              "precision": 0.791562,
+              "precision_defined": true,
+              "recall": 0.999288,
+              "recall_defined": true,
+              "f1": 0.883378,
+              "iou": 0.791116,
+              "false_positive_rate": 0.00063392,
+              "prediction_coverage": 0.003034,
+              "ground_truth_coverage": 0.002403,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 3325,
+                "fp_component_count": 512,
+                "max_fp_component_area": 67,
+                "max_fp_component_height": 16,
+                "severe_structural_fp_count": 19
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.791562,
+              "recall": 0.999288,
+              "f1": 0.883378,
+              "repair_coverage_pct": 0.3034,
+              "intact_pixel_fpr_pct": 0.0634,
+              "structural_edge_repair_fpr_pct": 0.1538,
+              "structural_edge_repair_fp_pixels": 1211
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 12.219,
+                "mean_psnr_gain_db": 7.629,
+                "total_intact_pixels_modified": 3230,
+                "mean_intact_modified_fpr_pct": 0.06158,
+                "min_intact_psnr_db": 51.441
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 28.039,
+                "mean_psnr_gain_db": 23.449,
+                "total_intact_pixels_modified": 3285,
+                "mean_intact_modified_fpr_pct": 0.06263,
+                "min_intact_psnr_db": 44.242
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 303.29,
+            "axis1_detection_quality": {
+              "tp": 12627,
+              "fp": 3325,
+              "fn": 9,
+              "tn": 5241839,
+              "ignored": 0,
+              "precision": 0.791562,
+              "precision_defined": true,
+              "recall": 0.999288,
+              "recall_defined": true,
+              "f1": 0.883378,
+              "iou": 0.791116,
+              "false_positive_rate": 0.00063392,
+              "prediction_coverage": 0.003034,
+              "ground_truth_coverage": 0.002403,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 3325,
+                "fp_component_count": 512,
+                "max_fp_component_area": 67,
+                "max_fp_component_height": 16,
+                "severe_structural_fp_count": 19
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.791562,
+              "recall": 0.999288,
+              "f1": 0.883378,
+              "repair_coverage_pct": 0.3034,
+              "intact_pixel_fpr_pct": 0.0634,
+              "structural_edge_repair_fpr_pct": 0.1538,
+              "structural_edge_repair_fp_pixels": 1211
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 12.219,
+                "mean_psnr_gain_db": 7.629,
+                "total_intact_pixels_modified": 3230,
+                "mean_intact_modified_fpr_pct": 0.06158,
+                "min_intact_psnr_db": 51.441
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 4.59,
+                "mean_repaired_psnr_db": 28.039,
+                "mean_psnr_gain_db": 23.449,
+                "total_intact_pixels_modified": 3285,
+                "mean_intact_modified_fpr_pct": 0.06263,
+                "min_intact_psnr_db": 44.242
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "vertical_dark_persistent",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Dark persistent vertical scratch (polarity invariance test)",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 102.32,
+            "axis1_detection_quality": {
+              "tp": 20655,
+              "fp": 5202,
+              "fn": 45,
+              "tn": 5231898,
+              "ignored": 0,
+              "precision": 0.798817,
+              "precision_defined": true,
+              "recall": 0.997826,
+              "recall_defined": true,
+              "f1": 0.887299,
+              "iou": 0.797429,
+              "false_positive_rate": 0.0009933,
+              "prediction_coverage": 0.004918,
+              "ground_truth_coverage": 0.003937,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 5202,
+                "fp_component_count": 498,
+                "max_fp_component_area": 77,
+                "max_fp_component_height": 20,
+                "severe_structural_fp_count": 47
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.862046,
+              "recall": 0.997391,
+              "f1": 0.924793,
+              "repair_coverage_pct": 0.4555,
+              "intact_pixel_fpr_pct": 0.0631,
+              "structural_edge_repair_fpr_pct": 0.1601,
+              "structural_edge_repair_fp_pixels": 1257
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 11.7,
+                "mean_psnr_gain_db": 3.39,
+                "total_intact_pixels_modified": 3223,
+                "mean_intact_modified_fpr_pct": 0.06154,
+                "min_intact_psnr_db": 50.411
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 23.406,
+                "mean_psnr_gain_db": 15.096,
+                "total_intact_pixels_modified": 3278,
+                "mean_intact_modified_fpr_pct": 0.06259,
+                "min_intact_psnr_db": 44.18
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 201.51,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 20700,
+              "tn": 5237100,
+              "ignored": 0,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.003937,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 8.31,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 8.31,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 314.84,
+            "axis1_detection_quality": {
+              "tp": 20646,
+              "fp": 3304,
+              "fn": 54,
+              "tn": 5233796,
+              "ignored": 0,
+              "precision": 0.862046,
+              "precision_defined": true,
+              "recall": 0.997391,
+              "recall_defined": true,
+              "f1": 0.924793,
+              "iou": 0.860107,
+              "false_positive_rate": 0.00063088,
+              "prediction_coverage": 0.004555,
+              "ground_truth_coverage": 0.003937,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 3304,
+                "fp_component_count": 366,
+                "max_fp_component_area": 67,
+                "max_fp_component_height": 16,
+                "severe_structural_fp_count": 23
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.862046,
+              "recall": 0.997391,
+              "f1": 0.924793,
+              "repair_coverage_pct": 0.4555,
+              "intact_pixel_fpr_pct": 0.0631,
+              "structural_edge_repair_fpr_pct": 0.1601,
+              "structural_edge_repair_fp_pixels": 1257
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 11.7,
+                "mean_psnr_gain_db": 3.39,
+                "total_intact_pixels_modified": 3223,
+                "mean_intact_modified_fpr_pct": 0.06154,
+                "min_intact_psnr_db": 50.411
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 23.406,
+                "mean_psnr_gain_db": 15.096,
+                "total_intact_pixels_modified": 3278,
+                "mean_intact_modified_fpr_pct": 0.06259,
+                "min_intact_psnr_db": 44.18
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 314.84,
+            "axis1_detection_quality": {
+              "tp": 20646,
+              "fp": 3304,
+              "fn": 54,
+              "tn": 5233796,
+              "ignored": 0,
+              "precision": 0.862046,
+              "precision_defined": true,
+              "recall": 0.997391,
+              "recall_defined": true,
+              "f1": 0.924793,
+              "iou": 0.860107,
+              "false_positive_rate": 0.00063088,
+              "prediction_coverage": 0.004555,
+              "ground_truth_coverage": 0.003937,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 3304,
+                "fp_component_count": 366,
+                "max_fp_component_area": 67,
+                "max_fp_component_height": 16,
+                "severe_structural_fp_count": 23
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.862046,
+              "recall": 0.997391,
+              "f1": 0.924793,
+              "repair_coverage_pct": 0.4555,
+              "intact_pixel_fpr_pct": 0.0631,
+              "structural_edge_repair_fpr_pct": 0.1601,
+              "structural_edge_repair_fp_pixels": 1257
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 11.7,
+                "mean_psnr_gain_db": 3.39,
+                "total_intact_pixels_modified": 3223,
+                "mean_intact_modified_fpr_pct": 0.06154,
+                "min_intact_psnr_db": 50.411
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 8.31,
+                "mean_repaired_psnr_db": 23.406,
+                "mean_psnr_gain_db": 15.096,
+                "total_intact_pixels_modified": 3278,
+                "mean_intact_modified_fpr_pct": 0.06259,
+                "min_intact_psnr_db": 44.18
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "vertical_telecine_duplicates",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Vertical bright scratch under simulated telecine pulldown frame duplicates (duplicate_every=3); duplicate_indices=[3, 7, 11]",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 118.88,
+            "axis1_detection_quality": {
+              "tp": 12250,
+              "fp": 5289,
+              "fn": 242,
+              "tn": 5240019,
+              "ignored": 0,
+              "precision": 0.698443,
+              "precision_defined": true,
+              "recall": 0.980628,
+              "recall_defined": true,
+              "f1": 0.815824,
+              "iou": 0.688938,
+              "false_positive_rate": 0.00100833,
+              "prediction_coverage": 0.003336,
+              "ground_truth_coverage": 0.002376,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 5289,
+                "fp_component_count": 557,
+                "max_fp_component_area": 74,
+                "max_fp_component_height": 20,
+                "severe_structural_fp_count": 47
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.782226,
+              "recall": 0.974464,
+              "f1": 0.867826,
+              "repair_coverage_pct": 0.296,
+              "intact_pixel_fpr_pct": 0.0646,
+              "structural_edge_repair_fpr_pct": 0.1618,
+              "structural_edge_repair_fp_pixels": 1272
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 9.785,
+                "mean_psnr_gain_db": 4.171,
+                "total_intact_pixels_modified": 3291,
+                "mean_intact_modified_fpr_pct": 0.06274,
+                "min_intact_psnr_db": 50.815
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 24.736,
+                "mean_psnr_gain_db": 19.122,
+                "total_intact_pixels_modified": 3359,
+                "mean_intact_modified_fpr_pct": 0.06404,
+                "min_intact_psnr_db": 43.985
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 249.34,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 12492,
+              "tn": 5245308,
+              "ignored": 0,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.002376,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 5.613,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 5.613,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 375.88,
+            "axis1_detection_quality": {
+              "tp": 12173,
+              "fp": 3389,
+              "fn": 319,
+              "tn": 5241919,
+              "ignored": 0,
+              "precision": 0.782226,
+              "precision_defined": true,
+              "recall": 0.974464,
+              "recall_defined": true,
+              "f1": 0.867826,
+              "iou": 0.766513,
+              "false_positive_rate": 0.0006461,
+              "prediction_coverage": 0.00296,
+              "ground_truth_coverage": 0.002376,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 3389,
+                "fp_component_count": 422,
+                "max_fp_component_area": 64,
+                "max_fp_component_height": 18,
+                "severe_structural_fp_count": 23
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.782226,
+              "recall": 0.974464,
+              "f1": 0.867826,
+              "repair_coverage_pct": 0.296,
+              "intact_pixel_fpr_pct": 0.0646,
+              "structural_edge_repair_fpr_pct": 0.1618,
+              "structural_edge_repair_fp_pixels": 1272
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 9.785,
+                "mean_psnr_gain_db": 4.171,
+                "total_intact_pixels_modified": 3291,
+                "mean_intact_modified_fpr_pct": 0.06274,
+                "min_intact_psnr_db": 50.815
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 24.736,
+                "mean_psnr_gain_db": 19.122,
+                "total_intact_pixels_modified": 3359,
+                "mean_intact_modified_fpr_pct": 0.06404,
+                "min_intact_psnr_db": 43.985
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 375.88,
+            "axis1_detection_quality": {
+              "tp": 12173,
+              "fp": 3389,
+              "fn": 319,
+              "tn": 5241919,
+              "ignored": 0,
+              "precision": 0.782226,
+              "precision_defined": true,
+              "recall": 0.974464,
+              "recall_defined": true,
+              "f1": 0.867826,
+              "iou": 0.766513,
+              "false_positive_rate": 0.0006461,
+              "prediction_coverage": 0.00296,
+              "ground_truth_coverage": 0.002376,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 3389,
+                "fp_component_count": 422,
+                "max_fp_component_area": 64,
+                "max_fp_component_height": 18,
+                "severe_structural_fp_count": 23
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.782226,
+              "recall": 0.974464,
+              "f1": 0.867826,
+              "repair_coverage_pct": 0.296,
+              "intact_pixel_fpr_pct": 0.0646,
+              "structural_edge_repair_fpr_pct": 0.1618,
+              "structural_edge_repair_fp_pixels": 1272
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 9.785,
+                "mean_psnr_gain_db": 4.171,
+                "total_intact_pixels_modified": 3291,
+                "mean_intact_modified_fpr_pct": 0.06274,
+                "min_intact_psnr_db": 50.815
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.613,
+                "mean_repaired_psnr_db": 24.736,
+                "mean_psnr_gain_db": 19.122,
+                "total_intact_pixels_modified": 3359,
+                "mean_intact_modified_fpr_pct": 0.06404,
+                "min_intact_psnr_db": 43.985
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "diagonal_bright_curved",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Curved 35-deg diagonal bright scratch (orientation coverage test)",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 131.33,
+            "axis1_detection_quality": {
+              "tp": 14182,
+              "fp": 14721,
+              "fn": 6521,
+              "tn": 5222376,
+              "ignored": 0,
+              "precision": 0.490676,
+              "precision_defined": true,
+              "recall": 0.685021,
+              "recall_defined": true,
+              "f1": 0.571786,
+              "iou": 0.40035,
+              "false_positive_rate": 0.00281091,
+              "prediction_coverage": 0.005497,
+              "ground_truth_coverage": 0.003938,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 14721,
+                "fp_component_count": 766,
+                "max_fp_component_area": 490,
+                "max_fp_component_height": 201,
+                "severe_structural_fp_count": 120
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.53773,
+              "recall": 0.658117,
+              "f1": 0.591864,
+              "repair_coverage_pct": 0.4819,
+              "intact_pixel_fpr_pct": 0.2237,
+              "structural_edge_repair_fpr_pct": 0.3482,
+              "structural_edge_repair_fp_pixels": 2730
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 9.098,
+                "mean_psnr_gain_db": 3.393,
+                "total_intact_pixels_modified": 10868,
+                "mean_intact_modified_fpr_pct": 0.20752,
+                "min_intact_psnr_db": 41.778
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 12.98,
+                "mean_psnr_gain_db": 7.276,
+                "total_intact_pixels_modified": 10885,
+                "mean_intact_modified_fpr_pct": 0.20784,
+                "min_intact_psnr_db": 43.375
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 269.79,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 20703,
+              "tn": 5237097,
+              "ignored": 0,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.003938,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 5.704,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 5.704,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 409.21,
+            "axis1_detection_quality": {
+              "tp": 13625,
+              "fp": 11713,
+              "fn": 7078,
+              "tn": 5225384,
+              "ignored": 0,
+              "precision": 0.53773,
+              "precision_defined": true,
+              "recall": 0.658117,
+              "recall_defined": true,
+              "f1": 0.591864,
+              "iou": 0.420317,
+              "false_positive_rate": 0.00223654,
+              "prediction_coverage": 0.004819,
+              "ground_truth_coverage": 0.003938,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 11713,
+                "fp_component_count": 686,
+                "max_fp_component_area": 439,
+                "max_fp_component_height": 189,
+                "severe_structural_fp_count": 90
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.53773,
+              "recall": 0.658117,
+              "f1": 0.591864,
+              "repair_coverage_pct": 0.4819,
+              "intact_pixel_fpr_pct": 0.2237,
+              "structural_edge_repair_fpr_pct": 0.3482,
+              "structural_edge_repair_fp_pixels": 2730
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 9.098,
+                "mean_psnr_gain_db": 3.393,
+                "total_intact_pixels_modified": 10868,
+                "mean_intact_modified_fpr_pct": 0.20752,
+                "min_intact_psnr_db": 41.778
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 12.98,
+                "mean_psnr_gain_db": 7.276,
+                "total_intact_pixels_modified": 10885,
+                "mean_intact_modified_fpr_pct": 0.20784,
+                "min_intact_psnr_db": 43.375
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 409.21,
+            "axis1_detection_quality": {
+              "tp": 13625,
+              "fp": 11713,
+              "fn": 7078,
+              "tn": 5225384,
+              "ignored": 0,
+              "precision": 0.53773,
+              "precision_defined": true,
+              "recall": 0.658117,
+              "recall_defined": true,
+              "f1": 0.591864,
+              "iou": 0.420317,
+              "false_positive_rate": 0.00223654,
+              "prediction_coverage": 0.004819,
+              "ground_truth_coverage": 0.003938,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 11713,
+                "fp_component_count": 686,
+                "max_fp_component_area": 439,
+                "max_fp_component_height": 189,
+                "severe_structural_fp_count": 90
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.53773,
+              "recall": 0.658117,
+              "f1": 0.591864,
+              "repair_coverage_pct": 0.4819,
+              "intact_pixel_fpr_pct": 0.2237,
+              "structural_edge_repair_fpr_pct": 0.3482,
+              "structural_edge_repair_fp_pixels": 2730
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 9.098,
+                "mean_psnr_gain_db": 3.393,
+                "total_intact_pixels_modified": 10868,
+                "mean_intact_modified_fpr_pct": 0.20752,
+                "min_intact_psnr_db": 41.778
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.704,
+                "mean_repaired_psnr_db": 12.98,
+                "mean_psnr_gain_db": 7.276,
+                "total_intact_pixels_modified": 10885,
+                "mean_intact_modified_fpr_pct": 0.20784,
+                "min_intact_psnr_db": 43.375
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "horizontal_fissure",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Horizontal fissure scratch (tests vertical-only structural assumptions)",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 114.84,
+            "axis1_detection_quality": {
+              "tp": 12753,
+              "fp": 11280,
+              "fn": 25347,
+              "tn": 5208420,
+              "ignored": 0,
+              "precision": 0.530645,
+              "precision_defined": true,
+              "recall": 0.334724,
+              "recall_defined": true,
+              "f1": 0.410506,
+              "iou": 0.258262,
+              "false_positive_rate": 0.00216104,
+              "prediction_coverage": 0.004571,
+              "ground_truth_coverage": 0.007246,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 11280,
+                "fp_component_count": 818,
+                "max_fp_component_area": 226,
+                "max_fp_component_height": 20,
+                "severe_structural_fp_count": 113
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.578811,
+              "recall": 0.275748,
+              "f1": 0.37354,
+              "repair_coverage_pct": 0.3452,
+              "intact_pixel_fpr_pct": 0.1465,
+              "structural_edge_repair_fpr_pct": 0.1733,
+              "structural_edge_repair_fp_pixels": 1360
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 7.061,
+                "mean_psnr_gain_db": 0.686,
+                "total_intact_pixels_modified": 7398,
+                "mean_intact_modified_fpr_pct": 0.14173,
+                "min_intact_psnr_db": 42.452
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 7.694,
+                "mean_psnr_gain_db": 1.318,
+                "total_intact_pixels_modified": 7509,
+                "mean_intact_modified_fpr_pct": 0.14386,
+                "min_intact_psnr_db": 41.018
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 219.74,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 38100,
+              "tn": 5219700,
+              "ignored": 0,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.007246,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 6.376,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 6.376,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 342.14,
+            "axis1_detection_quality": {
+              "tp": 10506,
+              "fp": 7645,
+              "fn": 27594,
+              "tn": 5212055,
+              "ignored": 0,
+              "precision": 0.578811,
+              "precision_defined": true,
+              "recall": 0.275748,
+              "recall_defined": true,
+              "f1": 0.37354,
+              "iou": 0.229664,
+              "false_positive_rate": 0.00146464,
+              "prediction_coverage": 0.003452,
+              "ground_truth_coverage": 0.007246,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 7645,
+                "fp_component_count": 704,
+                "max_fp_component_area": 141,
+                "max_fp_component_height": 16,
+                "severe_structural_fp_count": 71
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.578811,
+              "recall": 0.275748,
+              "f1": 0.37354,
+              "repair_coverage_pct": 0.3452,
+              "intact_pixel_fpr_pct": 0.1465,
+              "structural_edge_repair_fpr_pct": 0.1733,
+              "structural_edge_repair_fp_pixels": 1360
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 7.061,
+                "mean_psnr_gain_db": 0.686,
+                "total_intact_pixels_modified": 7398,
+                "mean_intact_modified_fpr_pct": 0.14173,
+                "min_intact_psnr_db": 42.452
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 7.694,
+                "mean_psnr_gain_db": 1.318,
+                "total_intact_pixels_modified": 7509,
+                "mean_intact_modified_fpr_pct": 0.14386,
+                "min_intact_psnr_db": 41.018
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 342.14,
+            "axis1_detection_quality": {
+              "tp": 10506,
+              "fp": 7645,
+              "fn": 27594,
+              "tn": 5212055,
+              "ignored": 0,
+              "precision": 0.578811,
+              "precision_defined": true,
+              "recall": 0.275748,
+              "recall_defined": true,
+              "f1": 0.37354,
+              "iou": 0.229664,
+              "false_positive_rate": 0.00146464,
+              "prediction_coverage": 0.003452,
+              "ground_truth_coverage": 0.007246,
+              "evaluated_pixels": 5257800,
+              "fp_severity": {
+                "fp_pixel_count": 7645,
+                "fp_component_count": 704,
+                "max_fp_component_area": 141,
+                "max_fp_component_height": 16,
+                "severe_structural_fp_count": 71
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.578811,
+              "recall": 0.275748,
+              "f1": 0.37354,
+              "repair_coverage_pct": 0.3452,
+              "intact_pixel_fpr_pct": 0.1465,
+              "structural_edge_repair_fpr_pct": 0.1733,
+              "structural_edge_repair_fp_pixels": 1360
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 7.061,
+                "mean_psnr_gain_db": 0.686,
+                "total_intact_pixels_modified": 7398,
+                "mean_intact_modified_fpr_pct": 0.14173,
+                "min_intact_psnr_db": 42.452
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 6.376,
+                "mean_repaired_psnr_db": 7.694,
+                "mean_psnr_gain_db": 1.318,
+                "total_intact_pixels_modified": 7509,
+                "mean_intact_modified_fpr_pct": 0.14386,
+                "min_intact_psnr_db": 41.018
+              }
+            }
+          }
+        }
+      },
+      {
+        "regime": "broad_abrasion_branching",
+        "split": "locked_holdout",
+        "label_provenance": "synthetic_parametric_gt",
+        "frame_count": 12,
+        "evaluated_frame_indices": [
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "resolution": [
+          1270,
+          690
+        ],
+        "notes": "Broad 6px branching abrasion with 1px 127-ignore flank boundary",
+        "modes": {
+          "spatial_only": {
+            "latency_ms_per_frame": 106.91,
+            "axis1_detection_quality": {
+              "tp": 25153,
+              "fp": 5129,
+              "fn": 7352,
+              "tn": 4333991,
+              "ignored": 9875,
+              "precision": 0.830625,
+              "precision_defined": true,
+              "recall": 0.773819,
+              "recall_defined": true,
+              "f1": 0.801217,
+              "iou": 0.668358,
+              "false_positive_rate": 0.00118204,
+              "prediction_coverage": 0.006927,
+              "ground_truth_coverage": 0.007435,
+              "evaluated_pixels": 4371625,
+              "fp_severity": {
+                "fp_pixel_count": 5129,
+                "fp_component_count": 554,
+                "max_fp_component_area": 172,
+                "max_fp_component_height": 124,
+                "severe_structural_fp_count": 41
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.870686,
+              "recall": 0.698477,
+              "f1": 0.775132,
+              "repair_coverage_pct": 0.5965,
+              "intact_pixel_fpr_pct": 0.0777,
+              "structural_edge_repair_fpr_pct": 0.1558,
+              "structural_edge_repair_fp_pixels": 1011
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 7.052,
+                "mean_psnr_gain_db": 1.644,
+                "total_intact_pixels_modified": 3200,
+                "mean_intact_modified_fpr_pct": 0.07375,
+                "min_intact_psnr_db": 52.986
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 9.574,
+                "mean_psnr_gain_db": 4.165,
+                "total_intact_pixels_modified": 3241,
+                "mean_intact_modified_fpr_pct": 0.07469,
+                "min_intact_psnr_db": 44.034
+              }
+            }
+          },
+          "temporal_only": {
+            "latency_ms_per_frame": 221.22,
+            "axis1_detection_quality": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 32505,
+              "tn": 4339120,
+              "ignored": 9875,
+              "precision": 0.0,
+              "precision_defined": false,
+              "recall": 0.0,
+              "recall_defined": true,
+              "f1": 0.0,
+              "iou": 0.0,
+              "false_positive_rate": 0.0,
+              "prediction_coverage": 0.0,
+              "ground_truth_coverage": 0.007435,
+              "evaluated_pixels": 4371625,
+              "fp_severity": {
+                "fp_pixel_count": 0,
+                "fp_component_count": 0,
+                "max_fp_component_area": 0,
+                "max_fp_component_height": 0,
+                "severe_structural_fp_count": 0
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "repair_coverage_pct": 0.0,
+              "intact_pixel_fpr_pct": 0.0,
+              "structural_edge_repair_fpr_pct": 0.0,
+              "structural_edge_repair_fp_pixels": 0
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 5.408,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 5.408,
+                "mean_psnr_gain_db": 0.0,
+                "total_intact_pixels_modified": 0,
+                "mean_intact_modified_fpr_pct": 0.0,
+                "min_intact_psnr_db": 100.0
+              }
+            }
+          },
+          "fused_conservative": {
+            "latency_ms_per_frame": 336.42,
+            "axis1_detection_quality": {
+              "tp": 22704,
+              "fp": 3372,
+              "fn": 9801,
+              "tn": 4335748,
+              "ignored": 9875,
+              "precision": 0.870686,
+              "precision_defined": true,
+              "recall": 0.698477,
+              "recall_defined": true,
+              "f1": 0.775132,
+              "iou": 0.632829,
+              "false_positive_rate": 0.00077712,
+              "prediction_coverage": 0.005965,
+              "ground_truth_coverage": 0.007435,
+              "evaluated_pixels": 4371625,
+              "fp_severity": {
+                "fp_pixel_count": 3372,
+                "fp_component_count": 361,
+                "max_fp_component_area": 141,
+                "max_fp_component_height": 119,
+                "severe_structural_fp_count": 20
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.870686,
+              "recall": 0.698477,
+              "f1": 0.775132,
+              "repair_coverage_pct": 0.5965,
+              "intact_pixel_fpr_pct": 0.0777,
+              "structural_edge_repair_fpr_pct": 0.1558,
+              "structural_edge_repair_fp_pixels": 1011
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 7.052,
+                "mean_psnr_gain_db": 1.644,
+                "total_intact_pixels_modified": 3200,
+                "mean_intact_modified_fpr_pct": 0.07375,
+                "min_intact_psnr_db": 52.986
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 9.574,
+                "mean_psnr_gain_db": 4.165,
+                "total_intact_pixels_modified": 3241,
+                "mean_intact_modified_fpr_pct": 0.07469,
+                "min_intact_psnr_db": 44.034
+              }
+            }
+          },
+          "fused_high_recall": {
+            "latency_ms_per_frame": 336.42,
+            "axis1_detection_quality": {
+              "tp": 22704,
+              "fp": 3372,
+              "fn": 9801,
+              "tn": 4335748,
+              "ignored": 9875,
+              "precision": 0.870686,
+              "precision_defined": true,
+              "recall": 0.698477,
+              "recall_defined": true,
+              "f1": 0.775132,
+              "iou": 0.632829,
+              "false_positive_rate": 0.00077712,
+              "prediction_coverage": 0.005965,
+              "ground_truth_coverage": 0.007435,
+              "evaluated_pixels": 4371625,
+              "fp_severity": {
+                "fp_pixel_count": 3372,
+                "fp_component_count": 361,
+                "max_fp_component_area": 141,
+                "max_fp_component_height": 119,
+                "severe_structural_fp_count": 20
+              }
+            },
+            "axis2_repair_mask_safety": {
+              "precision": 0.870686,
+              "recall": 0.698477,
+              "f1": 0.775132,
+              "repair_coverage_pct": 0.5965,
+              "intact_pixel_fpr_pct": 0.0777,
+              "structural_edge_repair_fpr_pct": 0.1558,
+              "structural_edge_repair_fp_pixels": 1011
+            },
+            "axis3_exact_restoration_quality": {
+              "motion_comp": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 7.052,
+                "mean_psnr_gain_db": 1.644,
+                "total_intact_pixels_modified": 3200,
+                "mean_intact_modified_fpr_pct": 0.07375,
+                "min_intact_psnr_db": 52.986
+              },
+              "telea": {
+                "mean_damaged_psnr_db": 5.408,
+                "mean_repaired_psnr_db": 9.574,
+                "mean_psnr_gain_db": 4.165,
+                "total_intact_pixels_modified": 3241,
+                "mean_intact_modified_fpr_pct": 0.07469,
+                "min_intact_psnr_db": 44.034
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "track_c": {
+    "track": "Track C \u2014 Real Archival Negative Controls, Quarantine, & Human Annotation Readiness",
+    "sequences": [
+      {
+        "sequence_name": "neighbors_frame25_pipe_audit",
+        "split": "dev_diagnostic",
+        "global_frame_index": 25,
+        "resolution": [
+          960,
+          720
+        ],
+        "negative_control_evaluation": {
+          "spatial_only": {
+            "rois": [
+              {
+                "name": "neighbors_frame25_pipe",
+                "description": "Confirmed intact building wall vertical pipe (previously mislabeled as GT scratch)",
+                "bbox": {
+                  "ymin": 48,
+                  "ymax": 282,
+                  "xmin": 180,
+                  "xmax": 192
+                },
+                "roi_pixels": 2808,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "neighbors_frame25_clean_wall",
+                "description": "Confirmed intact wall/fence background texture",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 620,
+                  "xmax": 700
+                },
+                "roi_pixels": 9600,
+                "detector_leak_pixels": 41,
+                "repair_leak_pixels": 22,
+                "detector_leak_fpr": 0.004271,
+                "repair_leak_fpr": 0.002292,
+                "max_leak_component_height": 5,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 41,
+            "total_repair_leak_pixels": 22,
+            "strict_safety_gate_passed": false
+          },
+          "temporal_only": {
+            "rois": [
+              {
+                "name": "neighbors_frame25_pipe",
+                "description": "Confirmed intact building wall vertical pipe (previously mislabeled as GT scratch)",
+                "bbox": {
+                  "ymin": 48,
+                  "ymax": 282,
+                  "xmin": 180,
+                  "xmax": 192
+                },
+                "roi_pixels": 2808,
+                "detector_leak_pixels": 819,
+                "repair_leak_pixels": 819,
+                "detector_leak_fpr": 0.291667,
+                "repair_leak_fpr": 0.291667,
+                "max_leak_component_height": 70,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "neighbors_frame25_clean_wall",
+                "description": "Confirmed intact wall/fence background texture",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 620,
+                  "xmax": 700
+                },
+                "roi_pixels": 9600,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 819,
+            "total_repair_leak_pixels": 819,
+            "strict_safety_gate_passed": false
+          },
+          "fused_conservative": {
+            "rois": [
+              {
+                "name": "neighbors_frame25_pipe",
+                "description": "Confirmed intact building wall vertical pipe (previously mislabeled as GT scratch)",
+                "bbox": {
+                  "ymin": 48,
+                  "ymax": 282,
+                  "xmin": 180,
+                  "xmax": 192
+                },
+                "roi_pixels": 2808,
+                "detector_leak_pixels": 819,
+                "repair_leak_pixels": 819,
+                "detector_leak_fpr": 0.291667,
+                "repair_leak_fpr": 0.291667,
+                "max_leak_component_height": 70,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "neighbors_frame25_clean_wall",
+                "description": "Confirmed intact wall/fence background texture",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 620,
+                  "xmax": 700
+                },
+                "roi_pixels": 9600,
+                "detector_leak_pixels": 22,
+                "repair_leak_pixels": 22,
+                "detector_leak_fpr": 0.002292,
+                "repair_leak_fpr": 0.002292,
+                "max_leak_component_height": 5,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 841,
+            "total_repair_leak_pixels": 841,
+            "strict_safety_gate_passed": false
+          },
+          "fused_high_recall": {
+            "rois": [
+              {
+                "name": "neighbors_frame25_pipe",
+                "description": "Confirmed intact building wall vertical pipe (previously mislabeled as GT scratch)",
+                "bbox": {
+                  "ymin": 48,
+                  "ymax": 282,
+                  "xmin": 180,
+                  "xmax": 192
+                },
+                "roi_pixels": 2808,
+                "detector_leak_pixels": 819,
+                "repair_leak_pixels": 819,
+                "detector_leak_fpr": 0.291667,
+                "repair_leak_fpr": 0.291667,
+                "max_leak_component_height": 70,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "neighbors_frame25_clean_wall",
+                "description": "Confirmed intact wall/fence background texture",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 620,
+                  "xmax": 700
+                },
+                "roi_pixels": 9600,
+                "detector_leak_pixels": 22,
+                "repair_leak_pixels": 22,
+                "detector_leak_fpr": 0.002292,
+                "repair_leak_fpr": 0.002292,
+                "max_leak_component_height": 5,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 841,
+            "total_repair_leak_pixels": 841,
+            "strict_safety_gate_passed": false
+          }
+        }
+      },
+      {
+        "sequence_name": "paleface_seq_a",
+        "split": "dev_diagnostic",
+        "global_frame_index": 8,
+        "resolution": [
+          640,
+          480
+        ],
+        "negative_control_evaluation": {
+          "spatial_only": {
+            "rois": [
+              {
+                "name": "paleface_actor_jacket_edge",
+                "description": "Moving actor jacket boundary against static office wall",
+                "bbox": {
+                  "ymin": 188,
+                  "ymax": 381,
+                  "xmin": 258,
+                  "xmax": 268
+                },
+                "roi_pixels": 1930,
+                "detector_leak_pixels": 21,
+                "repair_leak_pixels": 13,
+                "detector_leak_fpr": 0.010881,
+                "repair_leak_fpr": 0.006736,
+                "max_leak_component_height": 5,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "paleface_clean_wall",
+                "description": "Clean background wall ROI",
+                "bbox": {
+                  "ymin": 300,
+                  "ymax": 420,
+                  "xmin": 450,
+                  "xmax": 550
+                },
+                "roi_pixels": 12000,
+                "detector_leak_pixels": 39,
+                "repair_leak_pixels": 33,
+                "detector_leak_fpr": 0.00325,
+                "repair_leak_fpr": 0.00275,
+                "max_leak_component_height": 6,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 60,
+            "total_repair_leak_pixels": 46,
+            "strict_safety_gate_passed": false
+          },
+          "temporal_only": {
+            "rois": [
+              {
+                "name": "paleface_actor_jacket_edge",
+                "description": "Moving actor jacket boundary against static office wall",
+                "bbox": {
+                  "ymin": 188,
+                  "ymax": 381,
+                  "xmin": 258,
+                  "xmax": 268
+                },
+                "roi_pixels": 1930,
+                "detector_leak_pixels": 641,
+                "repair_leak_pixels": 641,
+                "detector_leak_fpr": 0.332124,
+                "repair_leak_fpr": 0.332124,
+                "max_leak_component_height": 193,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "paleface_clean_wall",
+                "description": "Clean background wall ROI",
+                "bbox": {
+                  "ymin": 300,
+                  "ymax": 420,
+                  "xmin": 450,
+                  "xmax": 550
+                },
+                "roi_pixels": 12000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 641,
+            "total_repair_leak_pixels": 641,
+            "strict_safety_gate_passed": false
+          },
+          "fused_conservative": {
+            "rois": [
+              {
+                "name": "paleface_actor_jacket_edge",
+                "description": "Moving actor jacket boundary against static office wall",
+                "bbox": {
+                  "ymin": 188,
+                  "ymax": 381,
+                  "xmin": 258,
+                  "xmax": 268
+                },
+                "roi_pixels": 1930,
+                "detector_leak_pixels": 641,
+                "repair_leak_pixels": 641,
+                "detector_leak_fpr": 0.332124,
+                "repair_leak_fpr": 0.332124,
+                "max_leak_component_height": 193,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "paleface_clean_wall",
+                "description": "Clean background wall ROI",
+                "bbox": {
+                  "ymin": 300,
+                  "ymax": 420,
+                  "xmin": 450,
+                  "xmax": 550
+                },
+                "roi_pixels": 12000,
+                "detector_leak_pixels": 33,
+                "repair_leak_pixels": 33,
+                "detector_leak_fpr": 0.00275,
+                "repair_leak_fpr": 0.00275,
+                "max_leak_component_height": 6,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 674,
+            "total_repair_leak_pixels": 674,
+            "strict_safety_gate_passed": false
+          },
+          "fused_high_recall": {
+            "rois": [
+              {
+                "name": "paleface_actor_jacket_edge",
+                "description": "Moving actor jacket boundary against static office wall",
+                "bbox": {
+                  "ymin": 188,
+                  "ymax": 381,
+                  "xmin": 258,
+                  "xmax": 268
+                },
+                "roi_pixels": 1930,
+                "detector_leak_pixels": 641,
+                "repair_leak_pixels": 641,
+                "detector_leak_fpr": 0.332124,
+                "repair_leak_fpr": 0.332124,
+                "max_leak_component_height": 193,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "paleface_clean_wall",
+                "description": "Clean background wall ROI",
+                "bbox": {
+                  "ymin": 300,
+                  "ymax": 420,
+                  "xmin": 450,
+                  "xmax": 550
+                },
+                "roi_pixels": 12000,
+                "detector_leak_pixels": 33,
+                "repair_leak_pixels": 33,
+                "detector_leak_fpr": 0.00275,
+                "repair_leak_fpr": 0.00275,
+                "max_leak_component_height": 6,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 674,
+            "total_repair_leak_pixels": 674,
+            "strict_safety_gate_passed": false
+          }
+        }
+      },
+      {
+        "sequence_name": "paleface_seq_b",
+        "split": "dev_diagnostic",
+        "global_frame_index": 7,
+        "resolution": [
+          640,
+          480
+        ],
+        "negative_control_evaluation": {
+          "spatial_only": {
+            "rois": [
+              {
+                "name": "paleface_b_wall_curtain",
+                "description": "Static interior wall panel and curtain fold",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 180,
+                  "xmin": 200,
+                  "xmax": 280
+                },
+                "roi_pixels": 8000,
+                "detector_leak_pixels": 146,
+                "repair_leak_pixels": 123,
+                "detector_leak_fpr": 0.01825,
+                "repair_leak_fpr": 0.015375,
+                "max_leak_component_height": 21,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "paleface_b_clean_bg",
+                "description": "Clean interior background ROI",
+                "bbox": {
+                  "ymin": 30,
+                  "ymax": 120,
+                  "xmin": 50,
+                  "xmax": 150
+                },
+                "roi_pixels": 9000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 146,
+            "total_repair_leak_pixels": 123,
+            "strict_safety_gate_passed": false
+          },
+          "temporal_only": {
+            "rois": [
+              {
+                "name": "paleface_b_wall_curtain",
+                "description": "Static interior wall panel and curtain fold",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 180,
+                  "xmin": 200,
+                  "xmax": 280
+                },
+                "roi_pixels": 8000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "paleface_b_clean_bg",
+                "description": "Clean interior background ROI",
+                "bbox": {
+                  "ymin": 30,
+                  "ymax": 120,
+                  "xmin": 50,
+                  "xmax": 150
+                },
+                "roi_pixels": 9000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 0,
+            "total_repair_leak_pixels": 0,
+            "strict_safety_gate_passed": true
+          },
+          "fused_conservative": {
+            "rois": [
+              {
+                "name": "paleface_b_wall_curtain",
+                "description": "Static interior wall panel and curtain fold",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 180,
+                  "xmin": 200,
+                  "xmax": 280
+                },
+                "roi_pixels": 8000,
+                "detector_leak_pixels": 123,
+                "repair_leak_pixels": 123,
+                "detector_leak_fpr": 0.015375,
+                "repair_leak_fpr": 0.015375,
+                "max_leak_component_height": 21,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "paleface_b_clean_bg",
+                "description": "Clean interior background ROI",
+                "bbox": {
+                  "ymin": 30,
+                  "ymax": 120,
+                  "xmin": 50,
+                  "xmax": 150
+                },
+                "roi_pixels": 9000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 123,
+            "total_repair_leak_pixels": 123,
+            "strict_safety_gate_passed": false
+          },
+          "fused_high_recall": {
+            "rois": [
+              {
+                "name": "paleface_b_wall_curtain",
+                "description": "Static interior wall panel and curtain fold",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 180,
+                  "xmin": 200,
+                  "xmax": 280
+                },
+                "roi_pixels": 8000,
+                "detector_leak_pixels": 123,
+                "repair_leak_pixels": 123,
+                "detector_leak_fpr": 0.015375,
+                "repair_leak_fpr": 0.015375,
+                "max_leak_component_height": 21,
+                "strict_zero_leak_passed": false
+              },
+              {
+                "name": "paleface_b_clean_bg",
+                "description": "Clean interior background ROI",
+                "bbox": {
+                  "ymin": 30,
+                  "ymax": 120,
+                  "xmin": 50,
+                  "xmax": 150
+                },
+                "roi_pixels": 9000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 123,
+            "total_repair_leak_pixels": 123,
+            "strict_safety_gate_passed": false
+          }
+        }
+      },
+      {
+        "sequence_name": "college_seq_c",
+        "split": "dev_diagnostic",
+        "global_frame_index": 8,
+        "resolution": [
+          640,
+          480
+        ],
+        "negative_control_evaluation": {
+          "spatial_only": {
+            "rois": [
+              {
+                "name": "college_door_jamb_student",
+                "description": "Classroom door jamb & moving student silhouette",
+                "bbox": {
+                  "ymin": 150,
+                  "ymax": 280,
+                  "xmin": 280,
+                  "xmax": 340
+                },
+                "roi_pixels": 7800,
+                "detector_leak_pixels": 1,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.000128,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "college_clean_bg",
+                "description": "Clean classroom wall ROI",
+                "bbox": {
+                  "ymin": 50,
+                  "ymax": 150,
+                  "xmin": 400,
+                  "xmax": 500
+                },
+                "roi_pixels": 10000,
+                "detector_leak_pixels": 7,
+                "repair_leak_pixels": 1,
+                "detector_leak_fpr": 0.0007,
+                "repair_leak_fpr": 0.0001,
+                "max_leak_component_height": 1,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 8,
+            "total_repair_leak_pixels": 1,
+            "strict_safety_gate_passed": false
+          },
+          "temporal_only": {
+            "rois": [
+              {
+                "name": "college_door_jamb_student",
+                "description": "Classroom door jamb & moving student silhouette",
+                "bbox": {
+                  "ymin": 150,
+                  "ymax": 280,
+                  "xmin": 280,
+                  "xmax": 340
+                },
+                "roi_pixels": 7800,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "college_clean_bg",
+                "description": "Clean classroom wall ROI",
+                "bbox": {
+                  "ymin": 50,
+                  "ymax": 150,
+                  "xmin": 400,
+                  "xmax": 500
+                },
+                "roi_pixels": 10000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 0,
+            "total_repair_leak_pixels": 0,
+            "strict_safety_gate_passed": true
+          },
+          "fused_conservative": {
+            "rois": [
+              {
+                "name": "college_door_jamb_student",
+                "description": "Classroom door jamb & moving student silhouette",
+                "bbox": {
+                  "ymin": 150,
+                  "ymax": 280,
+                  "xmin": 280,
+                  "xmax": 340
+                },
+                "roi_pixels": 7800,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "college_clean_bg",
+                "description": "Clean classroom wall ROI",
+                "bbox": {
+                  "ymin": 50,
+                  "ymax": 150,
+                  "xmin": 400,
+                  "xmax": 500
+                },
+                "roi_pixels": 10000,
+                "detector_leak_pixels": 1,
+                "repair_leak_pixels": 1,
+                "detector_leak_fpr": 0.0001,
+                "repair_leak_fpr": 0.0001,
+                "max_leak_component_height": 1,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 1,
+            "total_repair_leak_pixels": 1,
+            "strict_safety_gate_passed": false
+          },
+          "fused_high_recall": {
+            "rois": [
+              {
+                "name": "college_door_jamb_student",
+                "description": "Classroom door jamb & moving student silhouette",
+                "bbox": {
+                  "ymin": 150,
+                  "ymax": 280,
+                  "xmin": 280,
+                  "xmax": 340
+                },
+                "roi_pixels": 7800,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "college_clean_bg",
+                "description": "Clean classroom wall ROI",
+                "bbox": {
+                  "ymin": 50,
+                  "ymax": 150,
+                  "xmin": 400,
+                  "xmax": 500
+                },
+                "roi_pixels": 10000,
+                "detector_leak_pixels": 1,
+                "repair_leak_pixels": 1,
+                "detector_leak_fpr": 0.0001,
+                "repair_leak_fpr": 0.0001,
+                "max_leak_component_height": 1,
+                "strict_zero_leak_passed": false
+              }
+            ],
+            "total_detector_leak_pixels": 1,
+            "total_repair_leak_pixels": 1,
+            "strict_safety_gate_passed": false
+          }
+        }
+      },
+      {
+        "sequence_name": "neighbors_seq_d",
+        "split": "dev_diagnostic",
+        "global_frame_index": 2,
+        "resolution": [
+          960,
+          720
+        ],
+        "negative_control_evaluation": {
+          "spatial_only": {
+            "rois": [
+              {
+                "name": "neighbors_d_telephone_pole",
+                "description": "Street telephone pole and vertical building corner",
+                "bbox": {
+                  "ymin": 200,
+                  "ymax": 400,
+                  "xmin": 150,
+                  "xmax": 220
+                },
+                "roi_pixels": 14000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "neighbors_d_clean_bg",
+                "description": "Clean sky/building ROI",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 700,
+                  "xmax": 850
+                },
+                "roi_pixels": 18000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 0,
+            "total_repair_leak_pixels": 0,
+            "strict_safety_gate_passed": true
+          },
+          "temporal_only": {
+            "rois": [
+              {
+                "name": "neighbors_d_telephone_pole",
+                "description": "Street telephone pole and vertical building corner",
+                "bbox": {
+                  "ymin": 200,
+                  "ymax": 400,
+                  "xmin": 150,
+                  "xmax": 220
+                },
+                "roi_pixels": 14000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "neighbors_d_clean_bg",
+                "description": "Clean sky/building ROI",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 700,
+                  "xmax": 850
+                },
+                "roi_pixels": 18000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 0,
+            "total_repair_leak_pixels": 0,
+            "strict_safety_gate_passed": true
+          },
+          "fused_conservative": {
+            "rois": [
+              {
+                "name": "neighbors_d_telephone_pole",
+                "description": "Street telephone pole and vertical building corner",
+                "bbox": {
+                  "ymin": 200,
+                  "ymax": 400,
+                  "xmin": 150,
+                  "xmax": 220
+                },
+                "roi_pixels": 14000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "neighbors_d_clean_bg",
+                "description": "Clean sky/building ROI",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 700,
+                  "xmax": 850
+                },
+                "roi_pixels": 18000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 0,
+            "total_repair_leak_pixels": 0,
+            "strict_safety_gate_passed": true
+          },
+          "fused_high_recall": {
+            "rois": [
+              {
+                "name": "neighbors_d_telephone_pole",
+                "description": "Street telephone pole and vertical building corner",
+                "bbox": {
+                  "ymin": 200,
+                  "ymax": 400,
+                  "xmin": 150,
+                  "xmax": 220
+                },
+                "roi_pixels": 14000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              },
+              {
+                "name": "neighbors_d_clean_bg",
+                "description": "Clean sky/building ROI",
+                "bbox": {
+                  "ymin": 80,
+                  "ymax": 200,
+                  "xmin": 700,
+                  "xmax": 850
+                },
+                "roi_pixels": 18000,
+                "detector_leak_pixels": 0,
+                "repair_leak_pixels": 0,
+                "detector_leak_fpr": 0.0,
+                "repair_leak_fpr": 0.0,
+                "max_leak_component_height": 0,
+                "strict_zero_leak_passed": true
+              }
+            ],
+            "total_detector_leak_pixels": 0,
+            "total_repair_leak_pixels": 0,
+            "strict_safety_gate_passed": true
+          }
+        }
+      }
+    ]
+  }
+}

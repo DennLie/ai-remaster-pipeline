@@ -5,20 +5,25 @@ A frame is decoded using FFmpeg's n-based select filter without approximate seek
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 import hashlib
 from functools import lru_cache
 import json
 import math
 import os
+import shutil
 import subprocess
+import sys
 import threading
 import time
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
+from urllib.parse import quote
 
-from .config import ROOT
+from .config import ROOT, SCRIPTS
 from .media import pipeline_source_text
-from .paths import resolve, resolve_video_source
+from .paths import rel, resolve, resolve_video_source
 
 EXTENSIONS = {'.mkv', '.mp4', '.webm', '.mov', '.m4v', '.avi'}
 CACHE = ROOT / '.cache' / 'frame_inspector'
@@ -191,4 +196,182 @@ def inspection(app, stage: str, frame: int) -> dict:
         'height': source_meta['height'],
         'before': original, 'after': processed,
         'exact': True, 'note': 'Original and processed images use decoded frame ordinals.'
+    }
+
+
+def _media_url(rel_path: str) -> str:
+    return f'/media?path={quote(rel_path, safe="")}' if rel_path else ''
+
+
+def _resolve_cached_path(path_text: str, root: Path | str | None = None) -> Path:
+    p = Path(path_text)
+    if p.is_absolute():
+        return p
+    for base in (ROOT, Path(root) if root is not None else None):
+        if base is not None:
+            cand = base / p
+            if cand.exists():
+                return cand
+    return resolve(path_text)
+
+
+def _rel_cached_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT)).replace('\\', '/')
+    except ValueError:
+        return rel(path)
+
+
+def inspect_dust(
+    folder: Path | str,
+    report: Mapping[str, Any],
+    frame: int,
+    *,
+    complete: bool = False,
+    repair_error: str = '',
+    base_folder: Path | str | None = None,
+    base_report: Mapping[str, Any] | None = None,
+    detector_info: Mapping[str, Any] | None = None,
+    counts: Mapping[str, Any] | None = None,
+    root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Decode exact frame overlays for Dust & Scratches, including E2 vetoed and base vs composed layers."""
+    if type(frame) is not int or frame < 0:
+        raise ValueError('Choose a nonnegative frame index.')
+    total_frames = int(report['metadata']['frames'])
+    if frame >= total_frames:
+        raise ValueError('Frame outside the analyzed source.')
+
+    folder_path = Path(folder)
+    hashes = report.get('hashes', {})
+    names = ['input.mkv', 'mask.mkv', 'effective_mask.mkv']
+    for extra in ('scratch_mask.mkv', 'dust_mask.mkv', 'uncertain_mask.mkv', 'vetoed_mask.mkv'):
+        if extra in hashes or (extra == 'vetoed_mask.mkv' and (folder_path / extra).is_file()):
+            names.append(extra)
+    if complete:
+        names.append('repaired.mkv')
+    if 'dart_full.mkv' in hashes:
+        names.append('dart_full.mkv')
+
+    images = {name: _decode(folder_path / name, frame) for name in names}
+
+    m_rel = images.get('mask.mkv', '')
+    m_file = _resolve_cached_path(m_rel, root) if m_rel else None
+
+    if ('scratch_mask.mkv' not in images or 'uncertain_mask.mkv' not in images) and m_file is not None and m_file.is_file():
+        import cv2
+        import numpy as np
+
+        if str(SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS))
+        from film_defect_detectors import split_proposal_components
+
+        if 'scratch_mask.mkv' not in images:
+            raw_m = cv2.imread(str(m_file), cv2.IMREAD_GRAYSCALE)
+            if raw_m is not None:
+                s_m, d_m = split_proposal_components(raw_m)
+                s_path = m_file.with_name(m_file.stem + '_scratch.png')
+                d_path = m_file.with_name(m_file.stem + '_dust.png')
+                if not s_path.is_file():
+                    cv2.imwrite(str(s_path), s_m)
+                if not d_path.is_file():
+                    cv2.imwrite(str(d_path), d_m)
+                images['scratch_mask.mkv'] = _rel_cached_path(s_path)
+                images['dust_mask.mkv'] = _rel_cached_path(d_path)
+
+        if 'uncertain_mask.mkv' not in images:
+            u_path = m_file.with_name(m_file.stem + '_uncertain.png')
+            if not u_path.is_file():
+                raw_m = cv2.imread(str(m_file), cv2.IMREAD_GRAYSCALE)
+                if raw_m is not None:
+                    s_file = _resolve_cached_path(images.get('scratch_mask.mkv', ''), root) if images.get('scratch_mask.mkv') else None
+                    d_file = _resolve_cached_path(images.get('dust_mask.mkv', ''), root) if images.get('dust_mask.mkv') else None
+                    s_m = cv2.imread(str(s_file), cv2.IMREAD_GRAYSCALE) if s_file is not None and s_file.is_file() else None
+                    d_m = cv2.imread(str(d_file), cv2.IMREAD_GRAYSCALE) if d_file is not None and d_file.is_file() else None
+                    if s_m is not None and d_m is not None:
+                        accounted = cv2.bitwise_or(s_m, d_m)
+                        u_m = cv2.bitwise_and(raw_m, cv2.bitwise_not(accounted))
+                    else:
+                        u_m = np.zeros_like(raw_m)
+                    cv2.imwrite(str(u_path), u_m)
+            if u_path.is_file():
+                images['uncertain_mask.mkv'] = _rel_cached_path(u_path)
+
+    if 'vetoed_mask.mkv' in images and m_file is not None and m_file.is_file():
+        v_file = _resolve_cached_path(images['vetoed_mask.mkv'], root)
+        if v_file.is_file():
+            v_alias = m_file.with_name(m_file.stem + '_vetoed.png')
+            if not v_alias.is_file():
+                tmp_v = v_alias.with_name(f'{v_alias.name}.{os.getpid()}.partial.png')
+                try:
+                    shutil.copyfile(v_file, tmp_v)
+                    os.replace(tmp_v, v_alias)
+                finally:
+                    tmp_v.unlink(missing_ok=True)
+
+    if complete:
+        import cv2
+
+        before_file = _resolve_cached_path(images['input.mkv'], root)
+        after_file = _resolve_cached_path(images['repaired.mkv'], root)
+        if before_file.is_file() and after_file.is_file():
+            before = cv2.imread(str(before_file))
+            after = cv2.imread(str(after_file))
+            if before is None or after is None:
+                raise ValueError('Could not decode input/repaired frame for difference image.')
+            diff = cv2.absdiff(before, after)
+            diff_path = after_file.with_name(after_file.stem + '_dust_diff.png')
+            if not cv2.imwrite(str(diff_path), diff):
+                raise ValueError('Could not save exact RGB difference.')
+            images['difference'] = _rel_cached_path(diff_path)
+
+    is_composed = bool(report.get('edit_signature'))
+    base_images: dict[str, str] = {}
+    if is_composed and base_folder is not None and base_report is not None:
+        base_path = Path(base_folder)
+        base_hashes = base_report.get('hashes', {})
+        base_names = ['mask.mkv', 'effective_mask.mkv']
+        for extra in ('scratch_mask.mkv', 'dust_mask.mkv', 'uncertain_mask.mkv', 'vetoed_mask.mkv'):
+            if extra in base_hashes or (extra == 'vetoed_mask.mkv' and (base_path / extra).is_file()):
+                base_names.append(extra)
+        base_images = {
+            name: _decode(base_path / name, frame)
+            for name in base_names
+            if (base_path / name).is_file() or name in base_hashes
+        }
+
+    urls = {name: _media_url(path) for name, path in images.items()}
+    base_urls = {name: _media_url(path) for name, path in base_images.items()}
+    proposal_keys = (
+        'mask.mkv',
+        'effective_mask.mkv',
+        'scratch_mask.mkv',
+        'dust_mask.mkv',
+        'uncertain_mask.mkv',
+        'vetoed_mask.mkv',
+    )
+    auto_proposal_images = (
+        dict(base_images) if base_images else {k: v for k, v in images.items() if k in proposal_keys}
+    )
+    auto_proposal_urls = {name: _media_url(path) for name, path in auto_proposal_images.items()}
+
+    _prune()
+    return {
+        'frame': frame,
+        'frames': total_frames,
+        'images': images,
+        'urls': urls,
+        'vetoed_url': urls.get('vetoed_mask.mkv', ''),
+        'base_images': base_images,
+        'base_urls': base_urls,
+        'auto_proposal_images': auto_proposal_images,
+        'auto_proposal_urls': auto_proposal_urls,
+        'is_composed': is_composed,
+        'edit_signature': str(report.get('edit_signature', '') or ''),
+        'timeline_id': str(report.get('timeline_id', '') or ''),
+        'base_folder_key': str(report.get('base_folder_key', '') or ''),
+        'measurements': dict(counts) if counts is not None else {},
+        'repair_error': repair_error,
+        'native_composition': report.get('native_composition'),
+        'detector_info': dict(detector_info) if detector_info is not None else {},
     }

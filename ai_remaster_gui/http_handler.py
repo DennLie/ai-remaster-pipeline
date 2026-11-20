@@ -186,6 +186,22 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, IndexError, FileNotFoundError, RuntimeError, OSError,
                     subprocess.SubprocessError) as exc:
                 self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/dust-mask-frame":
+            query = parse_qs(parsed.query)
+
+            def load_dust_mask() -> dict:
+                raw_frame = query.get("frame", ["0"])[0]
+                if not str(raw_frame).strip().lstrip("+-").isdigit():
+                    raise ValueError(f"Invalid frame index: {raw_frame!r}")
+                frame_idx = int(str(raw_frame).strip())
+                return state.APP.load_dust_mask_frame(
+                    frame_idx,
+                    analysis_source=query.get("analysis_source", ["stage"])[0],
+                    timeline_id=query.get("timeline_id", [None])[0],
+                    project_expected=query.get("project", [None])[0],
+                )
+
+            self._send_dust_result("Dust mask frame", load_dust_mask)
         elif parsed.path == "/api/cleanup-frame-differences":
             # No client-selected filesystem paths or method overrides.
             try:
@@ -427,6 +443,14 @@ class Handler(BaseHTTPRequestHandler):
             state.APP.log.append(f"{label} failed: {exc}")
             self.send_json({"ok": False, "error": str(exc)})
 
+    def _send_dust_result(self, label: str, produce) -> None:
+        """Dust endpoint wrapper returning {"ok": False, "error": ..., "error_type": ...} on failure."""
+        try:
+            self.send_json({"ok": True, **produce()})
+        except Exception as exc:
+            state.APP.log.append(f"{label} failed: {exc}")
+            self.send_json({"ok": False, "error": str(exc), "error_type": type(exc).__name__})
+
     def _send_action(self, label: str, run, view: str = "", extra_key: str | None = None) -> None:
         """Success path for APP.run_* endpoints returning (ok, message) or (ok, message, value):
         answer {ok, message, state, error}, including fresh state only when ok and the optional
@@ -460,15 +484,64 @@ class Handler(BaseHTTPRequestHandler):
             self._send_action('Detail Enhancement / Deblur batch',
                                lambda: state.APP.run_enhancement_batch(data.get('variants')), view='enhancement')
         elif parsed.path == "/api/dust-status":
-            from .dust import status
-            self._send_result('Dust & Scratches status', lambda: status(state.APP, data.get('values', {}), data.get('source'), data.get('project')))
+            self._send_dust_result("Dust & Scratches status", lambda: state.APP.dust_status(data.get("values", {}), data.get("source"), data.get("project")))
         elif parsed.path == "/api/dust-inspect":
-            from .dust import inspect
-            self._send_result('Dust & Scratches frame', lambda: inspect(state.APP, data.get('values', {}), data.get('frame', 0), data.get('source'), data.get('project')))
+            self._send_dust_result("Dust & Scratches frame", lambda: state.APP.dust_inspect(data.get("values", {}), data.get("frame", 0), data.get("source"), data.get("project")))
         elif parsed.path == "/api/dust-run":
-            self._send_action('Dust & Scratches', lambda: state.APP.run_dust(data.get('values', {}), data.get('kind'), data.get('source'), data.get('project')), view='dust')
+            self._send_action("Dust & Scratches", lambda: state.APP.run_dust(data.get("values", {}), data.get("kind"), data.get("source"), data.get("project")), view="dust")
         elif parsed.path == "/api/dust-adopt":
-            self._send_result('Dust & Scratches adoption', lambda: state.APP.adopt_dust(data.get('values', {}), data.get('source'), data.get('project'), data.get('report')))
+            self._send_dust_result("Dust & Scratches adoption", lambda: state.APP.adopt_dust(data.get("values", {}), data.get("source"), data.get("project"), data.get("report")))
+        elif parsed.path == "/api/dust-mask-frame":
+            def save_dust_mask() -> dict:
+                if not isinstance(data, dict):
+                    raise ValueError("Request body must be a JSON object.")
+                if any(k in data for k in ("path", "zip_path", "meta_path")):
+                    raise ValueError("Client-supplied filesystem paths are not allowed.")
+                result = state.APP.save_dust_mask_frame(
+                    data.get("frame"),
+                    data.get("edit_mask_b64"),
+                    analysis_source=data.get("analysis_source", "stage"),
+                    expected_revision=data.get("expected_revision"),
+                    timeline_id=data.get("timeline_id"),
+                    project_expected=data.get("project"),
+                    source_expected=data.get("source"),
+                )
+                return {**result, "state": state.APP.state("dust")}
+
+            self._send_dust_result("Dust mask save", save_dust_mask)
+        elif parsed.path == "/api/dust-mask-reset":
+            def reset_dust_mask() -> dict:
+                if not isinstance(data, dict):
+                    raise ValueError("Request body must be a JSON object.")
+                if any(k in data for k in ("path", "zip_path", "meta_path")):
+                    raise ValueError("Client-supplied filesystem paths are not allowed.")
+                result = state.APP.reset_dust_masks(
+                    data.get("scope", ""),
+                    frame=data.get("frame"),
+                    analysis_source=data.get("analysis_source", "stage"),
+                    expected_revision=data.get("expected_revision"),
+                    timeline_id=data.get("timeline_id"),
+                    project_expected=data.get("project"),
+                    source_expected=data.get("source"),
+                )
+                return {**result, "state": state.APP.state("dust")}
+
+            self._send_dust_result("Dust mask reset", reset_dust_mask)
+        elif parsed.path == "/api/dust-mask-export":
+            def export_dust_mask() -> dict:
+                if not isinstance(data, dict):
+                    raise ValueError("Request body must be a JSON object.")
+                if any(k in data for k in ("export_dir", "output_dir", "path", "dir")):
+                    raise ValueError("Client-supplied export paths are not allowed.")
+                return state.APP.export_dust_provenance(
+                    analysis_source=data.get("analysis_source"),
+                    values=data.get("values"),
+                    include_auto_proposals=data.get("include_auto_proposals", True),
+                    frames=data.get("frames"),
+                    project_expected=data.get("project"),
+                )
+
+            self._send_dust_result("Dust mask provenance export", export_dust_mask)
         elif parsed.path == "/api/stabilize-batch":
             self._send_action('Stabilization batch',
                               lambda: state.APP.run_stabilization_batch(data.get('variants')), view='stabilize')

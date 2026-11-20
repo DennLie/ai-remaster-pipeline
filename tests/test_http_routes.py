@@ -45,6 +45,7 @@ EXPECTED_GET_ROUTES = {
     "/api/denoise-playback-video",
     "/api/cleanup-frame-differences",
     "/api/frame-inspector",
+    "/api/dust-mask-frame",
     "/media",
 }
 
@@ -71,6 +72,7 @@ EXPECTED_POST_ROUTES = {
     "/api/enhancement-batch",
     "/api/stabilize-batch", "/api/stabilize-adopt",
     "/api/dust-status", "/api/dust-inspect", "/api/dust-run", "/api/dust-adopt",
+    "/api/dust-mask-frame", "/api/dust-mask-reset", "/api/dust-mask-export",
 }
 
 
@@ -369,6 +371,334 @@ class StateLockTests(unittest.TestCase):
             payload = app.state("shots")
 
         self.assertEqual(payload["shot_views"]["shots"], [{"index": 0}])
+
+
+class DustMaskEditRouteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._real_app = state.APP
+        state.APP = FakeApp()
+
+    def tearDown(self) -> None:
+        state.APP = self._real_app
+
+    def test_dust_mask_get_and_post_routes_delegate_and_include_state_and_error_type(self) -> None:
+        from ai_remaster_gui.dust_mask_edits import EditRevisionConflictError, EditStoreIntegrityError
+
+        state.APP.load_dust_mask_frame = mock.Mock(
+            return_value={
+                "frame": 2,
+                "width": 32,
+                "height": 24,
+                "frame_count": 5,
+                "analysis_source": "stage",
+                "timeline_id": "a" * 24,
+                "edit_revision": 0,
+                "zip_sha256": "",
+                "edit_signature": "",
+                "compatible": True,
+                "compatibility_reason": "",
+                "edited_frames": [],
+                "edit_mask_b64": "",
+                "reviewed": False,
+                "frame_stats": {},
+                "summary": {},
+            }
+        )
+        get_handler = _Handler("/api/dust-mask-frame?frame=2&analysis_source=stage&timeline_id=" + ("a" * 24))
+        get_handler.do_GET()
+        state.APP.load_dust_mask_frame.assert_called_once_with(
+            2,
+            analysis_source="stage",
+            timeline_id="a" * 24,
+            project_expected=None,
+        )
+        self.assertTrue(get_handler.responses["json"]["ok"])
+        self.assertEqual(get_handler.responses["json"]["frame"], 2)
+
+        state.APP.load_dust_mask_frame = mock.Mock(side_effect=EditStoreIntegrityError("corrupt edit zip"))
+        err_handler = _Handler("/api/dust-mask-frame?frame=0&analysis_source=stage")
+        err_handler.do_GET()
+        self.assertEqual(err_handler.responses["json"]["ok"], False)
+        self.assertEqual(err_handler.responses["json"]["error_type"], "EditStoreIntegrityError")
+
+        bad_frame = _Handler("/api/dust-mask-frame?frame=abc")
+        bad_frame.do_GET()
+        self.assertEqual(bad_frame.responses["json"]["ok"], False)
+        self.assertEqual(bad_frame.responses["json"]["error_type"], "ValueError")
+
+        state.APP.save_dust_mask_frame = mock.Mock(
+            return_value={"frame": 1, "edit_revision": 1, "edit_signature": ("b" * 64) + ":rev1"}
+        )
+        save_handler = _Handler(
+            "/api/dust-mask-frame",
+            {"frame": 1, "edit_mask_b64": "AAAA", "analysis_source": "stage", "expected_revision": 0},
+        )
+        save_handler.do_POST()
+        state.APP.save_dust_mask_frame.assert_called_once()
+        self.assertTrue(save_handler.responses["json"]["ok"])
+        self.assertEqual(save_handler.responses["json"]["state"], {"_view": "dust"})
+
+        state.APP.save_dust_mask_frame = mock.Mock(side_effect=EditRevisionConflictError("stale rev"))
+        conflict_handler = _Handler("/api/dust-mask-frame", {"frame": 1, "edit_mask_b64": "AAAA"})
+        conflict_handler.do_POST()
+        self.assertEqual(conflict_handler.responses["json"]["ok"], False)
+        self.assertEqual(conflict_handler.responses["json"]["error_type"], "EditRevisionConflictError")
+
+        state.APP.reset_dust_masks = mock.Mock(
+            return_value={"scope": "frame", "edit_revision": 2, "edited_frames": []}
+        )
+        reset_handler = _Handler("/api/dust-mask-reset", {"scope": "frame", "frame": 1, "analysis_source": "stage"})
+        reset_handler.do_POST()
+        self.assertTrue(reset_handler.responses["json"]["ok"])
+        self.assertEqual(reset_handler.responses["json"]["state"], {"_view": "dust"})
+
+        state.APP.export_dust_provenance = mock.Mock(
+            return_value={
+                "export_dir": "exports/dust_mask_provenance/clip",
+                "metadata_path": "exports/dust_mask_provenance/clip/metadata.json",
+                "provenance_path": "exports/dust_mask_provenance/clip/provenance.json",
+                "exported_frames": [1],
+                "summary": {"ground_truth_status": "operational_edits_only_not_independent_gt"},
+            }
+        )
+        export_handler = _Handler("/api/dust-mask-export", {"analysis_source": "stage", "include_auto_proposals": True})
+        export_handler.do_POST()
+        self.assertTrue(export_handler.responses["json"]["ok"])
+        self.assertEqual(export_handler.responses["json"]["exported_frames"], [1])
+
+    def test_dust_mask_routes_reject_client_paths_and_cross_origin_requests(self) -> None:
+        bad_save = _Handler("/api/dust-mask-frame", {"frame": 0, "edit_mask_b64": "", "path": "C:/evil.zip"})
+        bad_save.do_POST()
+        self.assertFalse(bad_save.responses["json"]["ok"])
+        self.assertEqual(bad_save.responses["json"]["error_type"], "ValueError")
+
+        bad_export = _Handler("/api/dust-mask-export", {"export_dir": "C:/evil"})
+        bad_export.do_POST()
+        self.assertFalse(bad_export.responses["json"]["ok"])
+        self.assertEqual(bad_export.responses["json"]["error_type"], "ValueError")
+
+        cross_origin = _Handler("/api/dust-mask-frame", {"frame": 0, "edit_mask_b64": ""})
+        cross_origin.headers = {"Host": "127.0.0.1:8765", "Origin": "https://attacker.example"}
+        cross_origin.do_POST()
+        self.assertEqual(cross_origin.responses["error"], 403)
+
+        remote_host = _Handler("/api/dust-mask-frame?frame=0")
+        remote_host.headers = {"Host": "attacker.example"}
+        remote_host.do_GET()
+        self.assertEqual(remote_host.responses["error"], 403)
+
+    def test_existing_dust_routes_delegate_to_app_methods(self) -> None:
+        state.APP.dust_status = mock.Mock(return_value={"frames": 3, "dust_edits": {"has_edits": True}})
+        status_h = _Handler("/api/dust-status", {"values": {"detector": "farneback_3f"}, "source": "s.mkv", "project": ""})
+        status_h.do_POST()
+        state.APP.dust_status.assert_called_once_with({"detector": "farneback_3f"}, "s.mkv", "")
+        self.assertTrue(status_h.responses["json"]["ok"])
+
+        state.APP.dust_inspect = mock.Mock(return_value={"frame": 0, "urls": {}, "vetoed_url": ""})
+        insp_h = _Handler("/api/dust-inspect", {"values": {"detector": "farneback_3f"}, "frame": 0, "source": "s.mkv", "project": ""})
+        insp_h.do_POST()
+        state.APP.dust_inspect.assert_called_once_with({"detector": "farneback_3f"}, 0, "s.mkv", "")
+        self.assertTrue(insp_h.responses["json"]["ok"])
+
+
+class DustMaskEditEndToEndRouteTests(unittest.TestCase):
+    def test_real_pipeline_app_edit_roundtrip_compatibility_adoption_export_and_arpp(self) -> None:
+        import tempfile
+        from pathlib import Path
+        import numpy as np
+        from ai_remaster_gui import dust as dust_stage, project_io
+        from ai_remaster_gui.dust_mask_edits import (
+            BIT_PROTECT_INTACT,
+            BIT_REVIEWED,
+            BIT_SCRATCH_ADD,
+            decode_bitmask_b64,
+            encode_bitmask_b64,
+        )
+        from ai_remaster_gui.runtime_settings import base_settings
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "input" / "clip.mkv"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            writer = dust_stage.Writer(source, {"frames": 3, "width": 64, "height": 48, "fps": "12"})
+            for _ in range(3):
+                writer.write(np.full((48, 64, 3), 120, np.uint8))
+            writer.close()
+
+            settings = base_settings()
+            settings["global"].update(source=str(source), dust="true", expand_outpaint="false", colorize="false")
+            settings["dust"].update(detector="legacy", repair="telea")
+
+            app = server.PipelineApp.__new__(server.PipelineApp)
+            app.settings = settings
+            app.project_path = None
+            app.log = []
+            app.process = None
+            app.quitting = False
+            app.queue_running = False
+            app.running_stage = ""
+            app.running_stage_key = ""
+            app.running_reference_manifest = ""
+            app.running_reference_index = None
+            app.denoise_grid_request = {}
+            app.run_started_at = 0.0
+            app.recomp_total_frames = 0
+            app.recomp_progress_run = 0.0
+            app.lock = threading.Lock()
+            app.source_analysis_lock = threading.Lock()
+            app.source_analysis_status = {}
+            app.source_analysis_results = {}
+            app.source_analysis_threads = set()
+            app.source_tone_default_keys = set()
+            app.save = mock.Mock()
+            app.ensure_pipeline_source = mock.Mock()
+            app.remember_project_path = mock.Mock()
+
+            with (
+                mock.patch.object(server, "ROOT", root),
+                mock.patch.object(dust_stage, "ROOT", root),
+                mock.patch.object(project_io, "ROOT", root),
+                mock.patch.object(state, "APP", app),
+            ):
+                # 1. Unedited frame load returns exact dimensions & clean summary
+                loaded0 = app.load_dust_mask_frame(0, analysis_source="stage")
+                self.assertEqual((loaded0["width"], loaded0["height"], loaded0["frame_count"]), (64, 48, 3))
+                self.assertEqual(loaded0["edit_mask_b64"], "")
+                self.assertEqual(loaded0["edit_revision"], 0)
+                self.assertTrue(loaded0["compatible"])
+
+                # 2. Run base detection & repair and adopt it before editing
+                dust_stage.run(source, {"detector": "legacy", "repair": "telea"}, "mask")
+                dust_stage.run(source, {"detector": "legacy", "repair": "telea"}, "repair")
+                app.adopt_dust({"detector": "legacy", "repair": "telea"})
+                app.validate_dust_adoption()
+
+                # 3. Paint lossless bitmask edit on frame 1 via POST route contract
+                bitmask = np.zeros((48, 64), dtype=np.uint8)
+                bitmask[10:20, 12:14] = BIT_SCRATCH_ADD | BIT_REVIEWED
+                bitmask[25:35, 30:40] = BIT_PROTECT_INTACT | BIT_REVIEWED
+                b64 = encode_bitmask_b64(bitmask)
+
+                save_h = _Handler(
+                    "/api/dust-mask-frame",
+                    {"frame": 1, "edit_mask_b64": b64, "analysis_source": "stage", "expected_revision": 0},
+                )
+                save_h.do_POST()
+                save_res = save_h.responses["json"]
+                self.assertTrue(save_res["ok"])
+                self.assertEqual(save_res["edit_revision"], 1)
+                self.assertTrue(save_res["edit_signature"].endswith(":rev1"))
+                self.assertEqual(save_res["edited_frames"], [1])
+                self.assertTrue(save_res["reviewed"])
+                self.assertIn("dust_edits", save_res["state"])
+                self.assertEqual(save_res["state"]["dust_edits"]["stage"]["edit_signature"], save_res["edit_signature"])
+
+                # 4. Exact byte-for-byte GET round-trip
+                get_h = _Handler("/api/dust-mask-frame?frame=1&analysis_source=stage")
+                get_h.do_GET()
+                get_res = get_h.responses["json"]
+                self.assertTrue(get_res["ok"])
+                np.testing.assert_array_equal(decode_bitmask_b64(get_res["edit_mask_b64"], 64, 48), bitmask)
+
+                # 5. Stale expected_revision fails closed
+                stale_h = _Handler(
+                    "/api/dust-mask-frame",
+                    {"frame": 1, "edit_mask_b64": b64, "expected_revision": 0},
+                )
+                stale_h.do_POST()
+                self.assertFalse(stale_h.responses["json"]["ok"])
+                self.assertEqual(stale_h.responses["json"]["error_type"], "EditRevisionConflictError")
+
+                # 6. Stale adoption now fails closed until composed repair is run & adopted
+                with self.assertRaises((FileNotFoundError, ValueError)):
+                    app.validate_dust_adoption()
+
+                # 7. Clicking Repair right after painting allows saved_base_mask and forwards --edit-signature
+                with mock.patch.object(app, "_start_denoise_matrix", return_value=(True, "launched")) as launch:
+                    ok, _msg = app.run_dust({"detector": "legacy", "repair": "telea"}, "repair")
+                    self.assertTrue(ok)
+                    cmd = launch.call_args.args[1]
+                    self.assertIn("--edit-signature", cmd)
+                    self.assertIn(save_res["edit_signature"], cmd)
+                    self.assertIn("--timeline-id", cmd)
+                    self.assertIn(save_res["timeline_id"], cmd)
+
+                # 8. Inspecting before composed repair is materialized falls back to base + active edit overlay
+                with mock.patch("ai_remaster_gui.frame_inspector._decode", return_value="frame.png"):
+                    insp = app.dust_inspect({"detector": "legacy", "repair": "telea"}, 1)
+                    self.assertTrue(insp["composed_pending"])
+                    self.assertTrue(insp["base_mask_ready"])
+                    self.assertEqual(insp["edit_mask_b64"], b64)
+                    self.assertEqual(insp["edit_signature"], save_res["edit_signature"])
+
+                # 9. Materialize composed repair, adopt, and verify validate_dust_adoption passes
+                dust_stage.run(
+                    source,
+                    {
+                        "detector": "legacy",
+                        "repair": "telea",
+                        "edit_signature": save_res["edit_signature"],
+                        "timeline_id": save_res["timeline_id"],
+                    },
+                    "repair",
+                )
+                app.adopt_dust({"detector": "legacy", "repair": "telea"})
+                app.validate_dust_adoption()
+
+                # 10. Export provenance bundle strictly under ROOT/exports/dust_mask_provenance
+                exp_h = _Handler("/api/dust-mask-export", {"analysis_source": "stage"})
+                exp_h.do_POST()
+                exp_res = exp_h.responses["json"]
+                self.assertTrue(exp_res["ok"])
+                self.assertTrue(Path(exp_res["export_dir"]).is_relative_to(root / "exports" / "dust_mask_provenance"))
+                self.assertTrue(Path(exp_res["provenance_path"]).is_file())
+                self.assertEqual(
+                    exp_res["summary"]["ground_truth_status"],
+                    "operational_edits_only_not_independent_gt",
+                )
+
+                # 11. .arpp bundle round-trip preserves manifests/dust_masks/<tid>.zip + .meta.json
+                arpp_path = root / "projects" / "clip.arpp"
+                project_io.write_project_file(arpp_path, app.settings)
+                zip_member = f"manifests/dust_masks/{save_res['timeline_id']}.zip"
+                meta_member = f"manifests/dust_masks/{save_res['timeline_id']}.meta.json"
+                import zipfile
+                with zipfile.ZipFile(arpp_path, "r") as zf:
+                    names = set(zf.namelist())
+                self.assertIn(zip_member, names)
+                self.assertIn(meta_member, names)
+
+                # 12. Tampered edit ZIP fails closed on GET and marks state incompatible
+                zip_disk = root / zip_member
+                zip_bytes = zip_disk.read_bytes()
+                zip_disk.write_bytes(b"tampered-bytes")
+                tampered_h = _Handler("/api/dust-mask-frame?frame=1&analysis_source=stage")
+                tampered_h.do_GET()
+                self.assertFalse(tampered_h.responses["json"]["ok"])
+                self.assertEqual(tampered_h.responses["json"]["error_type"], "EditStoreIntegrityError")
+                self.assertFalse(app.dust_edit_state()["stage"]["compatible"])
+                zip_disk.write_bytes(zip_bytes)
+
+                # 13. Replaced clip with mismatched dimensions reports compatible=False on GET
+                source_diff = root / "input" / "clip.mkv"
+                source_diff.unlink()
+                writer2 = dust_stage.Writer(source_diff, {"frames": 3, "width": 80, "height": 48, "fps": "12"})
+                for _ in range(3):
+                    writer2.write(np.full((48, 80, 3), 120, np.uint8))
+                writer2.close()
+                mismatch_h = _Handler("/api/dust-mask-frame?frame=0&analysis_source=stage")
+                mismatch_h.do_GET()
+                mismatch_res = mismatch_h.responses["json"]
+                self.assertTrue(mismatch_res["ok"])
+                self.assertFalse(mismatch_res["compatible"])
+                self.assertTrue(mismatch_res["compatibility_reason"])
+                self.assertEqual(mismatch_res["edited_frames"], [])
+
+                # 14. Reset all clears conflict cleanly
+                reset_h = _Handler("/api/dust-mask-reset", {"scope": "all", "analysis_source": "stage"})
+                reset_h.do_POST()
+                self.assertTrue(reset_h.responses["json"]["ok"])
+                self.assertTrue(reset_h.responses["json"]["state"]["dust_edits"]["stage"]["compatible"])
 
 
 if __name__ == "__main__":
