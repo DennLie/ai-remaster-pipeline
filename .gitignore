@@ -87,7 +87,13 @@ venv/
 
 # Runtime benchmark binary archives and provenance exports
 /docs/benchmarks/visual_audit.zip
+/docs/benchmarks/visual_audit/
+/docs/benchmarks/visuals/
 /exports/dust_mask_provenance/
+
+# Local orchestrator and tooling state
+/.impeccable/live/
+/docs/maestro/state/
 
 # Local backup and scratch scripts
 /ai_remaster_gui/frame_inspector.py.bak.20261102-170905
