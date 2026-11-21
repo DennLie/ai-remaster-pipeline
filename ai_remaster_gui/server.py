@@ -15,6 +15,8 @@ import time
 import webbrowser
 from pathlib import Path
 
+import numpy as np
+
 from .config import (
     ASPECT_PREVIEW_DIR,
     CONFIG_FILE,
@@ -60,6 +62,24 @@ from . import deflicker as deflicker_stage
 from . import enhancement as enhancement_stage
 from . import stabilization as stabilization_stage
 from . import dust as dust_stage
+from . import stage_plan
+from .dust_mask_edits import (
+    DUST_MASKS_REL_DIR,
+    EDIT_SCHEMA_VERSION,
+    DustMaskEditStore,
+    EditStoreIntegrityError,
+    EditTimelineMismatchError,
+    TimelineBinding,
+    build_timeline_binding,
+    check_compatibility,
+    compute_timeline_id,
+    decode_bitmask_b64,
+    export_provenance_bundle,
+    load_verified_store,
+    normalize_source_ref,
+    store_compatibility_status,
+    validate_frame_selection,
+)
 from . import video_order
 from . import pipeline_order
 from .paths import (
@@ -272,6 +292,115 @@ from dependency_manager import H3_LICENSE_REQUIRED  # noqa: E402
 from model_paths import resolve_comfy_model_path  # noqa: E402
 
 from . import state  # shared singleton registry; sibling modules read state.APP
+
+
+_DEFAULT_DUST_ROOT = ROOT
+
+
+def _active_dust_root() -> Path:
+    if ROOT != _DEFAULT_DUST_ROOT:
+        return ROOT
+    dust_root = getattr(dust_stage, "ROOT", _DEFAULT_DUST_ROOT)
+    if dust_root != _DEFAULT_DUST_ROOT:
+        return Path(dust_root)
+    pio_mod = sys.modules.get("ai_remaster_gui.project_io")
+    pio_root = getattr(pio_mod, "ROOT", _DEFAULT_DUST_ROOT) if pio_mod is not None else _DEFAULT_DUST_ROOT
+    if pio_root != _DEFAULT_DUST_ROOT:
+        return Path(pio_root)
+    return ROOT
+
+
+def _resolve_dust_source_path(source_text: str, root: Path) -> Path:
+    raw = Path(str(source_text)).expanduser()
+    if raw.is_absolute():
+        return raw
+    candidate = root / raw
+    if candidate.is_file():
+        return candidate
+    return resolve(str(source_text))
+
+
+def _normalize_dust_analysis_source(analysis_source: str | None) -> str:
+    mode = str(analysis_source or "stage").strip().lower()
+    if mode not in ("stage", "original"):
+        raise ValueError("Choose stage or original analysis input.")
+    return mode
+
+
+def _dust_stage_source_for_settings(settings: dict[str, dict[str, str]]) -> str:
+    if pipeline_order.configured(settings):
+        plan = complete_pipeline_plan({**settings, "global": {**settings.get("global", {}), "dust": "true"}})
+        return plan["nodes"].get("dust", {}).get("input", "")
+    if video_order.configured(settings):
+        return preprocessing_input_for(settings, "dust")
+    source_text = preprocessing_input_for(settings)
+    global_values = settings.get("global", {})
+    if source_text and is_true(global_values, "cleanup"):
+        source_text = cleanup_output_for(source_text, settings.get("cleanup", {}))
+    if source_text and is_true(global_values, "stabilize"):
+        source_text = stabilize_output_for(
+            source_text,
+            settings.get("stabilize", {}),
+            settings.get("cloud", {}).get("intermediate_format", "high"),
+        )
+    return source_text
+
+
+def dust_mask_archives_for(settings: dict[str, dict[str, str]]) -> list[Path]:
+    """Return active Dust & Scratches bitmask ZIP/meta pairs for `.arpp` bundling."""
+    root = _active_dust_root()
+    masks_dir = root / DUST_MASKS_REL_DIR
+    if not masks_dir.is_dir():
+        return []
+    has_zips = any(p.suffix.lower() == ".zip" for p in masks_dir.iterdir() if p.is_file())
+    if not has_zips:
+        return []
+
+    found: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add_pair(zip_path: Path, meta_path: Path) -> None:
+        if zip_path.is_file() and meta_path.is_file():
+            for item in (zip_path, meta_path):
+                resolved_item = item.resolve(strict=False)
+                if resolved_item not in seen:
+                    seen.add(resolved_item)
+                    found.append(item)
+
+    candidates = (
+        ("stage", _dust_stage_source_for_settings(settings)),
+        ("original", pipeline_source_text(settings)),
+    )
+    for mode, source_text in candidates:
+        if not source_text:
+            continue
+        src_path = _resolve_dust_source_path(source_text, root)
+        if not src_path.is_file():
+            continue
+        try:
+            meta = dust_stage.metadata(src_path)
+            sha = dust_stage.digest(src_path)
+            binding = build_timeline_binding(
+                src_path,
+                mode,
+                width=meta["width"],
+                height=meta["height"],
+                frame_count=meta["frames"],
+                fps=meta["fps"],
+                root=root,
+                source_sha256=sha,
+            )
+            store = DustMaskEditStore(binding, root=root)
+            _add_pair(store.zip_path, store.meta_path)
+        except Exception:
+            continue
+
+    dust_values = settings.get("dust", {}) if isinstance(settings, dict) else {}
+    for key in ("timeline_id", "edit_timeline_id", "stage_timeline_id", "original_timeline_id"):
+        tid = str(dust_values.get(key, "") or "").strip()
+        if re.fullmatch(r"[0-9a-f]{24}", tid):
+            _add_pair(masks_dir / f"{tid}.zip", masks_dir / f"{tid}.meta.json")
+    return found
 
 
 def is_true(values: dict[str, str], key: str, default: str = "false") -> bool:
@@ -564,10 +693,10 @@ class PipelineApp:
 
     def active_stages(self) -> tuple[Stage, ...]:
         by_key = {stage.key: stage for stage in STAGES}
-        if pipeline_order.configured(self.settings):
-            return tuple(by_key[key] for key in pipeline_order.order(self.settings,()) if pipeline_order.enabled(self.settings,key))
+        if stage_plan.pipeline_configured(self.settings):
+            return tuple(by_key[key] for key in stage_plan.ordered_stages(self.settings,()) if stage_plan.enabled(self.settings,key))
         stages: list[Stage] = []
-        stages.extend(by_key[key] for key in video_order.order(self.settings, preprocessing_order(self.settings))
+        stages.extend(by_key[key] for key in stage_plan.ordered_video_stages(self.settings, preprocessing_order(self.settings))
                       if is_true(self.settings.get('global', {}), key))
         if self.outpaint_enabled():
             stages.append(by_key["outpaint"])
@@ -586,7 +715,7 @@ class PipelineApp:
     def soundtrack_source_for(self) -> str:
         """The video the soundtrack phase attaches sound to: the recomposed render when
         earlier processing is enabled, otherwise the selected source section."""
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             return self.pipeline_plan()['nodes'].get('audio',{}).get('input','')
         if self.outpaint_enabled() or self.colorize_enabled():
             recomp = self.settings.get("recomp", {})
@@ -845,12 +974,12 @@ class PipelineApp:
             self.settings.get('cloud', {}).get('intermediate_format', 'high'))
 
     def enhanced_source_for_downstream(self) -> str:
-        if video_order.configured(self.settings) or pipeline_order.configured(self.settings):
+        if stage_plan.uses_stage_order(self.settings):
             return self.processing_input('cleanup')
         return self.processing_input()
 
     def processing_input(self, stage_key=None) -> str:
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan()
             if stage_key=='dust' and 'dust' not in plan['nodes']:
                 plan=complete_pipeline_plan({**self.settings,'global':{**self.settings.get('global',{}),'dust':'true'}})
@@ -860,14 +989,14 @@ class PipelineApp:
         return preprocessing_input_for(self.settings, stage_key)
 
     def configured_preprocessing_upstream(self, stage_key=None):
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan()
             if stage_key=='dust' and 'dust' not in plan['nodes']:
                 plan=complete_pipeline_plan({**self.settings,'global':{**self.settings.get('global',{}),'dust':'true'}})
             keys=list(plan['nodes'])
             return keys[:keys.index(stage_key)] if stage_key in keys else keys
         result = []
-        for key in video_order.order(self.settings, preprocessing_order(self.settings)) if video_order.configured(self.settings) else preprocessing_order(self.settings):
+        for key in stage_plan.ordered_video_stages(self.settings, preprocessing_order(self.settings)) if stage_plan.video_configured(self.settings) else preprocessing_order(self.settings):
             if key == stage_key:
                 break
             if is_true(self.settings.get('global', {}), key):
@@ -875,8 +1004,8 @@ class PipelineApp:
         return result
 
     def preprocessing_uses_original(self, stage_key=None):
-        if pipeline_order.configured(self.settings):return False
-        if video_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):return False
+        if stage_plan.video_configured(self.settings):
             return False
         # Standalone previews may start from source; whole-remaster jobs stay strict.
         return (stage_key in PREPROCESSING_STAGES and not getattr(self, 'queue_running', False)
@@ -887,7 +1016,7 @@ class PipelineApp:
         return [] if self.preprocessing_uses_original(stage_key) else self.configured_preprocessing_upstream(stage_key)
 
     def preprocessing_problem(self, stage_key=None):
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan()
             if stage_key=='dust' and 'dust' not in plan['nodes']:
                 plan=complete_pipeline_plan({**self.settings,'global':{**self.settings.get('global',{}),'dust':'true'}})
@@ -911,7 +1040,7 @@ class PipelineApp:
                                 return 'Recomposition branch frame counts/cadence do not match; regenerate matching branches.'
                         except (OSError,ValueError,KeyError):return 'Recomposition branch metadata could not be validated.'
                 if key==stage_key:break
-                if key in video_order.STAGES:
+                if key in stage_plan.VIDEO_STAGES:
                     ready=comparison_output_ready(self,key)
                 else:
                     ready=self.stage_is_current(key)
@@ -924,23 +1053,23 @@ class PipelineApp:
         return ''
 
     def processing_input_state(self, stage_key):
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan();keys=list(plan['nodes']);upstream=self.preprocessing_upstream(stage_key)
             previous=upstream[-1] if upstream else None
             return {'source':self.processing_input(stage_key),'from_stage':previous,'label':previous or 'Original source',
                 'original_fallback':False,'parameters':{},'problem':self.preprocessing_problem(stage_key),
                 'chain':[{'key':key,'title':next(s.title for s in STAGES if s.key==key)} for key in keys]}
-        if not video_order.configured(self.settings) and stage_key in ('cleanup','dust','detail'):
+        if not stage_plan.video_configured(self.settings) and stage_key in ('cleanup','dust','detail'):
             result = self.processing_input_state(None)
             getters = {'cleanup':self.enhanced_source_for_downstream,'dust':self.stabilized_source_for_downstream,'detail':self.dust_source_for_downstream}
-            ordered = video_order.order(self.settings,preprocessing_order(self.settings))
+            ordered = stage_plan.ordered_video_stages(self.settings,preprocessing_order(self.settings))
             previous = [key for key in ordered[:ordered.index(stage_key)] if is_true(self.settings.get('global',{}),key)]
             key = previous[-1] if previous else None
             result.update(source=getters[stage_key](),from_stage=key,original_fallback=False,
                 label=next((stage.title for stage in STAGES if stage.key==key),'Original source · selected processing input'),
                 parameters={name:value for name,value in self.settings.get(key,{}).items() if name in ('method','preset','mix','zoom','smoothing','detector','repair')})
             return result
-        if stage_key == 'stabilize' and not video_order.configured(self.settings):
+        if stage_key == 'stabilize' and not stage_plan.video_configured(self.settings):
             result = self.processing_input_state(None)
             result.update(source=self.cleaned_source_for_downstream(), original_fallback=False)
             if self.cleanup_enabled():
@@ -961,7 +1090,7 @@ class PipelineApp:
                 'parameters': {key: values[key] for key in ('method', 'preset', 'mix', 'strength', 'max_correction', 'window', 'zoom', 'smoothing', 'detector', 'repair') if key in values},
                 'problem': self.preprocessing_problem(stage_key),
                 'chain': [{'key': key, 'title': titles[key]} for key in
-                          video_order.order(self.settings, preprocessing_order(self.settings)) if is_true(self.settings.get('global', {}), key)]}
+                          stage_plan.ordered_video_stages(self.settings, preprocessing_order(self.settings)) if is_true(self.settings.get('global', {}), key)]}
 
     def enhancement_matrix_state(self) -> dict:
         source, ready, revision = self.processing_input('enhancement'), [], ''
@@ -1019,7 +1148,7 @@ class PipelineApp:
 
     def cleaned_source_for_downstream(self) -> str:
         """Expected immediate output of Clean Up, or the selected source when it is disabled."""
-        return self.processing_input('stabilize') if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else self.cleanup_output() if self.cleanup_enabled() else self.enhanced_source_for_downstream()
+        return self.processing_input('stabilize') if stage_plan.uses_stage_order(self.settings) else self.cleanup_output() if self.cleanup_enabled() else self.enhanced_source_for_downstream()
 
     def stabilization_output(self) -> str:
         source = self.cleaned_source_for_downstream()
@@ -1096,7 +1225,7 @@ class PipelineApp:
 
     def stabilized_source_for_downstream(self) -> str:
         """Expected stabilized output, or the cleaned/selected source when stabilization is off."""
-        return self.processing_input('dust') if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else self.stabilization_output() if self.stabilize_enabled() else self.cleaned_source_for_downstream()
+        return self.processing_input('dust') if stage_plan.uses_stage_order(self.settings) else self.stabilization_output() if self.stabilize_enabled() else self.cleaned_source_for_downstream()
 
     def detail_output(self) -> str:
         source = self.dust_source_for_downstream()
@@ -1104,20 +1233,775 @@ class PipelineApp:
                                  self.settings.get("cloud", {}).get("intermediate_format", "high")) if source else ""
 
     def detailed_source_for_downstream(self) -> str:
-        if video_order.configured(self.settings) or pipeline_order.configured(self.settings):
+        if stage_plan.uses_stage_order(self.settings):
             return self.processing_input()
         return self.detail_output() if self.detail_enabled() else self.dust_source_for_downstream()
+
+    def _dust_root(self) -> Path:
+        return _active_dust_root()
+
+    def _dust_source_for_mode(self, analysis_source: str | None) -> tuple[str, str]:
+        mode = _normalize_dust_analysis_source(analysis_source)
+        source_text = (
+            pipeline_source_text(self.settings)
+            if mode == "original"
+            else self.stabilized_source_for_downstream()
+        )
+        return mode, str(source_text or "")
+
+    def _build_dust_binding(self, analysis_source: str | None, *, root: Path | None = None) -> tuple[str, str, Path, dict, TimelineBinding]:
+        active_root = root if root is not None else self._dust_root()
+        mode, source_text = self._dust_source_for_mode(analysis_source)
+        if not source_text:
+            raise FileNotFoundError("Choose valid source material first.")
+        source_path = _resolve_dust_source_path(source_text, active_root)
+        if not source_path.is_file():
+            if mode == "original":
+                raise FileNotFoundError("Original input is unavailable. Select a source file and prepare its selected section first.")
+            raise FileNotFoundError(f"Dust analysis source is not available yet: {source_text}")
+        meta = dust_stage.metadata(source_path)
+        source_sha = dust_stage.digest(source_path)
+        binding = build_timeline_binding(
+            source_path,
+            mode,
+            width=meta["width"],
+            height=meta["height"],
+            frame_count=meta["frames"],
+            fps=meta["fps"],
+            root=active_root,
+            source_sha256=source_sha,
+        )
+        return mode, source_text, source_path, meta, binding
+
+    def _empty_dust_edit_entry(
+        self,
+        mode: str,
+        source_text: str = "",
+        *,
+        timeline_id: str = "",
+        compatible: bool = True,
+        compatibility_reason: str = "",
+    ) -> dict:
+        summary = {
+            "timeline_id": timeline_id,
+            "edit_schema_version": EDIT_SCHEMA_VERSION,
+            "edit_revision": 0,
+            "zip_sha256": "",
+            "edit_signature": "",
+            "edited_frames": [],
+            "edited_frame_count": 0,
+            "has_edits": False,
+        }
+        return {
+            "analysis_source": mode,
+            "source": source_text,
+            "compatible": compatible,
+            "compatibility_reason": compatibility_reason,
+            **summary,
+            "summary": dict(summary),
+        }
+
+    def _conflict_reason_for_archive(
+        self,
+        expected_binding: TimelineBinding,
+        meta_path: Path,
+        root: Path,
+    ) -> str:
+        tid = meta_path.name[: -len(".meta.json")]
+        zip_path = meta_path.with_name(f"{tid}.zip")
+        if not meta_path.is_file() and not zip_path.is_file():
+            return ""
+        if meta_path.is_file():
+            try:
+                raw_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                stored_binding = TimelineBinding.from_dict(raw_meta.get("timeline_binding"))
+                check_compatibility(expected_binding, stored_binding, root=root)
+            except (EditTimelineMismatchError, EditStoreIntegrityError) as exc:
+                return f"Stored edits ({tid}) conflict with current source/dimensions: {exc}"
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                return f"Stored edits ({tid}) metadata could not be verified: {exc}"
+        return f"Stored edits ({tid}) exist without matching archive metadata."
+
+    def _find_conflicting_dust_archives(
+        self,
+        binding: TimelineBinding,
+        mode: str,
+        root: Path,
+        settings_snapshot: dict | None = None,
+    ) -> tuple[str, list[tuple[Path, Path]]]:
+        masks_dir = root / DUST_MASKS_REL_DIR
+        if not masks_dir.is_dir():
+            return "", []
+        cfg = settings_snapshot if settings_snapshot is not None else self.settings
+        dust_cfg = cfg.get("dust", {}) if isinstance(cfg, dict) else {}
+        global_source = str(cfg.get("global", {}).get("source", "") or "") if isinstance(cfg, dict) else ""
+
+        current_tid = compute_timeline_id(binding)
+        conflicts: list[tuple[Path, Path]] = []
+        seen_tids: set[str] = set()
+        reasons: list[str] = []
+
+        def _consider(tid: str, zip_path: Path, meta_path: Path) -> None:
+            if tid == current_tid or tid in seen_tids:
+                return
+            if not zip_path.is_file() and not meta_path.is_file():
+                return
+            seen_tids.add(tid)
+            conflicts.append((zip_path, meta_path))
+            reason = self._conflict_reason_for_archive(binding, meta_path, root)
+            if reason:
+                reasons.append(reason)
+
+        recorded_tid = str(dust_cfg.get(f"{mode}_timeline_id", "") or "").strip()
+        recorded_global = str(dust_cfg.get(f"{mode}_source_global", "") or "")
+        if (
+            recorded_tid
+            and re.fullmatch(r"[0-9a-f]{24}", recorded_tid)
+            and recorded_tid != current_tid
+            and (not recorded_global or recorded_global == global_source)
+        ):
+            _consider(recorded_tid, masks_dir / f"{recorded_tid}.zip", masks_dir / f"{recorded_tid}.meta.json")
+
+        norm_current = normalize_source_ref(binding.source_path, root=root)
+        for meta_path in sorted(masks_dir.glob("*.meta.json")):
+            if ".tmp" in meta_path.name or ".partial" in meta_path.name:
+                continue
+            tid = meta_path.name[: -len(".meta.json")]
+            if tid == current_tid or tid in seen_tids:
+                continue
+            try:
+                raw_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                stored_binding = TimelineBinding.from_dict(raw_meta.get("timeline_binding"))
+            except Exception:
+                continue
+            if stored_binding.analysis_source != mode:
+                continue
+            if normalize_source_ref(stored_binding.source_path, root=root) == norm_current:
+                _consider(tid, masks_dir / f"{tid}.zip", meta_path)
+
+        return (reasons[0] if reasons else ""), conflicts
+
+    def _dust_edit_status_for_mode(
+        self,
+        mode: str,
+        root: Path,
+        settings_snapshot: dict | None = None,
+    ) -> dict:
+        cfg = settings_snapshot if settings_snapshot is not None else self.settings
+        source_text = (
+            pipeline_source_text(cfg)
+            if mode == "original"
+            else _dust_stage_source_for_settings(cfg)
+        )
+        masks_dir = root / DUST_MASKS_REL_DIR
+        has_archives = masks_dir.is_dir() and any(
+            p.suffix.lower() == ".zip" or p.name.endswith(".meta.json")
+            for p in masks_dir.iterdir()
+            if p.is_file() and ".tmp" not in p.name and ".partial" not in p.name
+        )
+        if not has_archives:
+            return self._empty_dust_edit_entry(mode, source_text)
+        if not source_text:
+            return self._empty_dust_edit_entry(mode, "")
+        source_path = _resolve_dust_source_path(source_text, root)
+        if not source_path.is_file():
+            return self._empty_dust_edit_entry(mode, source_text)
+        try:
+            meta = dust_stage.metadata(source_path)
+            sha = dust_stage.digest(source_path)
+            binding = build_timeline_binding(
+                source_path,
+                mode,
+                width=meta["width"],
+                height=meta["height"],
+                frame_count=meta["frames"],
+                fps=meta["fps"],
+                root=root,
+                source_sha256=sha,
+            )
+            compat = store_compatibility_status(binding, root=root)
+            compat.pop("store", None)
+            if compat["compatible"] and not compat["has_edits"]:
+                reason, _ = self._find_conflicting_dust_archives(binding, mode, root, cfg)
+                if reason:
+                    compat["compatible"] = False
+                    compat["compatibility_reason"] = reason
+            summary = {
+                "timeline_id": compat["timeline_id"],
+                "edit_schema_version": compat.get("edit_schema_version", EDIT_SCHEMA_VERSION),
+                "edit_revision": compat["edit_revision"],
+                "zip_sha256": compat["zip_sha256"],
+                "edit_signature": compat["edit_signature"],
+                "edited_frames": list(compat["edited_frames"]),
+                "edited_frame_count": compat.get("edited_frame_count", len(compat["edited_frames"])),
+                "has_edits": bool(compat["has_edits"]),
+            }
+            return {
+                "analysis_source": mode,
+                "source": source_text,
+                "compatible": bool(compat["compatible"]),
+                "compatibility_reason": str(compat["compatibility_reason"] or ""),
+                **summary,
+                "summary": summary,
+            }
+        except Exception as exc:
+            return self._empty_dust_edit_entry(
+                mode,
+                source_text,
+                compatible=False,
+                compatibility_reason=str(exc),
+            )
+
+    def dust_edit_state(self, settings_snapshot: dict | None = None) -> dict:
+        root = self._dust_root()
+        stage_entry = self._dust_edit_status_for_mode("stage", root, settings_snapshot)
+        original_entry = self._dust_edit_status_for_mode("original", root, settings_snapshot)
+        return {
+            **stage_entry,
+            "stage": stage_entry,
+            "original": original_entry,
+        }
+
+    def _clear_dust_edit_settings(self) -> None:
+        dust_cfg = self.settings.setdefault("dust", {})
+        for key in ("edit_signature", "timeline_id", "stage_timeline_id", "stage_source_global"):
+            dust_cfg.pop(key, None)
+
+    def _sync_dust_edit_binding(self) -> None:
+        root = self._dust_root()
+        masks_dir = root / DUST_MASKS_REL_DIR
+        if not masks_dir.is_dir():
+            self._clear_dust_edit_settings()
+            return
+        has_archives = any(
+            p.suffix.lower() == ".zip" or p.name.endswith(".meta.json")
+            for p in masks_dir.iterdir()
+            if p.is_file() and ".tmp" not in p.name and ".partial" not in p.name
+        )
+        if not has_archives:
+            self._clear_dust_edit_settings()
+            return
+        source_text = self.stabilized_source_for_downstream()
+        if not source_text:
+            return
+        source_path = _resolve_dust_source_path(source_text, root)
+        if not source_path.is_file():
+            return
+        try:
+            meta = dust_stage.metadata(source_path)
+            sha = dust_stage.digest(source_path)
+            binding = build_timeline_binding(
+                source_path,
+                "stage",
+                width=meta["width"],
+                height=meta["height"],
+                frame_count=meta["frames"],
+                fps=meta["fps"],
+                root=root,
+                source_sha256=sha,
+            )
+            compat = store_compatibility_status(binding, root=root)
+        except Exception as exc:
+            self.log.append(f"Warning: could not verify Dust mask edits: {exc}")
+            return
+        if not compat["compatible"]:
+            self.log.append(f"Warning: Dust mask edits failed verification: {compat['compatibility_reason']}")
+            return
+        dust_cfg = self.settings.setdefault("dust", {})
+        if compat["has_edits"]:
+            dust_cfg["edit_signature"] = compat["edit_signature"]
+            dust_cfg["timeline_id"] = compat["timeline_id"]
+            dust_cfg["stage_timeline_id"] = compat["timeline_id"]
+            dust_cfg["stage_source_global"] = str(self.settings.get("global", {}).get("source", "") or "")
+        elif dust_cfg.get("edit_signature"):
+            dust_cfg.pop("edit_signature", None)
+            dust_cfg.pop("timeline_id", None)
+
+    def _update_dust_edit_settings(self, mode: str, timeline_id: str, summary: dict) -> None:
+        with self.lock:
+            dust_cfg = self.settings.setdefault("dust", {})
+            global_source = str(self.settings.get("global", {}).get("source", "") or "")
+            if mode == "stage":
+                if summary.get("edit_signature"):
+                    dust_cfg["edit_signature"] = str(summary["edit_signature"])
+                    dust_cfg["timeline_id"] = str(summary["timeline_id"])
+                    dust_cfg["stage_timeline_id"] = timeline_id
+                    dust_cfg["stage_source_global"] = global_source
+                else:
+                    dust_cfg.pop("edit_signature", None)
+                    dust_cfg.pop("timeline_id", None)
+                    dust_cfg.pop("stage_timeline_id", None)
+                    dust_cfg.pop("stage_source_global", None)
+            else:
+                if summary.get("has_edits"):
+                    dust_cfg["original_timeline_id"] = timeline_id
+                    dust_cfg["original_source_global"] = global_source
+                else:
+                    dust_cfg.pop("original_timeline_id", None)
+                    dust_cfg.pop("original_source_global", None)
+            self.save()
+
+    def _validate_dust_request_context(
+        self,
+        *,
+        source_text: str | None = None,
+        source_expected: str | None = None,
+        project_expected: str | None = None,
+    ) -> None:
+        if project_expected is not None and str(project_expected) != str(self.project_path or ""):
+            raise ValueError("Dust project/input changed; reload before continuing.")
+        if source_expected is not None and source_text is not None and str(source_expected) != str(source_text):
+            raise ValueError("Dust project/input changed; reload before continuing.")
+
+    def _parse_frame_index(self, frame: int | str) -> int:
+        if isinstance(frame, bool):
+            raise ValueError("Choose a nonnegative integer frame index.")
+        if isinstance(frame, int):
+            idx = frame
+        elif isinstance(frame, str) and frame.strip().lstrip("+-").isdigit():
+            idx = int(frame.strip())
+        else:
+            raise ValueError(f"Invalid frame index: {frame!r}")
+        if idx < 0:
+            raise ValueError("Choose a nonnegative frame index.")
+        return idx
+
+    def _parse_expected_revision(self, expected_revision) -> int | None:
+        if expected_revision is None or str(expected_revision).strip() == "":
+            return None
+        if isinstance(expected_revision, bool):
+            raise ValueError("expected_revision must be an integer.")
+        return int(expected_revision)
+
+    def load_dust_mask_frame(
+        self,
+        frame: int = 0,
+        *,
+        analysis_source: str = "stage",
+        timeline_id: str | None = None,
+        project_expected: str | None = None,
+    ) -> dict:
+        idx = self._parse_frame_index(frame)
+        root = self._dust_root()
+        self._validate_dust_request_context(project_expected=project_expected)
+        mode, _source_text, _source_path, meta, binding = self._build_dust_binding(analysis_source, root=root)
+        if idx >= meta["frames"]:
+            raise ValueError(f"Frame index {idx} out of range [0, {meta['frames']}).")
+
+        store = load_verified_store(binding, root=root)
+        if timeline_id and str(timeline_id).strip() != store.timeline_id:
+            raise EditTimelineMismatchError(
+                f"Edit timeline_id mismatch: expected {store.timeline_id!r}, got {timeline_id!r}."
+            )
+
+        compatible = True
+        compatibility_reason = ""
+        if not store.exists():
+            reason, _ = self._find_conflicting_dust_archives(binding, mode, root)
+            if reason:
+                compatible = False
+                compatibility_reason = reason
+
+        edit_mask_b64 = store.read_frame_b64(idx, omit_empty=True)
+        stats = store.frame_stats(idx)
+        summary = store.summary()
+        return {
+            "frame": idx,
+            "width": meta["width"],
+            "height": meta["height"],
+            "frame_count": meta["frames"],
+            "analysis_source": mode,
+            "timeline_id": store.timeline_id,
+            "edit_revision": summary["edit_revision"],
+            "zip_sha256": summary["zip_sha256"],
+            "edit_signature": summary["edit_signature"],
+            "compatible": compatible,
+            "compatibility_reason": compatibility_reason,
+            "edited_frames": summary["edited_frames"],
+            "edit_mask_b64": edit_mask_b64,
+            "reviewed": bool(stats["reviewed_pixels"] > 0),
+            "frame_stats": stats,
+            "summary": summary,
+        }
+
+    def save_dust_mask_frame(
+        self,
+        frame: int,
+        edit_mask_b64: str,
+        *,
+        analysis_source: str = "stage",
+        expected_revision: int | None = None,
+        timeline_id: str | None = None,
+        project_expected: str | None = None,
+        source_expected: str | None = None,
+    ) -> dict:
+        idx = self._parse_frame_index(frame)
+        exp_rev = self._parse_expected_revision(expected_revision)
+        if edit_mask_b64 is None or not isinstance(edit_mask_b64, str):
+            raise ValueError("edit_mask_b64 must be a base64 string.")
+
+        root = self._dust_root()
+        mode, source_text, _source_path, meta, binding = self._build_dust_binding(analysis_source, root=root)
+        self._validate_dust_request_context(
+            source_text=source_text,
+            source_expected=source_expected,
+            project_expected=project_expected,
+        )
+        if idx >= meta["frames"]:
+            raise ValueError(f"Frame index {idx} out of range [0, {meta['frames']}).")
+
+        store = load_verified_store(binding, root=root)
+        if timeline_id and str(timeline_id).strip() != store.timeline_id:
+            raise EditTimelineMismatchError(
+                f"Edit timeline_id mismatch: expected {store.timeline_id!r}, got {timeline_id!r}."
+            )
+
+        if edit_mask_b64 == "":
+            arr = np.zeros((meta["height"], meta["width"]), dtype=np.uint8)
+        else:
+            arr = decode_bitmask_b64(
+                edit_mask_b64,
+                meta["width"],
+                meta["height"],
+                validate_known_bits=True,
+            )
+
+        summary = store.save_frame(idx, arr, expected_revision=exp_rev)
+        stats = store.frame_stats(idx)
+        self._update_dust_edit_settings(mode, store.timeline_id, summary)
+        return {
+            "frame": idx,
+            "width": meta["width"],
+            "height": meta["height"],
+            "frame_count": meta["frames"],
+            "analysis_source": mode,
+            "timeline_id": store.timeline_id,
+            "edit_revision": summary["edit_revision"],
+            "zip_sha256": summary["zip_sha256"],
+            "edit_signature": summary["edit_signature"],
+            "edited_frames": summary["edited_frames"],
+            "reviewed": bool(stats["reviewed_pixels"] > 0),
+            "frame_stats": stats,
+            "summary": summary,
+        }
+
+    def reset_dust_masks(
+        self,
+        scope: str,
+        *,
+        frame: int | None = None,
+        analysis_source: str = "stage",
+        expected_revision: int | None = None,
+        timeline_id: str | None = None,
+        project_expected: str | None = None,
+        source_expected: str | None = None,
+    ) -> dict:
+        scope_norm = str(scope or "").strip().lower()
+        if scope_norm not in ("frame", "all"):
+            raise ValueError("Choose scope 'frame' or 'all' for dust mask reset.")
+        exp_rev = self._parse_expected_revision(expected_revision)
+
+        root = self._dust_root()
+        mode, source_text, _source_path, meta, binding = self._build_dust_binding(analysis_source, root=root)
+        self._validate_dust_request_context(
+            source_text=source_text,
+            source_expected=source_expected,
+            project_expected=project_expected,
+        )
+
+        store = DustMaskEditStore(binding, root=root)
+        if timeline_id and str(timeline_id).strip() != store.timeline_id:
+            raise EditTimelineMismatchError(
+                f"Edit timeline_id mismatch: expected {store.timeline_id!r}, got {timeline_id!r}."
+            )
+
+        if scope_norm == "frame":
+            if frame is None:
+                raise ValueError("Choose a frame index when resetting a single frame.")
+            idx = self._parse_frame_index(frame)
+            if idx >= meta["frames"]:
+                raise ValueError(f"Frame index {idx} out of range [0, {meta['frames']}).")
+            store.verify()
+            summary = store.reset_frame(idx, expected_revision=exp_rev)
+        else:
+            summary = store.clear_all(expected_revision=exp_rev)
+            if exp_rev is None:
+                _, conflicts = self._find_conflicting_dust_archives(binding, mode, root)
+                for zip_path, meta_path in conflicts:
+                    zip_path.unlink(missing_ok=True)
+                    meta_path.unlink(missing_ok=True)
+
+        self._update_dust_edit_settings(mode, store.timeline_id, summary)
+        return {
+            "scope": scope_norm,
+            "analysis_source": mode,
+            "timeline_id": summary["timeline_id"],
+            "edit_revision": summary["edit_revision"],
+            "zip_sha256": summary["zip_sha256"],
+            "edit_signature": summary["edit_signature"],
+            "edited_frames": summary["edited_frames"],
+            "summary": summary,
+        }
+
+    def export_dust_provenance(
+        self,
+        *,
+        analysis_source: str | None = None,
+        values: dict | None = None,
+        include_auto_proposals: bool = True,
+        frames: list[int] | None = None,
+        project_expected: str | None = None,
+    ) -> dict:
+        if values is not None and not isinstance(values, dict):
+            raise ValueError("values must be an object.")
+        self._validate_dust_request_context(project_expected=project_expected)
+
+        raw_values = {k: v for k, v in dict(values or {}).items() if k != "ignore_edits"}
+        val_mode = raw_values.get("analysis_source")
+        if analysis_source and val_mode and str(analysis_source).strip().lower() != str(val_mode).strip().lower():
+            raise ValueError("Conflicting analysis_source values in provenance export request.")
+        mode = _normalize_dust_analysis_source(analysis_source or val_mode or "stage")
+
+        root = self._dust_root()
+        _mode, _source_text, source_path, meta, binding = self._build_dust_binding(mode, root=root)
+        store = load_verified_store(binding, root=root)
+        validated_frames = validate_frame_selection(store, frames)
+
+        merged_values = {**self.settings.get("dust", {}), **raw_values, "analysis_source": mode}
+        base_opts = dust_stage.base_options(merged_values)
+        include_auto = (
+            include_auto_proposals
+            if isinstance(include_auto_proposals, bool)
+            else str(include_auto_proposals).strip().lower() not in ("false", "0", "no", "off")
+        )
+
+        auto_frames: dict[int, dict[str, np.ndarray]] | None = None
+        detector_meta: dict[str, object] = {
+            **dust_stage.detector_metadata(base_opts["detector"]),
+            "options": base_opts,
+            "base_cache_present": False,
+        }
+        root_kw = {"root": root} if root != getattr(dust_stage, "ROOT", root) else {}
+        try:
+            base_folder, base_report = dust_stage.saved_base_mask(source_path, base_opts, **root_kw)
+            detector_meta["base_cache_present"] = True
+            detector_meta["base_folder_key"] = base_folder.name
+            detector_meta["base_report_sha256"] = dust_stage.digest(base_folder / "report.json")
+            if "e2_metadata" in base_report:
+                detector_meta["e2_metadata"] = base_report["e2_metadata"]
+            if include_auto:
+                edit_set = set(store.edited_frames())
+                frame_filter = set(validated_frames) if validated_frames is not None else None
+                h, w, frame_count = int(meta["height"]), int(meta["width"]), int(meta["frames"])
+                auto_frames = {}
+                streams = zip(
+                    dust_stage._frame_plane_iter(base_folder / "mask.mkv", frame_count, h, w),
+                    dust_stage._frame_plane_iter(base_folder / "scratch_mask.mkv", frame_count, h, w),
+                    dust_stage._frame_plane_iter(base_folder / "dust_mask.mkv", frame_count, h, w),
+                    dust_stage._frame_plane_iter(base_folder / "uncertain_mask.mkv", frame_count, h, w),
+                    dust_stage._frame_plane_iter(base_folder / "vetoed_mask.mkv", frame_count, h, w),
+                    strict=True,
+                )
+                for idx, (raw_m, raw_s, raw_d, raw_u, raw_v) in enumerate(streams):
+                    if frame_filter is not None and idx not in frame_filter:
+                        continue
+                    if (
+                        idx in edit_set
+                        or (frame_filter is not None)
+                        or np.any(raw_m > 0)
+                        or np.any(raw_s > 0)
+                        or np.any(raw_d > 0)
+                        or np.any(raw_u > 0)
+                        or np.any(raw_v > 0)
+                    ):
+                        auto_frames[idx] = {
+                            "combined": raw_m.copy(),
+                            "scratch": raw_s.copy(),
+                            "dust": raw_d.copy(),
+                            "uncertain": raw_u.copy(),
+                            "vetoed": raw_v.copy(),
+                        }
+        except (FileNotFoundError, OSError, ValueError):
+            pass
+
+        rev_tag = f"rev{store.edit_revision}" if store.edit_revision > 0 else "base"
+        folder_name = f"{safe_stem(source_path.stem) or 'clip'}_{store.timeline_id[:12]}_{rev_tag}"
+        export_dir = root / "exports" / "dust_mask_provenance" / folder_name
+
+        return export_provenance_bundle(
+            store,
+            export_dir,
+            policy=base_opts.get("repair_policy", "conservative"),
+            dilate=int(base_opts.get("dilate", 0)),
+            auto_frames=auto_frames,
+            detector_metadata=detector_meta,
+            frames=validated_frames,
+        )
+
+    def _resolve_edit_context_for_source(self, source: Path | str | None, values: dict, *, root: Path) -> dict:
+        resolved = source
+        if source:
+            cand = _resolve_dust_source_path(str(source), root)
+            if cand.is_file():
+                resolved = cand
+        return dust_stage.resolve_edit_context(resolved, values, root=root)
+
+    def _resolve_dust_edit_options(
+        self,
+        source: Path | str | None,
+        values: dict | None,
+        *,
+        kind: str,
+        guard: bool,
+    ) -> tuple[dict, dict, bool]:
+        raw_values = dict(values or {})
+        ignore_edits = str(raw_values.get("ignore_edits", "")).strip().lower() == "true"
+        clean_values = {k: v for k, v in raw_values.items() if k != "ignore_edits"}
+        if ignore_edits:
+            clean_values.pop("edit_signature", None)
+            clean_values.pop("timeline_id", None)
+        opts = dust_stage.authorize(clean_values, guard, kind)
+        if ignore_edits:
+            return opts, {"has_edits": False, "edit_signature": "", "timeline_id": "", "store": None, "binding": None}, True
+
+        root = self._dust_root()
+        ctx = self._resolve_edit_context_for_source(source, opts, root=root)
+        if ctx["has_edits"]:
+            opts = dust_stage.authorize(
+                {**opts, "edit_signature": ctx["edit_signature"], "timeline_id": ctx["timeline_id"]},
+                guard,
+                kind,
+            )
+        return opts, ctx, False
+
+    def dust_status(self, values, source_expected=None, project_expected=None) -> dict:
+        raw_values = dict(values or {})
+        ignore_edits = str(raw_values.get("ignore_edits", "")).strip().lower() == "true"
+        clean_values = {k: v for k, v in raw_values.items() if k != "ignore_edits"}
+        if ignore_edits:
+            clean_values.pop("edit_signature", None)
+            clean_values.pop("timeline_id", None)
+
+        dust_stage.validate_analysis_context(self, clean_values, source_expected, project_expected)
+        source = dust_stage.analysis_source(self, clean_values)
+        mode = "original" if dust_stage.options(clean_values).get("analysis_source") == "original" else "stage"
+        root = self._dust_root()
+
+        if ignore_edits:
+            edit_ctx = {"has_edits": False, "edit_signature": "", "timeline_id": "", "store": None, "binding": None}
+            query_values = clean_values
+        else:
+            edit_ctx = self._resolve_edit_context_for_source(source, clean_values, root=root)
+            query_values = (
+                {**clean_values, "edit_signature": edit_ctx["edit_signature"], "timeline_id": edit_ctx["timeline_id"]}
+                if edit_ctx["has_edits"]
+                else clean_values
+            )
+
+        result = dust_stage.status(self, query_values, source_expected, project_expected)
+        compat_info = self._dust_edit_status_for_mode(mode, root)
+        if result.get("frames", 0) == 0 and result.get("base_mask_ready"):
+            root_kw = {"root": root} if root != getattr(dust_stage, "ROOT", root) else {}
+            try:
+                base_folder, base_report = dust_stage.saved_base_mask(source, query_values, **root_kw)
+                result["base_frames"] = base_report["metadata"]["frames"]
+                result["base_files"] = {name: rel(base_folder / name) for name in base_report["hashes"]}
+            except (FileNotFoundError, OSError, ValueError):
+                pass
+        result["dust_edits"] = compat_info
+        result["edit_context"] = {
+            **compat_info,
+            "has_edits": bool(edit_ctx["has_edits"]),
+            "edit_signature": edit_ctx["edit_signature"] or compat_info["edit_signature"],
+            "timeline_id": edit_ctx["timeline_id"] or compat_info["timeline_id"],
+            "ignore_edits": ignore_edits,
+        }
+        return result
+
+    def dust_inspect(self, values, frame=0, source_expected=None, project_expected=None) -> dict:
+        if type(frame) is not int or frame < 0:
+            raise ValueError("Choose a nonnegative frame index.")
+        raw_values = dict(values or {})
+        ignore_edits = str(raw_values.get("ignore_edits", "")).strip().lower() == "true"
+        clean_values = {k: v for k, v in raw_values.items() if k != "ignore_edits"}
+        if ignore_edits:
+            clean_values.pop("edit_signature", None)
+            clean_values.pop("timeline_id", None)
+
+        dust_stage.validate_analysis_context(self, clean_values, source_expected, project_expected)
+        source = dust_stage.analysis_source(self, clean_values)
+        mode = "original" if dust_stage.options(clean_values).get("analysis_source") == "original" else "stage"
+        root = self._dust_root()
+
+        if ignore_edits:
+            edit_ctx = {"has_edits": False, "edit_signature": "", "timeline_id": "", "store": None, "binding": None}
+            query_values = clean_values
+        else:
+            edit_ctx = self._resolve_edit_context_for_source(source, clean_values, root=root)
+            query_values = (
+                {**clean_values, "edit_signature": edit_ctx["edit_signature"], "timeline_id": edit_ctx["timeline_id"]}
+                if edit_ctx["has_edits"]
+                else clean_values
+            )
+
+        composed_pending = False
+        try:
+            result = dust_stage.inspect(self, query_values, frame, source_expected, project_expected)
+        except FileNotFoundError:
+            if ignore_edits or not edit_ctx["has_edits"]:
+                raise
+            result = dust_stage.inspect(
+                self,
+                dust_stage.base_options(query_values),
+                frame,
+                source_expected,
+                project_expected,
+            )
+            composed_pending = True
+
+        compat_info = self._dust_edit_status_for_mode(mode, root)
+        edit_mask_b64 = ""
+        frame_stats = {}
+        reviewed = False
+        if not ignore_edits and edit_ctx["store"] is not None:
+            store: DustMaskEditStore = edit_ctx["store"]
+            edit_mask_b64 = store.read_frame_b64(frame, omit_empty=True)
+            frame_stats = store.frame_stats(frame)
+            reviewed = bool(frame_stats.get("reviewed_pixels", 0) > 0)
+
+        result.setdefault("vetoed_url", result.get("urls", {}).get("vetoed_mask.mkv", ""))
+        result.setdefault("base_urls", {})
+        result.setdefault("auto_proposal_urls", {})
+        result["composed_pending"] = composed_pending
+        if composed_pending:
+            result["base_mask_ready"] = True
+            result["edit_signature"] = edit_ctx["edit_signature"]
+            result["timeline_id"] = edit_ctx["timeline_id"]
+        result["edit_mask_b64"] = edit_mask_b64
+        result["reviewed"] = reviewed
+        result["frame_stats"] = frame_stats
+        result["dust_edits"] = compat_info
+        result["edit_context"] = {
+            **compat_info,
+            "has_edits": bool(edit_ctx["has_edits"]),
+            "edit_signature": edit_ctx["edit_signature"] or compat_info["edit_signature"],
+            "timeline_id": edit_ctx["timeline_id"] or compat_info["timeline_id"],
+            "ignore_edits": ignore_edits,
+            "composed_pending": composed_pending,
+        }
+        return result
 
     def dust_output(self):
         return dust_stage.output_for(self.stabilized_source_for_downstream(), self.settings.get('dust', {}))
 
     def dust_source_for_downstream(self):
-        if video_order.configured(self.settings) or pipeline_order.configured(self.settings):
+        if stage_plan.uses_stage_order(self.settings):
             return self.processing_input('detail')
         return self.dust_output() if is_true(self.settings.get('global', {}), 'dust') else self.stabilized_source_for_downstream()
 
     def run_dust(self, values, kind, source_expected=None, project_expected=None):
-        if source_expected is not None and source_expected != dust_stage.analysis_source(self,values) or project_expected is not None and project_expected != str(self.project_path or ''):
+        raw_values = dict(values or {})
+        if source_expected is not None and source_expected != dust_stage.analysis_source(self, raw_values) or project_expected is not None and project_expected != str(self.project_path or ''):
             raise ValueError('Dust project/input changed; reload before starting work.')
         if kind not in ('mask', 'repair'):
             raise ValueError('Choose mask analysis or repair.')
@@ -1125,7 +2009,13 @@ class PipelineApp:
             return False, 'Enable Dust & Scratches on Overview first.'
         if self.quitting or getattr(self, 'queue_running', False):
             return False, 'Stop the pipeline before comparing candidates.'
-        opts = dust_stage.authorize(values, is_true(self.settings.get('global', {}), 'commercial_model_guard'), kind)
+        guard = is_true(self.settings.get('global', {}), 'commercial_model_guard')
+        ignore_edits = str(raw_values.get('ignore_edits', '')).strip().lower() == 'true'
+        clean_values = {k: v for k, v in raw_values.items() if k != 'ignore_edits'}
+        if ignore_edits:
+            clean_values.pop('edit_signature', None)
+            clean_values.pop('timeline_id', None)
+        opts = dust_stage.authorize(clean_values, guard, kind)
         if opts['detector'] == 'dart' and kind == 'mask':
             from .dart_runtime import require_installation
             require_installation(opts, ROOT)
@@ -1133,12 +2023,12 @@ class PipelineApp:
             raise ValueError('Disable legacy Clean Up AI DeScratch before running a second scratch repair.')
         self.ensure_pipeline_source()
         original = opts.get('analysis_source') == 'original'
-        problem = '' if original else self.preprocessing_problem('dust' if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else None)
+        problem = '' if original else self.preprocessing_problem('dust' if stage_plan.uses_stage_order(self.settings) else None)
         if problem:
             raise ValueError(problem)
-        if not original and self.stabilize_enabled() and ('stabilize' in self.preprocessing_upstream('dust') or not (video_order.configured(self.settings) or pipeline_order.configured(self.settings))):
+        if not original and self.stabilize_enabled() and ('stabilize' in self.preprocessing_upstream('dust') or not (stage_plan.uses_stage_order(self.settings))):
             stabilization_stage.review_pair(self, self.stabilization_output())
-        source = dust_stage.analysis_source(self,opts)
+        source = dust_stage.analysis_source(self, opts)
         ready, err = check_artifact_access(source, require_file=True)
         if not ready:
             if err:
@@ -1146,17 +2036,79 @@ class PipelineApp:
             if original:
                 raise ValueError('Original input is unavailable. Select a source file and prepare its selected section first.')
             raise ValueError('Run the configured upstream stages first; original-source substitution is not allowed.')
+
+        root = self._dust_root()
+        if kind == 'repair' or not ignore_edits:
+            edit_ctx = self._resolve_edit_context_for_source(source, opts, root=root)
+            if ignore_edits and kind == 'repair' and edit_ctx['has_edits']:
+                raise ValueError(
+                    'Cannot ignore active manual mask edits during repair when edits exist on disk; '
+                    'reset manual edits first if you want an unedited repair.'
+                )
+            if edit_ctx['has_edits']:
+                opts = dust_stage.authorize(
+                    {**opts, 'edit_signature': edit_ctx['edit_signature'], 'timeline_id': edit_ctx['timeline_id']},
+                    guard,
+                    kind,
+                )
+
+        root_kw = {'root': root} if root != getattr(dust_stage, 'ROOT', root) else {}
         if kind == 'repair':
-            dust_stage.saved_mask(source, opts)
-        cmd = self._dust_command(current_config(), opts, kind)
+            try:
+                dust_stage.saved_mask(source, opts, **root_kw)
+            except FileNotFoundError:
+                if opts.get('edit_signature'):
+                    dust_stage.saved_base_mask(source, opts, **root_kw)
+                else:
+                    raise
+        cmd = self._dust_command(
+            current_config(),
+            opts,
+            kind,
+            _resolve_edits=False,
+            ignore_edits=bool(ignore_edits and kind == 'mask'),
+        )
         return self._start_denoise_matrix('Dust & Scratches ' + kind, cmd, 'dust', expected_project=project_expected)
 
-    def _dust_command(self, config, values, kind='repair'):
+    def _dust_command(self, config, values, kind='repair', *, _resolve_edits: bool = True, ignore_edits: bool | None = None):
         import uuid
+        cmd_values = {k: v for k, v in dict(values or {}).items() if k != 'ignore_edits'}
+        ignore = (
+            bool(ignore_edits)
+            if ignore_edits is not None
+            else str((values or {}).get('ignore_edits', '')).strip().lower() == 'true'
+        )
+        if ignore:
+            cmd_values.pop('edit_signature', None)
+            cmd_values.pop('timeline_id', None)
+        source = dust_stage.analysis_source(self, cmd_values)
+        edit_ctx = None
+        if _resolve_edits and (kind == 'repair' or not ignore):
+            root = self._dust_root()
+            try:
+                edit_ctx = self._resolve_edit_context_for_source(source, cmd_values, root=root)
+            except (EditStoreIntegrityError, EditTimelineMismatchError):
+                raise
+            except Exception:
+                edit_ctx = None
+        if edit_ctx is not None and edit_ctx['has_edits']:
+            if ignore and kind == 'repair':
+                raise ValueError(
+                    'Cannot ignore active manual mask edits during repair when edits exist on disk; '
+                    'reset manual edits first if you want an unedited repair.'
+                )
+            cmd_values['edit_signature'] = edit_ctx['edit_signature']
+            cmd_values['timeline_id'] = edit_ctx['timeline_id']
         cancel = ROOT / '.cache' / 'dust-jobs' / (uuid.uuid4().hex + '.cancel')
-        cmd = [sys.executable, '-u', '-m', 'ai_remaster_gui.dust', '--source', dust_stage.analysis_source(self,values),
-               '--settings', json.dumps(values), '--kind', kind, '--comfy-url', comfy_url_for(config),
+        cmd = [sys.executable, '-u', '-m', 'ai_remaster_gui.dust', '--source', source,
+               '--settings', json.dumps(cmd_values), '--kind', kind, '--comfy-url', comfy_url_for(config),
                '--comfy-output', comfy_output_root_for(config), '--comfy-dir', comfy_dir_for(config), '--cancel-file', str(cancel)]
+        if ignore and kind == 'mask':
+            cmd.append('--ignore-edits')
+        if cmd_values.get('edit_signature'):
+            cmd.extend(['--edit-signature', str(cmd_values['edit_signature'])])
+        if cmd_values.get('timeline_id'):
+            cmd.extend(['--timeline-id', str(cmd_values['timeline_id'])])
         if is_true(self.settings.get('global', {}), 'commercial_model_guard'):
             cmd.append('--guard')
         return cmd
@@ -1165,21 +2117,51 @@ class PipelineApp:
         with self.lock:
             if self.quitting or getattr(self, 'queue_running', False) or self.process and self.process.poll() is None:
                 raise ValueError('Stop processing before adoption.')
-            opts = dust_stage.authorize(values, is_true(self.settings.get('global', {}), 'commercial_model_guard'))
+            guard = is_true(self.settings.get('global', {}), 'commercial_model_guard')
+            raw_values = dict(values or {})
+            ignore_edits = str(raw_values.get('ignore_edits', '')).strip().lower() == 'true'
+            clean_values = {k: v for k, v in raw_values.items() if k != 'ignore_edits'}
+            if ignore_edits:
+                clean_values.pop('edit_signature', None)
+                clean_values.pop('timeline_id', None)
+            opts = dust_stage.authorize(clean_values, guard)
             source = self.stabilized_source_for_downstream()
             if source_expected is not None and source_expected != source or project_expected is not None and project_expected != str(self.project_path or ''):
                 raise ValueError('Dust input changed; reload the candidate before adoption.')
-            dust_stage.manifest(dust_stage.folder_for(source, opts), source, opts, 'repair')
-            report_path = dust_stage.folder_for(source, opts) / 'report.json'
+            root = self._dust_root()
+            edit_ctx = self._resolve_edit_context_for_source(source, opts, root=root)
+            if ignore_edits and edit_ctx['has_edits']:
+                raise ValueError('Cannot ignore active manual mask edits during adoption when edits exist on disk.')
+            if edit_ctx['has_edits']:
+                opts = dust_stage.authorize(
+                    {**opts, 'edit_signature': edit_ctx['edit_signature'], 'timeline_id': edit_ctx['timeline_id']},
+                    guard,
+                )
+            root_kw = {'root': root} if root != getattr(dust_stage, 'ROOT', root) else {}
+            folder = dust_stage.folder_for(source, opts, **root_kw)
+            dust_stage.manifest(folder, source, opts, 'repair')
+            report_path = folder / 'report.json'
             if report_expected is not None and report_expected != dust_stage.digest(report_path):
                 raise ValueError('Dust candidate changed; inspect the current report before adoption.')
+            dust_cfg = self.settings.setdefault('dust', {})
+            if not opts.get('edit_signature'):
+                dust_cfg.pop('edit_signature', None)
+                dust_cfg.pop('timeline_id', None)
             self.update_settings('dust', {**{key: str(value) for key, value in opts.items()}, 'adopted_report': dust_stage.digest(report_path)})
         return {}
 
     def validate_dust_adoption(self):
-        values = dust_stage.authorize(self.settings.get('dust', {}), is_true(self.settings.get('global', {}), 'commercial_model_guard'))
         source = self.stabilized_source_for_downstream()
-        folder = dust_stage.folder_for(source, values)
+        guard = is_true(self.settings.get('global', {}), 'commercial_model_guard')
+        values, _ctx, _ignored = self._resolve_dust_edit_options(
+            source,
+            self.settings.get('dust', {}),
+            kind='repair',
+            guard=guard,
+        )
+        root = self._dust_root()
+        root_kw = {'root': root} if root != getattr(dust_stage, 'ROOT', root) else {}
+        folder = dust_stage.folder_for(source, values, **root_kw)
         dust_stage.manifest(folder, source, values, 'repair')
         if self.settings.get('dust', {}).get('adopted_report') != dust_stage.digest(folder / 'report.json'):
             raise ValueError('Inspect and explicitly adopt the current Dust & Scratches repair first.')
@@ -1188,6 +2170,7 @@ class PipelineApp:
         return complete_pipeline_plan(self.settings)
 
     def hydrate_pipeline_bindings(self):
+        self._sync_dust_edit_binding()
         plan=self.pipeline_plan()
         if plan['nodes'].get('upscale',{}).get('input'):
             self.apply_auto_upscale_target(plan['nodes']['upscale']['input'])
@@ -1205,11 +2188,11 @@ class PipelineApp:
         return plan
 
     def outpaint_source_for(self) -> str:
-        if pipeline_order.configured(self.settings):return self.processing_input('outpaint')
+        if stage_plan.pipeline_configured(self.settings):return self.processing_input('outpaint')
         return outpaint_source_for_settings(self.settings)
 
     def recomposition_base_input(self) -> str:
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             row=self.pipeline_plan()['nodes'].get('recomp',{})
             bindings=row.get('bindings',{})
             return bindings.get('outpainted_video') or bindings.get('source','')
@@ -1329,9 +2312,9 @@ class PipelineApp:
         for stage in self.active_stages():
             expected = [resolve(path) for path in self.expected_outputs(stage.key) if path]
             existing = [path for path in expected if safe_is_file(path, on_error=self.log_inaccessible_artifact)]
-            if pipeline_order.configured(self.settings) and not (comparison_output_ready(self,stage.key) if stage.key in video_order.STAGES else self.stage_is_current(stage.key)):
+            if stage_plan.pipeline_configured(self.settings) and not (comparison_output_ready(self,stage.key) if stage.key in stage_plan.VIDEO_STAGES else self.stage_is_current(stage.key)):
                 existing=[]
-            if stage.key in (video_order.STAGES if video_order.configured(self.settings) else PREPROCESSING_STAGES) and not comparison_output_ready(self, stage.key):
+            if stage.key in (stage_plan.VIDEO_STAGES if stage_plan.video_configured(self.settings) else PREPROCESSING_STAGES) and not comparison_output_ready(self, stage.key):
                 existing = []
             ready = bool(expected) and len(existing) == len(expected)
             latest = None
@@ -1403,6 +2386,31 @@ class PipelineApp:
                 label = f"{'Grid' if grid_mode else 'Batch'} {current}/{total}: {item_label}"
             else:
                 label = "Preparing grid" if grid_mode else "Preparing 9 denoise variants"
+        elif self.running_stage_key == "dust":
+            label = "Analyzing film defects"
+            current = 0
+            total = 0
+            is_repair = False
+            for line in log_text.splitlines():
+                match = re.search(r"Dust (repair )?frame (\d+)/(\d+)", line)
+                if match:
+                    is_repair = bool(match.group(1))
+                    current, total = int(match.group(2)), int(match.group(3))
+            if total and current:
+                if is_repair:
+                    percent = min(99, 50 + int(49 * current / total))
+                    fps_val = current / max(0.5, elapsed)
+                    eta_s = (total - current) / max(0.1, fps_val)
+                    label = f"Repairing defects {current}/{total} ({percent}%) [ETA {format_duration(eta_s)}]"
+                else:
+                    percent = min(99, int(95 * current / total))
+                    fps_val = current / max(0.5, elapsed)
+                    eta_s = (total - current) / max(0.1, fps_val)
+                    label = f"Analyzing defects {current}/{total} ({percent}%) [ETA {format_duration(eta_s)}]"
+            elif "dust analysis complete" in lower or "wrote effective mask" in lower:
+                percent, label = 100, "Dust analysis complete"
+            elif "repair complete" in lower or "wrote repaired video" in lower:
+                percent, label = 100, "Dust repair complete"
         elif self.running_stage_key == "deflicker":
             label = "Preparing Light Deflicker"
             for line in log_text.splitlines():
@@ -1714,7 +2722,7 @@ class PipelineApp:
     @readiness_snapshot
     def state(self, view: str = "", retry_section: bool = False) -> dict:
         with self.lock:
-            if pipeline_order.configured(self.settings):self.hydrate_pipeline_bindings()
+            if stage_plan.pipeline_configured(self.settings):self.hydrate_pipeline_bindings()
             running = self.process is not None and self.process.poll() is None
             settings_snapshot = json.loads(json.dumps(self.settings))
             source_text = settings_snapshot.get("global", {}).get("source", "")
@@ -1751,8 +2759,9 @@ class PipelineApp:
                 "enhancement_matrix": self.enhancement_matrix_state() if view == 'enhancement' else {},
                 'stabilize_matrix': self.stabilization_matrix_state() if view == 'stabilize' else {},
                 'dust_matrix': dust_stage.matrix_state(self) if view == 'dust' else {},
-                'processing_input': self.processing_input_state(view) if view in pipeline_order.STAGES else {},
-                'pipeline_plan': self.pipeline_plan() if pipeline_order.configured(self.settings) else {},
+                'dust_edits': {},
+                'processing_input': self.processing_input_state(view) if view in stage_plan.STAGES else {},
+                'pipeline_plan': self.pipeline_plan() if stage_plan.pipeline_configured(self.settings) else {},
                 'queue_running': getattr(self, 'queue_running', False),
                 "reference_luminance": {"enabled": False, "plan": [], "matched_shots": 0},
                 "upscale_preview": self.upscale_preview_state(),
@@ -1785,6 +2794,8 @@ class PipelineApp:
                 "log": "\n".join(self.log[-800:]),
                 "log_count": len(self.log),
             }
+        if view == "dust":
+            payload["dust_edits"] = self.dust_edit_state(settings_snapshot)
         if view in {"shots", "references", "colour", "upscale"}:
             payload["shot_views"] = shot_views(settings_snapshot, view)
         if view == "recomp":
@@ -1823,13 +2834,13 @@ class PipelineApp:
                     raise ValueError('Stop processing before changing the pipeline order.')
                 field = 'pipeline_order' if 'pipeline_order' in values else 'video_order' if 'video_order' in values else 'preprocessing_order'
                 if field == 'pipeline_order':
-                    pipeline_order.order({'global':values},(),strict=True)
-                elif pipeline_order.configured(self.settings):
+                    stage_plan.ordered_stages({'global':values},(),strict=True)
+                elif stage_plan.pipeline_configured(self.settings):
                     raise ValueError('Use pipeline_order once the complete order is configured.')
                 elif field == 'video_order':
-                    video_order.order({'global':values}, (), strict=True)
+                    stage_plan.ordered_video_stages({'global':values}, (), strict=True)
                 else:
-                    if video_order.configured(self.settings):
+                    if stage_plan.video_configured(self.settings):
                         raise ValueError('Use video_order once the full video order is configured.')
                     preprocessing_order({'global': values}, strict=True)
                 if set(values) != {field}:
@@ -2262,12 +3273,24 @@ class PipelineApp:
             stage_settings = self.settings.setdefault(stage_key, {})
             for key in keys:
                 stage_settings[key] = ""
+        dust_settings = self.settings.setdefault("dust", {})
+        for key in (
+            "edit_signature",
+            "timeline_id",
+            "stage_timeline_id",
+            "stage_source_global",
+            "original_timeline_id",
+            "original_source_global",
+            "adopted_report",
+        ):
+            dust_settings.pop(key, None)
 
     def hydrate_stage_inputs(self, completed_stage: str = "", *, from_persisted_load: bool = False) -> None:
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             self.hydrate_pipeline_bindings()
             self.save()
             return
+        self._sync_dust_edit_binding()
         denoise_expected_text = self.denoise_output()
         self.settings.setdefault('denoise', {})['output'] = denoise_expected_text
         clean_expected_text = self.cleanup_output()
@@ -2323,7 +3346,7 @@ class PipelineApp:
             else upstream_text
         )
 
-        if video_order.configured(self.settings):
+        if stage_plan.video_configured(self.settings):
             stabilize_settings['input_video'] = self.processing_input('stabilize')
             upstream_text = self.processing_input() if not self.preprocessing_problem() else ''
 
@@ -2437,7 +3460,7 @@ class PipelineApp:
         self.save()
 
     def expected_outputs(self, stage_key: str) -> list[str]:
-        if pipeline_order.configured(self.settings) and stage_key in pipeline_order.STAGES and stage_key not in video_order.STAGES:
+        if stage_plan.pipeline_configured(self.settings) and stage_key in stage_plan.STAGES and stage_key not in stage_plan.VIDEO_STAGES:
             row=self.pipeline_plan()['nodes'].get(stage_key)
             if not row:return []
             manifest=row['bindings'].get('manifest','')
@@ -2518,7 +3541,7 @@ class PipelineApp:
     def existing_shot_list(self) -> str:
         """The shot list Run Whole Remaster would work from, even before Outpainting has rendered
         the clip it is named after (a new outpaint model carries the other model's list over)."""
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             row=self.pipeline_plan()['nodes'].get('shots',{})
             manifest=row.get('bindings',{}).get('manifest','')
             if manifest and safe_is_file(manifest, on_error=self.log_inaccessible_artifact):
@@ -2555,11 +3578,11 @@ class PipelineApp:
 
         Run Whole Remaster skips such a stage. Regenerate and Dry run always run."""
         values = self.settings.get(stage_key, {})
-        if pipeline_order.configured(self.settings) and stage_key=='dust':
+        if stage_plan.pipeline_configured(self.settings) and stage_key=='dust':
             return comparison_output_ready(self,'dust')
         if is_true(values, "force") or is_true(values, "dry_run"):
             return False
-        if stage_key in {"audio", "upscale"} and not pipeline_order.configured(self.settings):
+        if stage_key in {"audio", "upscale"} and not stage_plan.pipeline_configured(self.settings):
             self.hydrate_stage_inputs(stage_key)  # run_stage does the same before building these
         outputs = [path for path in self.expected_outputs(stage_key) if path]
         if not outputs or len(self.existing_outputs(stage_key)) != len(outputs):
@@ -2601,7 +3624,7 @@ class PipelineApp:
 
         run_flags=False leaves out --force/--dry-run, which change how a run behaves but not
         what its inputs are."""
-        if pipeline_order.configured(self.settings):self.hydrate_pipeline_bindings()
+        if stage_plan.pipeline_configured(self.settings):self.hydrate_pipeline_bindings()
         values = self.settings[stage_key]
         config = current_config()
         builder = self._stage_command_builders().get(stage_key)
@@ -2818,7 +3841,7 @@ class PipelineApp:
         add = cmd.extend
         add(["--source-video", values.get("outpainted_video", "")])
         manifest = manifest_for_outpainted(values.get("outpainted_video", ""))
-        if pipeline_order.configured(self.settings):manifest=self.pipeline_plan()['nodes'].get('shots',{}).get('bindings',{}).get('manifest','')
+        if stage_plan.pipeline_configured(self.settings):manifest=self.pipeline_plan()['nodes'].get('shots',{}).get('bindings',{}).get('manifest','')
         if manifest:
             add(["--output-manifest", manifest])
         add_value_args(cmd, values, ("sample_seconds", "shot_threshold", "min_shot_seconds"))
@@ -2827,7 +3850,7 @@ class PipelineApp:
         # Extract reference frames at model-safe dimensions (matching the prepared canvas)
         # so thumbnails are consistent with what LTX works with.
         source_text = values.get("outpainted_video", "")
-        if self.outpaint_enabled() and not pipeline_order.configured(self.settings):
+        if self.outpaint_enabled() and not stage_plan.pipeline_configured(self.settings):
             outpaint_values = self.settings.get("outpaint", {})
             aspect = outpaint_values.get("target_aspect", "16:9")
             height_text = outpaint_values.get("target_height", "720")
@@ -2938,7 +3961,7 @@ class PipelineApp:
         add(["--saturation", values.get("saturation", "82"), "--temperature", values.get("temperature", "6500"), "--color-opacity", values.get("color_opacity", "100"), "--encoder", values.get("encoder", "h264")])
         outpaint_values = self.settings.get("outpaint", {})
         crop, _black = _outpaint_crop_black(outpaint_values)
-        if pipeline_order.configured(self.settings) and not outpainted:crop=[0,0,0,0]
+        if stage_plan.pipeline_configured(self.settings) and not outpainted:crop=[0,0,0,0]
         for flag, amount in zip(("--crop-left", "--crop-right", "--crop-top", "--crop-bottom"), crop):
             add([flag, str(amount)])
         custom_mask = custom_outpaint_mask_for(self.outpaint_source_for(), outpaint_values)
@@ -2955,7 +3978,7 @@ class PipelineApp:
             add(["--source-black-threshold", outpaint_values.get("black_mask_threshold", "12")])
         # Pass delivery dimensions so final_composite upscales from the model-safe LTX output
         # (e.g. 704p) back to the user's intended resolution (e.g. 720p).
-        source_text = self.outpaint_source_for() if pipeline_order.configured(self.settings) and outpainted else pipeline_source_text(self.settings)
+        source_text = self.outpaint_source_for() if stage_plan.pipeline_configured(self.settings) and outpainted else pipeline_source_text(self.settings)
         aspect = outpaint_values.get("target_aspect", "16:9")
         height_text = outpaint_values.get("target_height", "720")
         delivery_w, delivery_h = outpaint_size_for_source(source_text, aspect, height_text)
@@ -2968,7 +3991,7 @@ class PipelineApp:
     def _audio_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
         cmd = [sys.executable, "-u", str(SCRIPTS / "create_audio_track.py")]
         add = cmd.extend
-        source = self.soundtrack_source_for() if pipeline_order.configured(self.settings) else self.soundtrack_source_for() or values.get("input_video", "")
+        source = self.soundtrack_source_for() if stage_plan.pipeline_configured(self.settings) else self.soundtrack_source_for() or values.get("input_video", "")
         output = soundtrack_output_for(source, values)
         add(["--input", source, "--output", output])
         add(["--comfy-dir", comfy_dir_for(config)])
@@ -3000,14 +4023,14 @@ class PipelineApp:
         return cmd
 
     def _upscale_stage_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
-        source = self.upscale_input_for() if pipeline_order.configured(self.settings) else self.upscale_input_for() or values.get("input_video")
+        source = self.upscale_input_for() if stage_plan.pipeline_configured(self.settings) else self.upscale_input_for() or values.get("input_video")
         output = upscale_output_for(source, values) or values.get("output")
         if not source or not output:
             return []
         return self.upscale_command(values, source, output)
 
     def run_stage(self, stage_key: str) -> tuple[bool, str]:
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan()
             if plan['problems']:return False,'Invalid pipeline bindings: '+plan['problems'][0]
             if stage_key not in plan['nodes']:return False,'This phase is disabled in the configured pipeline.'
@@ -3047,7 +4070,7 @@ class PipelineApp:
         if stage_key == "upscale" and not self.upscale_enabled():
             return False, "Upscale is disabled on the Overview tab."
         stage = next(item for item in STAGES if item.key == stage_key)
-        if is_true(self.settings.get('global', {}), 'dust') and (('dust' in self.preprocessing_upstream(stage_key)) if video_order.configured(self.settings) or pipeline_order.configured(self.settings) else stage_key not in {'denoise','deflicker','enhancement','cleanup','stabilize','dust'}):
+        if is_true(self.settings.get('global', {}), 'dust') and (('dust' in self.preprocessing_upstream(stage_key)) if stage_plan.uses_stage_order(self.settings) else stage_key not in {'denoise','deflicker','enhancement','cleanup','stabilize','dust'}):
             try:
                 self.validate_dust_adoption()
             except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -3055,15 +4078,15 @@ class PipelineApp:
         problem = self.preprocessing_problem(stage_key)
         if problem:
             return False, problem
-        if not (video_order.configured(self.settings) or pipeline_order.configured(self.settings)) and stage_key not in {'denoise', 'deflicker', 'enhancement', 'cleanup'} and self.cleanup_enabled():
+        if not (stage_plan.uses_stage_order(self.settings)) and stage_key not in {'denoise', 'deflicker', 'enhancement', 'cleanup'} and self.cleanup_enabled():
             clean_output = self.cleanup_output()
             if not clean_output or not resolve(clean_output).exists():
                 return False, "Run Clean Up first so this phase has its upstream video."
-        if not (video_order.configured(self.settings) or pipeline_order.configured(self.settings)) and stage_key not in {'denoise', 'deflicker', 'enhancement', "cleanup", "stabilize"} and self.stabilize_enabled():
+        if not (stage_plan.uses_stage_order(self.settings)) and stage_key not in {'denoise', 'deflicker', 'enhancement', "cleanup", "stabilize"} and self.stabilize_enabled():
             stabilized_output = self.stabilization_output()
             if not stabilized_output or not resolve(stabilized_output).exists():
                 return False, "Run Stabilization first so this phase has its upstream video."
-        if not (video_order.configured(self.settings) or pipeline_order.configured(self.settings)) and stage_key not in {"denoise", "deflicker", 'enhancement', "cleanup", "stabilize", "dust", "detail"} and self.detail_enabled():
+        if not (stage_plan.uses_stage_order(self.settings)) and stage_key not in {"denoise", "deflicker", 'enhancement', "cleanup", "stabilize", "dust", "detail"} and self.detail_enabled():
             detailed_output = self.detail_output()
             if not detailed_output or not resolve(detailed_output).exists():
                 return False, "Run Detail Enhancement first so this stage has its upstream video."
@@ -3187,7 +4210,7 @@ class PipelineApp:
         return True, "Started " + stage.title
 
     def pipeline_action_problem(self, stage, manifest=None):
-        if not pipeline_order.configured(self.settings):return ''
+        if not stage_plan.pipeline_configured(self.settings):return ''
         plan=self.pipeline_plan()
         if plan['problems']:return plan['problems'][0]
         row=plan['nodes'].get(stage)
@@ -3430,7 +4453,7 @@ class PipelineApp:
         return True, f"Started Qwen guide frame generation for chunk {chunk_index + 1}, guide {guide_index}."
 
     def upscale_input_for(self) -> str:
-        if pipeline_order.configured(self.settings):return self.processing_input('upscale')
+        if stage_plan.pipeline_configured(self.settings):return self.processing_input('upscale')
         if self.soundtrack_enabled():
             soundtrack_source = self.soundtrack_source_for()
             soundtrack_output = soundtrack_output_for(soundtrack_source, self.settings.get("audio", {})) if soundtrack_source else ""
@@ -3440,7 +4463,7 @@ class PipelineApp:
             recomp = self.settings.get("recomp", {})
             recomposed = recomp.get("output") or recomposition_output_for(self.recomposition_base_input(), recomp.get("encoder", "h264"))
             return recomposed
-        return self.detailed_source_for_downstream() if video_order.configured(self.settings) or is_true(self.settings.get('global', {}), 'dust') else self.stabilized_source_for_downstream()
+        return self.detailed_source_for_downstream() if stage_plan.video_configured(self.settings) or is_true(self.settings.get('global', {}), 'dust') else self.stabilized_source_for_downstream()
 
     def apply_auto_upscale_target(self, source_text: str = "") -> None:
         """Fill Target width/height from the FlashVSR input when Auto target size is on, or CQ's size with no finisher."""
@@ -3522,7 +4545,7 @@ class PipelineApp:
         return [part for part in cmd if part != ""]
 
     def upscale_shot_manifest(self):
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             return self.pipeline_plan()['nodes'].get('upscale',{}).get('bindings',{}).get('manifest','')
         return (self.settings.get('colour',{}).get('manifest','')
             or self.settings.get('references',{}).get('manifest','')
@@ -3651,10 +4674,10 @@ class PipelineApp:
                 "exists": "true" if output and safe_is_file(output, on_error=self.log_inaccessible_artifact) else "false"}
 
     def output_selection_state(self) -> dict[str, str]:
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan();problem=self.preprocessing_problem()
             return {'path':plan['output'],'kind':'pipeline_pending' if problem else 'pipeline','label':problem or 'Configured pipeline output'}
-        if video_order.configured(self.settings) and self.preprocessing_problem():
+        if stage_plan.video_configured(self.settings) and self.preprocessing_problem():
             upstream = self.preprocessing_upstream()
             last = upstream[-1] if upstream else None
             return {'path':self.processing_input(),'kind':(last+'_pending') if last else '',
@@ -3682,7 +4705,7 @@ class PipelineApp:
             return {"path": soundtrack_output, "kind": "soundtrack", "label": "Soundtrack output"}
         if recomposed and safe_exists(recomposed, on_error=self.log_inaccessible_artifact):
             return {"path": recomposed, "kind": "recomposed", "label": "Recomposed output"}
-        if video_order.configured(self.settings):
+        if stage_plan.video_configured(self.settings):
             ready = bool(preprocessing_output and not self.preprocessing_problem())
             kind = {'denoise':'denoised','deflicker':'deflickered','enhancement':'enhanced','stabilize':'stabilized'}.get(last,last or '')
             return {'path':preprocessing_output,'kind':kind if ready else kind+'_pending' if kind else '',
@@ -3895,7 +4918,7 @@ class PipelineApp:
                 self.hydrate_stage_inputs("outpaint")
 
     def run_all(self, keep_shots: bool = False) -> tuple[bool, str]:
-        if pipeline_order.configured(self.settings):
+        if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan()
             if plan['problems']:return False,'Invalid pipeline bindings: '+plan['problems'][0]
             if keep_shots:
@@ -3923,7 +4946,7 @@ class PipelineApp:
         or missing reference images still run (the reference scripts fill in just those)."""
         if stage_key not in {"shots", "references"}:
             return False
-        if pipeline_order.configured(self.settings):return self.stage_is_current(stage_key)
+        if stage_plan.pipeline_configured(self.settings):return self.stage_is_current(stage_key)
         outputs = [path for path in self.expected_outputs(stage_key) if path]
         return bool(outputs) and len(self.existing_outputs(stage_key)) == len(outputs)
 
@@ -4388,14 +5411,14 @@ def preprocessing_order(settings, *, strict=False):
 
 
 def preprocessing_input_for(settings, stage_key=None):
-    if pipeline_order.configured(settings):
+    if stage_plan.pipeline_configured(settings):
         plan=complete_pipeline_plan(settings)
         return plan['nodes'].get(stage_key,{}).get('input','') if stage_key else plan['output']
     source = pipeline_source_text(settings)
     profile = settings.get('cloud', {}).get('intermediate_format', 'high')
     outputs = {'denoise': denoise_output_for, 'deflicker': deflicker_stage.output_for,
                'enhancement': enhancement_stage.output_for}
-    if video_order.configured(settings):
+    if stage_plan.video_configured(settings):
         outputs.update(stabilize=stabilize_output_for,detail=detail_output_for)
         def output(key, current):
             values = settings.get(key,{})
@@ -4404,7 +5427,7 @@ def preprocessing_input_for(settings, stage_key=None):
             if key == 'dust':
                 return dust_stage.output_for(current,values)
             return outputs[key](current,values,profile)
-        return video_order.input_for(settings,stage_key,source,video_order.order(settings,()),output)
+        return stage_plan.input_chain(settings,stage_key,source,stage_plan.ordered_video_stages(settings,()),output)
     for key in preprocessing_order(settings):
         if key == stage_key:
             break
@@ -4427,7 +5450,7 @@ def ordered_video_output(settings,key,source):
 def complete_pipeline_plan(settings):
     def output(key,source,bindings):
         values=settings.get(key,{})
-        if key in video_order.STAGES:return ordered_video_output(settings,key,source)
+        if key in stage_plan.VIDEO_STAGES:return ordered_video_output(settings,key,source)
         if key=='outpaint':return outpaint_output_for(source,values.get('target_aspect','16:9'),values.get('target_height','720'),values=values)
         if key=='shots':
             base=manifest_for_outpainted(source)
@@ -4453,7 +5476,7 @@ def complete_pipeline_plan(settings):
         if key=='audio':return soundtrack_output_for(source,values)
         if key=='upscale':return upscale_output_for(source,values)
         raise ValueError('Unknown pipeline producer: '+key)
-    return pipeline_order.build(settings,pipeline_source_text(settings),pipeline_order.order(settings,()),output)
+    return stage_plan.build(settings,pipeline_source_text(settings),stage_plan.ordered_stages(settings,()),output)
 
 
 def outpaint_source_for_settings(settings: dict) -> str:
@@ -4464,9 +5487,9 @@ def outpaint_source_for_settings(settings: dict) -> str:
     original source, so previewing the original source's cache makes completed
     chunks appear to be missing.
     """
-    if pipeline_order.configured(settings):return complete_pipeline_plan(settings)['nodes'].get('outpaint',{}).get('input','')
+    if stage_plan.pipeline_configured(settings):return complete_pipeline_plan(settings)['nodes'].get('outpaint',{}).get('input','')
     source_text = preprocessing_input_for(settings)
-    if video_order.configured(settings):
+    if stage_plan.video_configured(settings):
         return source_text
     global_values = settings.get("global", {})
     if source_text and is_true(global_values, "cleanup"):

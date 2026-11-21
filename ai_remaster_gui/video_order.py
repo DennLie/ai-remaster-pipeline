@@ -1,27 +1,7 @@
-"""Ordered single-video transforms; artifact-producing phases remain downstream."""
-STAGES = ('denoise', 'deflicker', 'enhancement', 'cleanup', 'stabilize', 'dust', 'detail')
+"""Compatibility shim: video order now lives in :mod:`ai_remaster_gui.stage_plan`."""
+from .stage_plan import VIDEO_STAGES as STAGES
+from .stage_plan import input_chain as input_for
+from .stage_plan import ordered_video_stages as order
+from .stage_plan import video_configured as configured
 
-
-def configured(settings):
-    return 'video_order' in settings.get('global', {})
-
-
-def order(settings, legacy, *, strict=False):
-    stored = settings.get('global', {}).get('video_order')
-    if stored is None:
-        if strict or configured(settings):
-            raise ValueError('Choose a video processing order.')
-        return [*legacy, *STAGES[3:]]
-    keys = stored.split(',') if isinstance(stored, str) else []
-    if len(keys) != len(STAGES) or set(keys) != set(STAGES):
-        raise ValueError('Video order must contain each of the seven video stages exactly once.')
-    return keys
-
-
-def input_for(settings, stage, source, ordered, output):
-    for key in ordered:
-        if key == stage:
-            break
-        if source and settings.get('global', {}).get(key) == 'true':
-            source = output(key, source)
-    return source
+__all__ = ('STAGES', 'configured', 'order', 'input_for')

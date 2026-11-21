@@ -12,7 +12,7 @@ from typing import Any
 
 
 MASK_VERSION = 1
-MAX_MASK_FRACTION = 0.025
+MAX_MASK_FRACTION = 0.30
 
 
 def to_gray(frame: Any) -> Any:
@@ -112,10 +112,10 @@ def temporal_defect_mask(previous: Any, current: Any, following: Any, sensitivit
         _x, _y, component_w, component_h, area = map(int, stats[component])
         small_spot = area <= max_blob_area and component_w <= max_blob_edge and component_h <= max_blob_edge
         fine_scratch = (
-            component_w <= max(3, int(w * 0.009))
+            component_w <= max(6, int(w * 0.015))
             and component_h >= 10
-            and component_h <= max(12, int(h * 0.60))
-            and area <= max(40, int(h * 0.75))
+            and component_h <= h
+            and area <= max(64, int(max(component_w, 6) * h * 1.2))
         )
         if small_spot or fine_scratch:
             result[labels == component] = 255

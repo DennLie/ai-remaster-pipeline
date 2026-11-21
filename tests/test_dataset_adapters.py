@@ -164,6 +164,70 @@ class TestDatasetAdapters(unittest.TestCase):
         self.assertGreater(breakdown["edges"]["false_positive_rate"], 0.0)
         self.assertGreater(breakdown["motion"]["false_positive_rate"], 0.0)
 
+    def test_split_isolation_rejects_contaminated_holdouts_and_tuning_on_holdout(self) -> None:
+        with self.assertRaises(ValueError):
+            da.validate_split_isolation([{"clip": "Neighbors_72", "split": "locked_holdout"}])
+        with self.assertRaises(ValueError):
+            da.validate_split_isolation([{"clip": "paleface_seq_b", "split": "locked_holdout"}], allow_holdout_for_tuning=True)
+        with self.assertRaises(ValueError):
+            da.validate_split_isolation([{"clip": "absdeg_020", "split": "locked_holdout"}], allow_holdout_for_tuning=True)
+        with self.assertRaises(ValueError):
+            da.validate_split_isolation([{"clip": "unseen_holdout_clip", "split": "locked_holdout"}], allow_holdout_for_tuning=False)
+
+        counts = da.validate_split_isolation(
+            [
+                {"clip": "Neighbors_72", "split": "dev_diagnostic"},
+                {"clip": "absdeg_020", "split": "dev_diagnostic"},
+                {"clip": "unseen_holdout_clip", "split": "locked_holdout"},
+            ],
+            allow_holdout_for_tuning=True,
+        )
+        self.assertEqual(counts["dev_diagnostic"], 2)
+        self.assertEqual(counts["locked_holdout"], 1)
+
+    def test_three_axis_metrics_severity_neg_controls_and_exact_restoration(self) -> None:
+        gt = np.zeros((40, 40), dtype=np.uint8)
+        gt[5:25, 10] = 255  # 20 defect px
+        gt[0:2, :] = 127     # ignore border
+
+        pred = np.zeros((40, 40), dtype=np.uint8)
+        pred[5:25, 10] = 255
+        pred[10:30, 30] = 255  # 20px tall structural false positive
+        pred[0, 0] = 255       # ignored region must not count as FP
+
+        sev = da.evaluate_false_positive_severity(gt, pred)
+        self.assertEqual(sev["fp_pixel_count"], 20)
+        self.assertEqual(sev["fp_component_count"], 1)
+        self.assertEqual(sev["max_fp_component_height"], 20)
+        self.assertEqual(sev["severe_structural_fp_count"], 1)
+
+        repair_empty = np.zeros_like(pred)
+        neg = da.evaluate_structural_negative_controls(
+            pred,
+            repair_empty,
+            [{"name": "pipe", "ymin": 8, "ymax": 32, "xmin": 28, "xmax": 33, "description": "pipe"}],
+        )
+        self.assertEqual(neg["total_detector_leak_pixels"], 20)
+        self.assertEqual(neg["total_repair_leak_pixels"], 0)
+        self.assertTrue(neg["strict_safety_gate_passed"])
+
+        neg_fail = da.evaluate_structural_negative_controls(
+            pred,
+            pred,
+            [{"name": "pipe", "ymin": 8, "ymax": 32, "xmin": 28, "xmax": 33, "description": "pipe"}],
+        )
+        self.assertFalse(neg_fail["strict_safety_gate_passed"])
+        self.assertEqual(neg_fail["total_repair_leak_pixels"], 20)
+
+        clean = np.full((40, 40, 3), 100, dtype=np.uint8)
+        damaged = clean.copy()
+        damaged[gt == 255] = 220
+        repaired = clean.copy()
+        rest = da.evaluate_exact_reference_restoration(clean, damaged, repaired, gt, gt)
+        self.assertGreater(rest["psnr_gain_db"], 10.0)
+        self.assertEqual(rest["intact_pixels_modified_count"], 0)
+        self.assertEqual(rest["intact_psnr_db"], 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()

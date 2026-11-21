@@ -36,6 +36,18 @@ OPENAI_COLOUR_PROMPT = (
 )
 
 
+EXPERIMENTAL_DUST_DETECTORS = {
+    "experimental_e2": {
+        "name": "experimental_e2",
+        "label": "Experimental E2 · Scene-vs-Film (Experimental)",
+        "preset": "experimental_e2_research",
+        "opt_in_field": "research_confirmed",
+        "default_promoted": False,
+        "three_state": True,
+    },
+}
+
+
 @dataclass(frozen=True)
 class Stage:
     key: str
@@ -139,8 +151,9 @@ STAGES = (
         "Inspect defect proposals, then explicitly repair and adopt. Experimental; no proven historical ground truth.",
         ("intermediate/dust_scratches",),
         (
-            ("preset", "Detector preset", "select:balanced|fast_preview|high_quality_precision|scratch_focused|dust_focused|high_recall|conservative_low_fp|dart_optimal_f1|dart_high_recall|dart_conservative|custom", "balanced"),
-            ("detector", "Defect detector", "select:farneback_3f|dis_flow|ridge|consensus_5f|legacy|dart", "farneback_3f"),
+            ("preset", "Detector preset", "select:balanced|fast_preview|high_quality_precision|scratch_focused|dust_focused|high_recall|conservative_low_fp|dart_optimal_f1|dart_high_recall|dart_conservative|bopb_scratch_balanced|bopb_scratch_high_recall|film_artefact_balanced|cnn_blotches_precision|patchcore_anomaly_research|padim_anomaly_research|temporal_scratch_balanced|experimental_e2_research|custom", "balanced"),
+            ("detector", "Defect detector", "select:farneback_3f|dis_flow|ridge|consensus_5f|legacy|dart|bopb|film_artefact_segmenter|cnn_blotches|patchcore|padim|temporal_scratch|correl_net|experimental_e2", "farneback_3f"),
+            ("enable_temporal_scratch", "Temporal scratch enhancement (motion-compensated)", "checkbox", "false"),
             ("repair", "Repair method", "select:telea|propainter|dart", "telea"),
             ("sensitivity", "Detection sensitivity", "range:0|1|0.05", "0.65"),
             ("radius", "Telea radius (px)", "number", "3"),

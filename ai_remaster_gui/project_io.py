@@ -8,6 +8,11 @@ from pathlib import Path
 
 from .config import IMAGE_EXTS, ROOT, VIDEO_EXTS
 from . import state
+from .dust_mask_edits import (
+    compute_file_sha256,
+    normalize_source_ref,
+    verify_archive_pair,
+)
 from .manifests import read_manifest, read_outpaint_chunk_rows
 from .paths import resolve, resolve_video_source, safe_stem
 from .runtime_settings import default_settings, load_settings, normalize_settings, migrate_deflicker_settings
@@ -19,22 +24,29 @@ PROJECT_JSON_NAME = "project.json"
 # Extensions allowed inside a project bundle. .json is included so outpaint guide sidecars
 # (resume signatures, edit metadata) travel with the guides and aren't treated as stale on load.
 BUNDLE_EXTS = IMAGE_EXTS | {".csv", ".txt", ".json"}
-# Per-frame outpaint masks are one zip of PNGs. Zips are accepted from this folder only, so a
-# project file cannot use the extension to drop arbitrary archives elsewhere in the install.
+# Per-frame outpaint masks and sparse Dust edit bitmasks are stored as ZIPs under these
+# manifest directories only. Zips are accepted exclusively from these prefixes so a project
+# file cannot drop arbitrary archives elsewhere in the install.
 FRAME_MASK_BUNDLE_DIR = "manifests/outpaint_masks/"
+DUST_MASK_BUNDLE_DIR = "manifests/dust_masks/"
 
 
 def bundle_name_allowed(name: str) -> bool:
     name = name.replace("\\", "/")
+    if not name or name.startswith("/") or ".." in Path(name).parts:
+        return False
     suffix = Path(name).suffix.lower()
-    return suffix in BUNDLE_EXTS or (suffix == ".zip" and name.startswith(FRAME_MASK_BUNDLE_DIR))
+    return suffix in BUNDLE_EXTS or (
+        suffix == ".zip" and name.startswith((FRAME_MASK_BUNDLE_DIR, DUST_MASK_BUNDLE_DIR))
+    )
 
 
 def bind_context(context: dict) -> None:
-    """Bind GUI helpers used to identify the active outpaint chunk manifest."""
+    """Bind GUI helpers used to identify the active outpaint chunk manifest and dust edit stores."""
     globals().update({key: context[key] for key in (
         "outpaint_chunk_manifest_for", "pipeline_source_text",
         "outpaint_source_for_settings", "custom_outpaint_mask_for", "frame_outpaint_masks_for",
+        "dust_mask_archives_for",
     ) if key in context})
 
 
@@ -168,6 +180,146 @@ def project_asset_paths(settings: dict[str, dict[str, str]]) -> list[Path]:
                 assets.append(mask)
         except Exception:
             pass
+    for asset in dust_mask_asset_paths(settings):
+        if asset not in seen:
+            seen.add(asset)
+            assets.append(asset)
+    return assets
+
+
+def _candidate_dust_sources(settings: dict[str, dict[str, str]]) -> tuple[set[str], list[Path]]:
+    raw_texts: list[str] = []
+    global_values = settings.get("global", {}) if isinstance(settings, dict) else {}
+    dust_values = settings.get("dust", {}) if isinstance(settings, dict) else {}
+    for value in (
+        global_values.get("source", ""),
+        dust_values.get("source", ""),
+        dust_values.get("stage_source", ""),
+        dust_values.get("original_source", ""),
+    ):
+        if value:
+            raw_texts.append(str(value))
+    for fn_name in ("pipeline_source_text", "outpaint_source_for_settings"):
+        fn = globals().get(fn_name)
+        if fn:
+            try:
+                value = fn(settings)
+                if value:
+                    raw_texts.append(str(value))
+            except Exception:
+                pass
+
+    norm_refs: set[str] = set()
+    existing_files: list[Path] = []
+    seen_files: set[Path] = set()
+    for text in raw_texts:
+        norm_refs.add(normalize_source_ref(text, root=ROOT))
+        cand_path = Path(text)
+        if not cand_path.is_absolute():
+            local_path = ROOT / cand_path
+            if local_path.is_file():
+                resolved_local = local_path.resolve()
+                norm_refs.add(normalize_source_ref(resolved_local, root=ROOT))
+                if resolved_local not in seen_files:
+                    seen_files.add(resolved_local)
+                    existing_files.append(resolved_local)
+        try:
+            resolved = resolve_video_source(text)
+            norm_refs.add(normalize_source_ref(resolved, root=ROOT))
+            if resolved.is_file():
+                resolved_canon = resolved.resolve()
+                if resolved_canon not in seen_files:
+                    seen_files.add(resolved_canon)
+                    existing_files.append(resolved_canon)
+        except OSError:
+            pass
+    norm_refs.discard("")
+    return norm_refs, existing_files
+
+
+def dust_mask_asset_paths(settings: dict[str, dict[str, str]]) -> list[Path]:
+    """Collect active project Dust & Scratches bitmask ZIP archives and verified .meta.json sidecars."""
+    masks_dir = ROOT / "manifests" / "dust_masks"
+    candidate_pairs: list[tuple[Path, Path]] = []
+    seen_pairs: set[tuple[Path, Path]] = set()
+
+    def _add_pair(zip_path: Path, meta_path: Path) -> None:
+        key = (zip_path.resolve(strict=False), meta_path.resolve(strict=False))
+        if key not in seen_pairs:
+            seen_pairs.add(key)
+            candidate_pairs.append((zip_path, meta_path))
+
+    archives_for = globals().get("dust_mask_archives_for")
+    if archives_for:
+        try:
+            for item in archives_for(settings) or ():
+                p = Path(item) if Path(item).is_absolute() else ROOT / item
+                if p.name.endswith(".meta.json"):
+                    tid = p.name[: -len(".meta.json")]
+                    _add_pair(p.with_name(f"{tid}.zip"), p)
+                elif p.suffix.lower() == ".zip":
+                    _add_pair(p, p.with_suffix(".meta.json"))
+        except Exception:
+            pass
+
+    dust_values = settings.get("dust", {}) if isinstance(settings, dict) else {}
+    for key in ("timeline_id", "edit_timeline_id", "stage_timeline_id", "original_timeline_id"):
+        tid = str(dust_values.get(key, "") or "").strip()
+        if tid and "/" not in tid and "\\" not in tid and ".." not in tid:
+            _add_pair(masks_dir / f"{tid}.zip", masks_dir / f"{tid}.meta.json")
+
+    if masks_dir.is_dir():
+        norm_refs, existing_files = _candidate_dust_sources(settings)
+        file_shas_by_size: dict[int, set[str]] = {}
+        if norm_refs or existing_files:
+            for meta_path in sorted(masks_dir.glob("*.meta.json")):
+                if ".tmp" in meta_path.name or ".partial" in meta_path.name:
+                    continue
+                try:
+                    raw_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(raw_meta, dict):
+                    continue
+                binding_data = raw_meta.get("timeline_binding")
+                if not isinstance(binding_data, dict):
+                    continue
+                tid = meta_path.name[: -len(".meta.json")]
+                zip_path = masks_dir / f"{tid}.zip"
+                binding_src = normalize_source_ref(str(binding_data.get("source_path", "") or ""), root=ROOT)
+                matched = bool(binding_src and binding_src in norm_refs)
+                if not matched and existing_files:
+                    binding_sha = str(binding_data.get("source_sha256", "") or "").strip().lower()
+                    try:
+                        binding_size = int(binding_data.get("source_size", -1))
+                    except (TypeError, ValueError):
+                        binding_size = -1
+                    if binding_sha and binding_size >= 0:
+                        if binding_size not in file_shas_by_size:
+                            shas: set[str] = set()
+                            for src_file in existing_files:
+                                try:
+                                    if src_file.stat().st_size == binding_size:
+                                        shas.add(compute_file_sha256(src_file))
+                                except OSError:
+                                    continue
+                            file_shas_by_size[binding_size] = shas
+                        matched = binding_sha in file_shas_by_size[binding_size]
+                if matched:
+                    _add_pair(zip_path, meta_path)
+
+    assets: list[Path] = []
+    seen_assets: set[Path] = set()
+    for zip_path, meta_path in candidate_pairs:
+        if not zip_path.exists() and not meta_path.exists():
+            continue
+        state = verify_archive_pair(zip_path, meta_path)
+        if not state.get("exists") or not state.get("edited_frames"):
+            continue
+        for asset in (zip_path, meta_path):
+            if asset not in seen_assets and project_asset_is_bundleable(asset):
+                seen_assets.add(asset)
+                assets.append(asset)
     return assets
 
 def chunk_guide_image_texts(manifest: Path) -> list[str]:
