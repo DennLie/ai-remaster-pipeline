@@ -241,6 +241,8 @@ class DeflickerMediaTests(unittest.TestCase):
         with patch.object(server.APP, "settings", self.settings):
             self.assertFalse(server.APP.deflicker_output_ready())
             self.assertEqual(server.APP.existing_outputs("deflicker"), [])
+            self.settings["global"]["commercial_model_guard"] = "false"
+            self.settings["global"]["non_commercial_benchmark_override"] = "true"
             self.settings["global"]["cleanup"] = "true"
             ok, message = server.APP.run_stage("cleanup")
             self.assertFalse(ok)

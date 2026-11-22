@@ -998,8 +998,37 @@ def qwen21_reference_regeneration_command(manifest_text: str, index: int, refere
     ]
     return cmd, output
 
+def ddcolor_reference_regeneration_command(manifest_text: str, index: int, reference_index: int = 0) -> tuple[list[str], str]:
+    _manifest, _row, source, output = reference_row_io(manifest_text, index, reference_index)
+    values = state.APP.settings.get("references", {})
+    cmd = [
+        sys.executable,
+        "-u",
+        str(SCRIPTS / "ddcolor_reference.py"),
+        "--input-image",
+        source,
+        "--output",
+        output,
+        "--compliance-output-dir",
+        str(ROOT / "output"),
+    ]
+    seed_args = reference_seed_args(values)
+    if seed_args:
+        cmd.extend(seed_args)
+    return cmd, output
+
+
 def regenerate_reference_image(manifest_text: str, index: int, reference_index: int = 0) -> dict[str, str]:
-    cmd, output = reference_regeneration_command(manifest_text, index, reference_index)
+    values = state.APP.settings.get("references", {})
+    method = values.get("method", "ddcolor")
+    if method == "openai":
+        cmd, output = openai_reference_regeneration_command(manifest_text, index, reference_index)
+    elif method == "qwen21":
+        cmd, output = qwen21_reference_regeneration_command(manifest_text, index, reference_index)
+    elif method == "ddcolor":
+        cmd, output = ddcolor_reference_regeneration_command(manifest_text, index, reference_index)
+    else:
+        cmd, output = reference_regeneration_command(manifest_text, index, reference_index)
     state.APP.log.append("> " + " ".join(cmd))
     result = subprocess.run(cmd, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     for line in result.stdout.splitlines():

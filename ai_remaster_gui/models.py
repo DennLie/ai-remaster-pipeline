@@ -230,11 +230,11 @@ STAGES = (
     Stage(
         "references",
         "Reference Generation",
-        "Colorize extracted stills through a Qwen Image Edit ComfyUI workflow.",
+        "Colorize extracted stills through DDColor or a Qwen Image Edit ComfyUI workflow.",
         ("intermediate/outpainted_references", "intermediate/outpainted_references_color", "manifests/references"),
         (
             ("compute", "Qwen compute", "select:local|runpod", "local"),
-            ("method", "Method", "select:qwen|qwen21|openai", "qwen"),
+            ("method", "Method", "select:ddcolor|qwen|qwen21|openai", "qwen"),
             ("manifest", "Manifest", "file", ""),
             ("prompt", "Prompt", "text", REFERENCE_PROMPT),
             ("prompt_suffix", "Prompt suffix", "text", REFERENCE_PROMPT_SUFFIX),

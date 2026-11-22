@@ -147,6 +147,7 @@ from .references import (
     qwen_reference_count,
     qwen21_reference_regeneration_command,
     reference_edit_prompt,
+    ddcolor_reference_regeneration_command,
     reference_regeneration_command,
     accept_reference_edit,
     regenerate_reference_image,
@@ -3863,7 +3864,21 @@ class PipelineApp:
         return cmd
 
     def _references_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
-        if values.get("method", "qwen") == "openai":
+        if values.get("method") == "ddcolor":
+            cmd = [sys.executable, "-u", str(SCRIPTS / "ddcolor_reference.py")]
+            cmd.extend(["--manifest", values.get("manifest", "")])
+            if values.get("output_root"):
+                cmd.extend(["--output-root", values["output_root"]])
+            compliance_dir = ROOT / "output"
+            cmd.extend(["--compliance-output-dir", str(compliance_dir)])
+            if values.get("seed") and str(values["seed"]).strip():
+                cmd.extend(["--seed", str(values["seed"]).strip()])
+            elif values.get("reference_seed") and str(values["reference_seed"]).strip() not in ("-1", ""):
+                cmd.extend(["--seed", str(values["reference_seed"]).strip()])
+            if values.get("limit") and str(values["limit"]).strip():
+                cmd.extend(["--limit", str(values["limit"]).strip()])
+            return cmd
+        elif values.get("method", "qwen") == "openai":
             cmd = [sys.executable, "-u", str(SCRIPTS / "openai_generate_reference.py")]
             add = cmd.extend
             add(["--manifest", values.get("manifest", ""), "--api-key", values.get("openai_api_key", "")])
@@ -4030,6 +4045,8 @@ class PipelineApp:
         return self.upscale_command(values, source, output)
 
     def run_stage(self, stage_key: str) -> tuple[bool, str]:
+        if self.quitting:
+            return False, "ARP is shutting down."
         if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan()
             if plan['problems']:return False,'Invalid pipeline bindings: '+plan['problems'][0]
@@ -4043,8 +4060,6 @@ class PipelineApp:
         problem = stage_issue(self.settings, stage_key)
         if problem:
             return False, problem
-        if self.quitting:
-            return False, "ARP is shutting down."
         if stage_key == 'denoise' and not self.denoise_enabled():
             return False, 'Remove Noise is disabled on the Overview tab.'
         if stage_key == 'deflicker' and not self.deflicker_enabled():
@@ -4179,7 +4194,7 @@ class PipelineApp:
             stage_key in {"outpaint", "audio"}
             or (stage_key == "colour" and values.get("method", "deepexemplar") not in {"openai", "cmnet2"})
             or (stage_key == "cleanup" and is_true(values, "dearchive", "true"))
-            or (stage_key == "references" and values.get("method", "qwen") != "openai")
+            or (stage_key == "references" and values.get("method", "qwen") not in {"openai", "ddcolor"})
             or stage_key == "upscale"
         )
         if uses_runpod and not self.settings.get("cloud", {}).get("runpod_api_key", "").strip():
@@ -4220,6 +4235,8 @@ class PipelineApp:
         return self.preprocessing_problem(stage)
 
     def run_outpaint_chunk(self, index: int) -> tuple[bool, str]:
+        if self.quitting:
+            return False, "ARP is shutting down."
         problem=self.pipeline_action_problem('outpaint')
         if problem:return False,problem
         problem = stage_issue(self.settings, "outpaint")
@@ -4255,11 +4272,11 @@ class PipelineApp:
         problem=self.pipeline_action_problem('references',manifest_text)
         if problem:return False,problem
         method = self.settings.get("references", {}).get("method")
-        provider = "openai" if (provider == "openai" or method == "openai") else "qwen21" if method == "qwen21" else "qwen"
+        provider = "openai" if (provider == "openai" or method == "openai") else "qwen21" if method == "qwen21" else "ddcolor" if (provider == "ddcolor" or method == "ddcolor") else "qwen"
         problem = stage_issue(self.settings, "references", model_override=provider)
         if problem:
             return False, problem
-        if provider != "openai":
+        if provider not in ("openai", "ddcolor"):
             ok, message = ensure_comfy_available_for_stage("Reference Generation")
             if not ok:
                 return False, message
@@ -4268,6 +4285,8 @@ class PipelineApp:
                 cmd, output = openai_reference_regeneration_command(manifest_text, index, reference_index)
             elif provider == "qwen21":
                 cmd, output = qwen21_reference_regeneration_command(manifest_text, index, reference_index)
+            elif provider == "ddcolor":
+                cmd, output = ddcolor_reference_regeneration_command(manifest_text, index, reference_index)
             else:
                 cmd, output = reference_regeneration_command(manifest_text, index, reference_index)
         except Exception as exc:
@@ -4280,7 +4299,7 @@ class PipelineApp:
             self.running_reference_manifest = manifest_text
             self.running_reference_index = index
             self.run_started_at = time.time()
-            label = {"openai": "OpenAI", "qwen21": "Qwen-Image-2.1"}.get(provider, "Qwen")
+            label = {"openai": "OpenAI", "qwen21": "Qwen-Image-2.1", "ddcolor": "DDColor"}.get(provider, "Qwen")
             self.log.append(f"Regenerating colour reference {reference_index + 1} with {label} for shot {index + 1}: {output}")
             self.log.append("> " + redact_command_for_log(cmd))
             try:
@@ -4739,6 +4758,8 @@ class PipelineApp:
         return {"path": "", "kind": "", "label": ""}
 
     def run_upscale_preview(self) -> tuple[bool, str]:
+        if self.quitting:
+            return False, "ARP is shutting down."
         problem=self.pipeline_action_problem('upscale')
         if problem:return False,problem
         problem = stage_issue(self.settings, "upscale")
@@ -4802,6 +4823,8 @@ class PipelineApp:
         return resolve(source_text), 0.0, preview_seconds, f"upscale_preview_{preview_seconds:.3f}"
 
     def run_guide_edit_preview(self, chunk_index: int, guide_index: int, instruction: str, mask_data: str = "", sampled_color: str = "", engine: str = "") -> tuple[bool, str, str]:
+        if self.quitting:
+            return False, "ARP is shutting down.", ""
         problem=self.pipeline_action_problem('outpaint')
         if problem:return False,problem,''
         engine = guide_edit_engine(engine)

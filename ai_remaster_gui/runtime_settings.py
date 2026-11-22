@@ -151,7 +151,8 @@ def base_settings() -> dict[str, dict[str, str]]:
         "enhancement": "false",
         "preprocessing_order": "denoise,deflicker,enhancement",
         "cleanup": "false",
-        "commercial_model_guard": "false",
+        "commercial_model_guard": "true",
+        "non_commercial_benchmark_override": "false",
         "stabilize": "false",
         "dust": "false",
         "detail": "false",
@@ -204,6 +205,9 @@ def migrate_deflicker_settings(stored: dict) -> dict:
 
 
 def normalize_settings(defaults: dict[str, dict[str, str]], include_newest_source: bool = True) -> dict[str, dict[str, str]]:
+    defaults.setdefault("global", {})
+    defaults["global"].setdefault("commercial_model_guard", "true")
+    defaults["global"].setdefault("non_commercial_benchmark_override", "false")
     cloud = defaults["cloud"]
     cloud["intermediate_format"] = canonical_intermediate_profile(cloud.get("intermediate_format"))
     legacy_gpu_pool = "NVIDIA RTX 6000 Ada Generation,NVIDIA RTX A6000,NVIDIA GeForce RTX 4090"

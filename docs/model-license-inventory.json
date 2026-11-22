@@ -91,6 +91,18 @@
       ]
     },
     {
+      "id": "references.method.ddcolor",
+      "stage": "references",
+      "field": "method",
+      "value": "ddcolor",
+      "status": "cleared",
+      "reason": "DDColor code and published weights licensed under Apache-2.0; verified OSI permissive open source",
+      "evidence": [
+        "https://github.com/piddnad/DDColor",
+        "https://huggingface.co/piddnad/DDColor-models"
+      ]
+    },
+    {
       "id": "references.method.qwen",
       "stage": "references",
       "field": "method",

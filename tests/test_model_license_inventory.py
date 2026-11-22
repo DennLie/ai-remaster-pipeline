@@ -53,7 +53,7 @@ class ModelLicenseInventoryTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         for row in entries:
             self.assertEqual(row["id"], ".".join((row["stage"], row["field"], row["value"])))
-            self.assertIn(row["status"], {"restricted", "incomplete", "external_terms"})
+            self.assertIn(row["status"], {"restricted", "incomplete", "external_terms", "cleared"})
             self.assertTrue(row["reason"])
             self.assertTrue(row["evidence"])
             self.assertTrue(all(str(link).startswith("https://") for link in row["evidence"]))
@@ -64,7 +64,10 @@ class ModelLicenseInventoryTests(unittest.TestCase):
                 settings = base_settings()
                 settings["global"]["commercial_model_guard"] = "true"
                 settings[row["stage"]][row["field"]] = row["value"]
-                self.assertTrue(stage_issue(settings, row["stage"]), row["id"])
+                if row.get("status") == "cleared":
+                    self.assertEqual(stage_issue(settings, row["stage"]), "", row["id"])
+                else:
+                    self.assertTrue(stage_issue(settings, row["stage"]), row["id"])
 
     def test_candidates_cannot_be_marked_cleared(self):
         candidates = self.inventory["candidates"]
@@ -72,6 +75,25 @@ class ModelLicenseInventoryTests(unittest.TestCase):
         for entry in candidates:
             self.assertNotEqual(entry["status"], "cleared")
             self.assertTrue(entry["evidence"])
+
+    def test_ddcolor_reference_entry_in_inventory(self):
+        ddcolor_entry = next(
+            (row for row in self.inventory["entries"] if row["id"] == "references.method.ddcolor"),
+            None,
+        )
+        self.assertIsNotNone(ddcolor_entry, "references.method.ddcolor must be in model-license-inventory.json")
+        self.assertEqual(ddcolor_entry["status"], "cleared")
+        self.assertEqual(ddcolor_entry["stage"], "references")
+        self.assertEqual(ddcolor_entry["field"], "method")
+        self.assertEqual(ddcolor_entry["value"], "ddcolor")
+        self.assertIn("Apache-2.0", ddcolor_entry["reason"])
+        self.assertTrue(all(link.startswith("https://") for link in ddcolor_entry["evidence"]))
+
+        # Verify commercial policy passes ddcolor without issues
+        settings = base_settings()
+        settings["global"]["commercial_model_guard"] = "true"
+        settings["references"]["method"] = "ddcolor"
+        self.assertEqual(stage_issue(settings, "references"), "")
 
 
 if __name__ == "__main__":

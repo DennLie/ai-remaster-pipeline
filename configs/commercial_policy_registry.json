@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "1.0.0",
+  "title": "Commercial Model Policy Registry",
+  "description": "Registry of machine learning models, weights, LoRAs, and text encoders categorized by commercial use eligibility under the AI Remaster Pipeline policy.",
+  "policies": {
+    "ALLOWED_OSI": {
+      "description": "Permissive open-source models verified under OSI-approved licenses (e.g. Apache-2.0, MIT, BSD-3-Clause).",
+      "models": {
+        "ddcolor": {
+          "name": "DDColor",
+          "aliases": ["ddcolor", "dd-color"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/piddnad/DDColor",
+          "component_types": ["checkpoint"],
+          "audited_hashes": []
+        },
+        "deoldify": {
+          "name": "DeOldify",
+          "aliases": ["deoldify"],
+          "license": "MIT",
+          "source_repo": "https://github.com/jantic/DeOldify",
+          "component_types": ["checkpoint"],
+          "audited_hashes": []
+        },
+        "qwen-image-edit-2511": {
+          "name": "Qwen-Image-Edit-2511",
+          "aliases": ["qwen", "qwen2511", "qwen-2511", "qwen-image-edit-2511"],
+          "license": "Apache-2.0",
+          "source_repo": "https://huggingface.co/Qwen/Qwen-Image-Edit-2511",
+          "component_types": ["checkpoint", "gguf", "lora"],
+          "notes": "Requires audited SHA-256 for GGUF and Lightning LoRA weights",
+          "audited_hashes": []
+        },
+        "qwen3-vl": {
+          "name": "Qwen3-VL",
+          "aliases": ["qwen3-vl", "qwen3vl", "qwen3_vl"],
+          "license": "Apache-2.0",
+          "source_repo": "https://huggingface.co/Qwen/Qwen3-VL",
+          "component_types": ["checkpoint"],
+          "audited_hashes": []
+        },
+        "sam2": {
+          "name": "SAM 2 / SAM 2.1",
+          "aliases": ["sam2", "sam2.1", "sam-2", "sam-2.1"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/facebookresearch/sam2",
+          "component_types": ["checkpoint"],
+          "audited_hashes": []
+        },
+        "bytetrack": {
+          "name": "ByteTrack",
+          "aliases": ["bytetrack", "byte_track"],
+          "license": "MIT",
+          "source_repo": "https://github.com/ifzhang/ByteTrack",
+          "component_types": ["tracker"],
+          "audited_hashes": []
+        },
+        "pyscenedetect": {
+          "name": "PySceneDetect",
+          "aliases": ["pyscenedetect", "scenedetect", "py_scene_detect"],
+          "license": "BSD-3-Clause",
+          "source_repo": "https://github.com/Breakthrough/PySceneDetect",
+          "component_types": ["detector"],
+          "audited_hashes": []
+        }
+      }
+    },
+    "CONDITIONAL_COMMERCIAL": {
+      "description": "Models permitted for commercial use only when specific contractual conditions and component audits are satisfied.",
+      "models": {
+        "ltx": {
+          "name": "LTX-2.3 / LTX-2.5",
+          "aliases": ["ltx", "ltx23", "ltx-2.3", "ltx25", "ltx-2.5", "ltx25cq", "dearchive", "oumoumad", "official"],
+          "license": "LTX-Community-License",
+          "source_repo": "https://huggingface.co/Lightricks/LTX-Video",
+          "conditions": {
+            "company_revenue_under_10m_usd": {
+              "type": "boolean",
+              "required": true,
+              "description": "Company annual gross revenue must be under $10,000,000 USD."
+            },
+            "ic_lora_audited": {
+              "type": "boolean",
+              "required": true,
+              "description": "Explicit audit verification for IC-LoRA weights."
+            },
+            "gemma_encoder_audited": {
+              "type": "boolean",
+              "required": true,
+              "description": "Explicit audit verification for Gemma-3 text encoder weights."
+            }
+          },
+          "component_types": ["checkpoint", "lora", "text_encoder"],
+          "audited_hashes": []
+        },
+        "deepexemplar": {
+          "name": "Deep Exemplar",
+          "aliases": ["deepexemplar", "deep-exemplar"],
+          "license": "MIT (Code) / Conditional Weights",
+          "source_repo": "https://github.com/zhangmozhe/Deep-Exemplar-based-Video-Colorization",
+          "conditions": {
+            "weight_vgg19_audited": {
+              "type": "boolean",
+              "required": true,
+              "description": "Explicit audit flag confirming VGG19 and colorization weights are cleared."
+            }
+          },
+          "component_types": ["checkpoint", "weights"],
+          "audited_hashes": []
+        }
+      }
+    },
+    "HARD_BLOCK_COMMERCIAL": {
+      "description": "Models strictly prohibited from commercial remaster workflows due to non-commercial licenses or research-only terms.",
+      "models": {
+        "cmnet2": {
+          "name": "CMNET2",
+          "aliases": ["cmnet2"],
+          "license": "CC BY-NC-SA 4.0",
+          "source_repo": "https://github.com/dan64/cmnet2",
+          "reason": "Non-commercial license (CC BY-NC-SA 4.0) prohibits commercial use."
+        },
+        "colormnet": {
+          "name": "ColorMNet",
+          "aliases": ["colormnet"],
+          "license": "CC BY-NC-SA 4.0",
+          "source_repo": "https://github.com/yyang181/colormnet",
+          "reason": "Non-commercial license (CC BY-NC-SA 4.0) prohibits commercial use."
+        },
+        "qwen-image-2.1": {
+          "name": "Qwen-Image-2.1",
+          "aliases": ["qwen21", "qwen-2.1", "qwen-image-2.1"],
+          "license": "Qwen-Research",
+          "source_repo": "https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo",
+          "reason": "Research-only license prohibits commercial use."
+        },
+        "propainter": {
+          "name": "ProPainter",
+          "aliases": ["propainter", "ai_descratch"],
+          "license": "NTU S-Lab License 1.0",
+          "source_repo": "https://github.com/sczhou/ProPainter",
+          "reason": "Non-commercial research license (NTU S-Lab License 1.0) prohibits commercial use."
+        },
+        "h3": {
+          "name": "MiniMax H3",
+          "aliases": ["h3", "minimax-h3", "minimax"],
+          "license": "MiniMax-H3-Terms",
+          "source_repo": "https://huggingface.co/MiniMaxAI",
+          "reason": "Territorial and commercial restrictions incompatible with unrestricted commercial remaster workflows."
+        },
+        "sam3.1": {
+          "name": "SAM 3.1",
+          "aliases": ["sam3", "sam3.1", "sam-3.1"],
+          "license": "Non-Commercial Research",
+          "source_repo": "https://github.com/facebookresearch/segment-anything",
+          "reason": "Restricted research-only license prohibits commercial use."
+        }
+      }
+    }
+  }
+}

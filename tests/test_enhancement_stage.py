@@ -119,6 +119,8 @@ class EnhancementTests(unittest.TestCase):
             self.assertEqual(server.APP.cleaned_source_for_downstream(), expected)
             self.assertEqual(server.outpaint_source_for_settings(settings), expected)
             self.assertEqual(settings['detail'], legacy)
+            settings['global']['commercial_model_guard'] = 'false'
+            settings['global']['non_commercial_benchmark_override'] = 'true'
             settings['global']['denoise'] = settings['global']['deflicker'] = 'false'
             settings['global']['cleanup'] = 'true'
             ok, message = server.APP.run_stage('cleanup')

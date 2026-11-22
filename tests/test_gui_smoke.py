@@ -1374,7 +1374,11 @@ class GuiSmokeTests(unittest.TestCase):
 
     def test_outpaint_chunk_regeneration_forgets_the_outpaint_stamp(self) -> None:
         stage_stamps.write_stamp("outpaint", ["intermediate/outpainted/movie.mp4"], "digest")
-        app.APP.settings["global"]["source"] = "input/movie.mp4"
+        app.APP.settings["global"].update({
+            "source": "input/movie.mp4",
+            "commercial_model_guard": "false",
+            "non_commercial_benchmark_override": "true",
+        })
 
         class RunningProcess:
             stdout: list[str] = []
@@ -3443,7 +3447,16 @@ class GuiSmokeTests(unittest.TestCase):
         self.assertEqual(wide_limits[0], 97)
 
     def test_outpaint_command_selects_minimax_h3_and_gates_it_on_a_licence(self) -> None:
-        app.APP.settings["global"].update({"source": "input/example.mp4", "section_start": "0", "section_end": "", "cleanup": "false", "stabilize": "false", "expand_outpaint": "true"})
+        app.APP.settings["global"].update({
+            "source": "input/example.mp4",
+            "section_start": "0",
+            "section_end": "",
+            "cleanup": "false",
+            "stabilize": "false",
+            "expand_outpaint": "true",
+            "commercial_model_guard": "false",
+            "non_commercial_benchmark_override": "true",
+        })
         app.APP.settings["outpaint"].update({"outpaint_model": "h3", "h3_license_confirmed": "false", "h3_pdd": "true"})
 
         command = app.APP.command_for("outpaint")
@@ -4653,6 +4666,8 @@ class GuiSmokeTests(unittest.TestCase):
                     "add_soundtrack": "true",
                     "section_start": "0",
                     "section_end": "",
+                    "commercial_model_guard": "false",
+                    "non_commercial_benchmark_override": "true",
                 }
             )
             app.APP.settings["audio"].update(
@@ -4690,6 +4705,8 @@ class GuiSmokeTests(unittest.TestCase):
                     "add_soundtrack": "true",
                     "section_start": "0",
                     "section_end": "",
+                    "commercial_model_guard": "false",
+                    "non_commercial_benchmark_override": "true",
                 }
             )
             app.APP.settings["audio"].update(
@@ -4764,6 +4781,8 @@ class GuiSmokeTests(unittest.TestCase):
                     "add_soundtrack": "true",
                     "section_start": "0",
                     "section_end": "",
+                    "commercial_model_guard": "false",
+                    "non_commercial_benchmark_override": "true",
                 }
             )
             with mock.patch.object(server, "ROOT", root):
@@ -6462,6 +6481,10 @@ class GuiSmokeTests(unittest.TestCase):
             rows = [{"chunk_index": "0", "start_frame": "0", "end_frame": "24",
                      "guide_frames": json.dumps([{"frame_idx": 0, "strength": 0.7, "image": app.rel(filled)}])}]
             app.write_outpaint_chunk_rows(manifest, rows)
+            app.APP.settings["global"].update({
+                "commercial_model_guard": "false",
+                "non_commercial_benchmark_override": "true",
+            })
             app.APP.settings["references"]["openai_api_key"] = "sk-test"
             fake_state = {"manifest": app.rel(manifest), "rows": [{"index": 0}]}
             with mock.patch.object(outpaint_guides, "outpaint_chunks_state", return_value=fake_state):
@@ -6953,7 +6976,16 @@ class GuiSmokeTests(unittest.TestCase):
         self.assertEqual(command[command.index("--input") + 1], recomp_output)
 
     def test_upscale_after_earlier_phase_waits_for_recomposition_output(self) -> None:
-        app.APP.settings["global"].update({"source": "input/example.mp4", "expand_outpaint": "true", "colorize": "false", "upscale": "true", "section_start": "0", "section_end": ""})
+        app.APP.settings["global"].update({
+            "source": "input/example.mp4",
+            "expand_outpaint": "true",
+            "colorize": "false",
+            "upscale": "true",
+            "section_start": "0",
+            "section_end": "",
+            "commercial_model_guard": "false",
+            "non_commercial_benchmark_override": "true",
+        })
         app.APP.settings["recomp"]["output"] = "output/reassembled/missing_recomposition.mp4"
 
         ok, message = app.APP.run_stage("upscale")
@@ -6962,7 +6994,16 @@ class GuiSmokeTests(unittest.TestCase):
         self.assertIn("Run Recomposition first", message)
 
     def test_upscale_stage_stops_before_comfy_on_unsupported_flashvsr_gpu(self) -> None:
-        app.APP.settings["global"].update({"source": "input/example.mp4", "expand_outpaint": "false", "colorize": "false", "upscale": "true", "section_start": "0", "section_end": ""})
+        app.APP.settings["global"].update({
+            "source": "input/example.mp4",
+            "expand_outpaint": "false",
+            "colorize": "false",
+            "upscale": "true",
+            "section_start": "0",
+            "section_end": "",
+            "commercial_model_guard": "false",
+            "non_commercial_benchmark_override": "true",
+        })
 
         with (
             mock.patch.object(server, "flashvsr_hardware_warning", return_value="Unsupported FlashVSR GPU"),
@@ -6975,7 +7016,16 @@ class GuiSmokeTests(unittest.TestCase):
         ensure_comfy.assert_not_called()
 
     def test_upscale_preview_stops_on_unsupported_flashvsr_gpu(self) -> None:
-        app.APP.settings["global"].update({"source": "input/example.mp4", "expand_outpaint": "false", "colorize": "false", "upscale": "true", "section_start": "0", "section_end": ""})
+        app.APP.settings["global"].update({
+            "source": "input/example.mp4",
+            "expand_outpaint": "false",
+            "colorize": "false",
+            "upscale": "true",
+            "section_start": "0",
+            "section_end": "",
+            "commercial_model_guard": "false",
+            "non_commercial_benchmark_override": "true",
+        })
 
         with mock.patch.object(server, "flashvsr_hardware_warning", return_value="Unsupported FlashVSR GPU"):
             ok, message = app.APP.run_upscale_preview()
@@ -7084,6 +7134,8 @@ class GuiSmokeTests(unittest.TestCase):
                     "upscale": "true",
                     "section_start": "1",
                     "section_end": "2",
+                    "commercial_model_guard": "false",
+                    "non_commercial_benchmark_override": "true",
                 }
             )
             app.APP.settings["upscale"].update({"target_width": "1920", "target_height": "1080"})
@@ -7199,6 +7251,8 @@ class GuiSmokeTests(unittest.TestCase):
                     "upscale": "true",
                     "section_start": "0",
                     "section_end": "",
+                    "commercial_model_guard": "false",
+                    "non_commercial_benchmark_override": "true",
                 }
             )
             app.APP.settings["upscale"].update({"target_width": "1920", "target_height": "1080", "preview_seconds": "6"})

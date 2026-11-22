@@ -414,7 +414,7 @@ class DustTests(unittest.TestCase):
             with patch.object(dust,'propainter_frames',side_effect=fake),patch('dust_model_preflight.inspect_propainter',return_value={'ready':True,'backend':'propainter','test_double':True}):
                 dust.run(source,neural,'repair')
             settings=base_settings()
-            settings['global'].update(source=str(source),dust='true')
+            settings['global'].update(source=str(source),dust='true',commercial_model_guard='false',non_commercial_benchmark_override='true')
             settings['dust'].update({k:str(v) for k,v in neural.items()})
             with patch.object(server.APP,'settings',settings),patch.object(server.APP,'stabilized_source_for_downstream',return_value=str(source)), \
                  patch.object(server.APP,'save'),patch.object(server.APP,'hydrate_stage_inputs'), \

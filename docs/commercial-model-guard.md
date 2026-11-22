@@ -1,4 +1,4 @@
-# Commercial model guard (experimental, opt-in)
+# Commercial model guard
 
 The [model licence audit](model-license-audit.md) and its
 [machine-readable inventory](model-license-inventory.json) describe the
@@ -6,20 +6,36 @@ primary-source evidence and unresolved model-chain issues.
 
 The **Commercial model guard** option on the **Overview** tab enables a
 conservative *model selection* preflight for GUI and HTTP-launched workflows.
-It is **off by default** to preserve existing project behavior. Turn it on for
-commercial projects; any selected generative backend without an audited
-complete model bundle is blocked rather than assumed safe.
+It is **ON by default (`True`)** as of Phase 1 to guarantee out-of-the-box
+compliance safety. Any selected generative backend without an audited,
+commercially cleared complete model bundle is blocked rather than assumed safe.
+
+### Non-commercial benchmark override
+
+For non-commercial research, evaluation, and comparative benchmarking where
+restricted models (e.g. ProPainter, Qwen research models, ColorMNet) must be executed,
+the guard can be bypassed via:
+- Setting `non_commercial_benchmark_override: "true"` in project settings.
+- Explicitly passing `--allow-non-commercial-benchmark` (or `--guard-mode benchmark_override`)
+  in CLI tools (`scripts/compliance_report.py`, `scripts/ddcolor_reference.py`).
+- Setting `commercial_model_guard: "false"` in settings or CLI.
+
+When the benchmark override is active, execution proceeds without blocking, but generated
+compliance reports permanently record `guard_mode: "benchmark_override"` and flag the
+run as non-compliant (`is_commercial_compliant: false`, `overall_commercial_compliant: false`).
 
 **Not a licence certification or grant.** Commercial clearance of the
 application, any film footage, training data, exact model checkpoint,
 quantized derivative, LoRA, ComfyUI custom node, FFmpeg build, dependency
 and cloud provider must be assessed separately. Direct CLI execution of
-`scripts/*.py` bypasses this GUI guard. Existing outputs are not audited.
+`scripts/*.py` bypasses this GUI guard unless explicitly invoked with compliance
+reporting enabled. Existing outputs are not audited.
 
 ## Backend decisions
 
 | Stage / backend | Strict guard result | Rationale |
 | --- | --- | --- |
+| DDColor (reference generation) | Allowed (OSI) | Apache-2.0 upstream code and checkpoints, OSI-compliant |
 | DeVignette only | Not blocked | No generative model; toolchain still needs review |
 | ProPainter / AI DeScratch | Blocked | NTU S-Lab License 1.0, non-commercial |
 | LTX Dearchive | Blocked | Commercial constraints and LoRA clearance |
@@ -36,10 +52,9 @@ and cloud provider must be assessed separately. Direct CLI execution of
 | FlashVSR / SeedVR2 / LTX upscale | Pending audit or restricted, blocked | Checkpoint / dependency clearance incomplete |
 | Stabilization / shot detection / recomposition | Not blocked | No AI checkpoint selected; other obligations remain |
 
-No supported generative backend is **certified for unrestricted commercial
-use** by this initial PR. A later PR should add an inventory recording
-repository, exact revision, downloaded file hashes, licences, notices and
-evidence for every bundled component before selectively allowing backends.
+DDColor is cleared under Apache-2.0 as an OSI-compliant reference still colorizer.
+Other generative backends remain subject to audit and clearance before being allowed
+under strict guard mode.
 
 ## Enforcement points
 
@@ -47,15 +62,14 @@ evidence for every bundled component before selectively allowing backends.
   whose results might otherwise be reused.
 - Individual stage run, outpaint-chunk regeneration, manual reference
   regeneration/edit previews, guide generation/editing and upscale preview.
-- The setting is saved per project; existing projects default to guard off.
-- Command-line scripts and installer downloads are not blocked. Treat this as
-  a safety net for GUI workflows, not as a security boundary against users.
+- The setting is saved per project; projects default to guard ON (`commercial_model_guard: "true"`).
 - Intermediate outputs created before guard activation are neither deleted nor
   retroactively cleared.
 
 ## Sources to re-check against pinned model revisions
 
 - [ARP model inventory](installer-model-sources.md)
+- [DDColor](https://github.com/piddnad/DDColor)
 - [ProPainter](https://github.com/sczhou/ProPainter)
 - [ColorMNet licences](https://github.com/yyang181/colormnet/blob/main/LICENSES)
 - [CMNET2](https://github.com/dan64/cmnet2)
