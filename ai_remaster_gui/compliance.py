@@ -339,6 +339,55 @@ def load_compliance_report(path: Path | str) -> dict[str, Any] | None:
     return None
 
 
+def resolve_color_bible_version(
+    film_id: str | None = None,
+    db_path: Path | str | None = None,
+    settings: Mapping[str, Any] | None = None,
+) -> str | None:
+    """Resolve Color Bible snapshot version hash for a film if configured and available.
+
+    If film_id is provided (or discoverable from settings.get("global", {}).get("color_bible_film_id")
+    or settings.get("global", {}).get("film_id")), attempts to instantiate ColorBibleService(db_path=db_path)
+    and call service.get_snapshot_hash(film_id). If DB does not exist, or film has no approved
+    references/assignments, or any error occurs, cleanly returns None.
+    """
+    try:
+        target_film_id = film_id
+        target_db_path = db_path
+
+        if not target_film_id and settings:
+            global_cfg: Mapping[str, Any]
+            if isinstance(settings.get("global"), Mapping):
+                global_cfg = settings["global"]  # type: ignore[assignment]
+            else:
+                global_cfg = settings
+            target_film_id = global_cfg.get("color_bible_film_id") or global_cfg.get("film_id")
+            if target_db_path is None and "color_bible_db" in global_cfg:
+                target_db_path = global_cfg["color_bible_db"]
+
+        if not target_film_id or not str(target_film_id).strip():
+            return None
+
+        target_film_id = str(target_film_id).strip()
+
+        from .color_bible_db import resolve_color_bible_db
+        from .color_bible_service import ColorBibleService
+
+        if target_db_path != ":memory:":
+            resolved_path = resolve_color_bible_db(target_db_path)
+            if not resolved_path.is_file():
+                return None
+
+        with ColorBibleService(db_path=target_db_path) as service:
+            assignments = service.list_assignments(target_film_id)
+            references = service.list_approved_references(target_film_id)
+            if not assignments and not references:
+                return None
+            return service.get_snapshot_hash(target_film_id)
+    except Exception:
+        return None
+
+
 def append_compliance_record(
     output_dir: Path | str,
     stage: str,
@@ -375,7 +424,10 @@ def append_compliance_record(
     ]
     run_compliant = is_run_compliant(guard_mode, normalized_models)
     formatted_seeds = format_seeds(seeds)
-    cb_version = str(color_bible_version) if color_bible_version is not None else None
+    if color_bible_version is None:
+        cb_version = resolve_color_bible_version(settings=settings)
+    else:
+        cb_version = str(color_bible_version)
     disclosure = get_eu_ai_act_disclosure(settings=settings)
 
     now_iso = datetime.now(timezone.utc).isoformat()

@@ -6,6 +6,7 @@ function draw(followLogs = false) {
   if (active === 'shots') return drawShots(followLogs);
   if (active === 'references') return drawReferences(followLogs);
   if (active === 'colour') return drawColour(followLogs);
+  if (active === 'color_bible') return drawColorBible(followLogs);
   if (active === 'recomp') return drawRecomp(followLogs);
   if (active === 'upscale') return drawUpscale(followLogs);
 

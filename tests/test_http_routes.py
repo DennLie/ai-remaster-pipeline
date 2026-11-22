@@ -46,6 +46,9 @@ EXPECTED_GET_ROUTES = {
     "/api/cleanup-frame-differences",
     "/api/frame-inspector",
     "/api/dust-mask-frame",
+    "/api/color-bible/state",
+    "/api/color-bible/shot-assignments",
+    "/api/color-bible/snapshot-hash",
     "/media",
 }
 
@@ -73,6 +76,15 @@ EXPECTED_POST_ROUTES = {
     "/api/stabilize-batch", "/api/stabilize-adopt",
     "/api/dust-status", "/api/dust-inspect", "/api/dust-run", "/api/dust-adopt",
     "/api/dust-mask-frame", "/api/dust-mask-reset", "/api/dust-mask-export",
+    "/api/color-bible/sync-manifest",
+    "/api/color-bible/film",
+    "/api/color-bible/character",
+    "/api/color-bible/variant",
+    "/api/color-bible/object",
+    "/api/color-bible/location",
+    "/api/color-bible/assign-ranges",
+    "/api/color-bible/reference",
+    "/api/color-bible/reference-approval",
 }
 
 

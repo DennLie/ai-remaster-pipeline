@@ -123,8 +123,34 @@ LOOPBACK_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 def served_source_paths() -> list[str]:
     """The selected source video lives anywhere on disk, so its folder is added to the set of
     directories the file-serving endpoints are allowed to read from."""
+    if state.APP is None or not hasattr(state.APP, "settings"):
+        return []
     source = state.APP.settings.get("global", {}).get("source", "")
     return [source] if source else []
+
+
+def _parse_color_bible_ranges(raw: object) -> list[tuple[int, int]]:
+    """Parse shot ranges from a string ('12-18,410-435') or list of pairs/ints."""
+    result: list[tuple[int, int]] = []
+    if isinstance(raw, str):
+        for part in raw.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                s, e = part.split("-", 1)
+                result.append((int(s.strip()), int(e.strip())))
+            else:
+                val = int(part.strip())
+                result.append((val, val))
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                result.append((int(item[0]), int(item[1])))
+            elif isinstance(item, (int, str)) and str(item).strip().lstrip("+-").isdigit():
+                val = int(str(item).strip())
+                result.append((val, val))
+    return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -407,6 +433,81 @@ class Handler(BaseHTTPRequestHandler):
                         preview = chunk_frame_preview(range_source, secs, cache_key)
                         self.send_json({"ok": True, "preview": preview})
             except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/color-bible/state":
+            query = parse_qs(parsed.query)
+            film_id = query.get("film_id", [""])[0].strip()
+            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
+                film_id = str(state.APP.settings.get("global", {}).get("color_bible_film_id", "")).strip()
+            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
+                source = state.APP.settings.get("global", {}).get("source", "")
+                if source:
+                    film_id = Path(source).stem
+            try:
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    repo = service.repo
+                    films = repo.list_films()
+                    if not film_id and films:
+                        film_id = films[0].film_id
+
+                    characters = [c.to_dict() for c in repo.list_characters(film_id)] if film_id else []
+                    appearance_variants = [v.to_dict() for v in repo.list_variants_for_film(film_id)] if film_id else []
+                    objects = [o.to_dict() for o in repo.list_objects(film_id)] if film_id else []
+                    locations = [l.to_dict() for l in repo.list_locations(film_id)] if film_id else []
+                    assignments = [a.to_dict() for a in repo.list_assignments(film_id)] if film_id else []
+                    references = [r.to_dict() for r in repo.list_references(film_id)] if film_id else []
+                    snapshot_hash = service.get_snapshot_hash(film_id) if film_id else None
+
+                    self.send_json({
+                        "ok": True,
+                        "film_id": film_id,
+                        "films": [f.to_dict() for f in films],
+                        "characters": characters,
+                        "appearance_variants": appearance_variants,
+                        "objects": objects,
+                        "locations": locations,
+                        "assignments": assignments,
+                        "references": references,
+                        "snapshot_hash": snapshot_hash,
+                    })
+            except Exception as exc:
+                state.APP.log.append(f"Color Bible state failed: {exc}")
+                self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/color-bible/shot-assignments":
+            query = parse_qs(parsed.query)
+            try:
+                film_id = query.get("film_id", [""])[0].strip()
+                raw_index = query.get("shot_index", [""])[0]
+                if not str(raw_index).strip().lstrip("+-").isdigit():
+                    raise ValueError(f"Invalid shot_index: {raw_index!r}")
+                shot_index = int(str(raw_index).strip())
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    assignments = service.get_shot_palette_assignments(film_id, shot_index)
+                    self.send_json({
+                        "ok": True,
+                        "shot_index": shot_index,
+                        "assignments": assignments,
+                    })
+            except Exception as exc:
+                state.APP.log.append(f"Color Bible shot assignments failed: {exc}")
+                self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/color-bible/snapshot-hash":
+            query = parse_qs(parsed.query)
+            try:
+                film_id = query.get("film_id", [""])[0].strip()
+                if not film_id:
+                    raise ValueError("film_id is required.")
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    snapshot_hash = service.get_snapshot_hash(film_id)
+                    self.send_json({
+                        "ok": True,
+                        "snapshot_hash": snapshot_hash,
+                    })
+            except Exception as exc:
+                state.APP.log.append(f"Color Bible snapshot hash failed: {exc}")
                 self.send_json({"ok": False, "error": str(exc)})
         elif parsed.path == "/media":
             query = parse_qs(parsed.query)
@@ -822,6 +923,174 @@ class Handler(BaseHTTPRequestHandler):
                 return {**result, "state": state.APP.state()}
 
             self._send_result("Cache delete", cache_delete)
+        elif parsed.path == "/api/color-bible/sync-manifest":
+            manifest_str = str(data.get("manifest", "")).strip()
+            resolved_manifest = resolve_served(manifest_str, served_source_paths()) if manifest_str else None
+            if not resolved_manifest or not resolved_manifest.is_file():
+                self.send_error(400, "Invalid manifest path or path traversal detected.")
+                return
+
+            def sync_manifest_action():
+                film_id = str(data.get("film_id", "")).strip()
+                title = str(data.get("title", "")).strip() or None
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    result = service.sync_manifest(film_id, resolved_manifest, title=title)
+                    return {"shots_synced": result.get("shots_synced", 0)}
+
+            self._send_result("Color Bible sync manifest", sync_manifest_action)
+        elif parsed.path == "/api/color-bible/film":
+            def create_film_action():
+                film_id = str(data.get("film_id", "")).strip()
+                title = str(data.get("title", "")).strip() or None
+                source_video = str(data.get("source_video", "")).strip() or None
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    film = service.create_film(film_id=film_id, title=title, source_video=source_video)
+                    return {"film": film.to_dict()}
+
+            self._send_result("Color Bible film", create_film_action)
+        elif parsed.path == "/api/color-bible/character":
+            def create_char_action():
+                film_id = str(data.get("film_id", "")).strip()
+                name = str(data.get("name", "")).strip()
+                notes = str(data.get("notes", "")).strip()
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    char = service.create_character(film_id=film_id, name=name, notes=notes)
+                    return {"character": char.to_dict()}
+
+            self._send_result("Color Bible character", create_char_action)
+        elif parsed.path == "/api/color-bible/variant":
+            def create_var_action():
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    var = service.create_appearance_variant(
+                        character_id=str(data.get("character_id", "")).strip(),
+                        costume_id=str(data.get("costume_id", "")).strip(),
+                        hair_profile=str(data.get("hair_profile", "")).strip(),
+                        skin_reference=str(data.get("skin_reference", "")).strip(),
+                        lighting_context=str(data.get("lighting_context", "")).strip(),
+                        notes=str(data.get("notes", "")).strip(),
+                    )
+                    return {"variant": var.to_dict()}
+
+            self._send_result("Color Bible variant", create_var_action)
+        elif parsed.path == "/api/color-bible/object":
+            def create_obj_action():
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    obj = service.create_object(
+                        film_id=str(data.get("film_id", "")).strip(),
+                        kind=str(data.get("kind", "")).strip(),
+                        name=str(data.get("name", "")).strip(),
+                        palette=data.get("palette"),
+                        notes=str(data.get("notes", "")).strip(),
+                    )
+                    return {"object": obj.to_dict()}
+
+            self._send_result("Color Bible object", create_obj_action)
+        elif parsed.path == "/api/color-bible/location":
+            def create_loc_action():
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    loc = service.create_location(
+                        film_id=str(data.get("film_id", "")).strip(),
+                        set_name=str(data.get("set_name", "")).strip(),
+                        lighting_context=str(data.get("lighting_context", "")).strip(),
+                        palette=data.get("palette"),
+                        notes=str(data.get("notes", "")).strip(),
+                    )
+                    return {"location": loc.to_dict()}
+
+            self._send_result("Color Bible location", create_loc_action)
+        elif parsed.path == "/api/color-bible/assign-ranges":
+            def assign_ranges_action():
+                film_id = str(data.get("film_id", "")).strip()
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    if data.get("action") == "delete" or "delete_assignment_id" in data:
+                        asgn_id = str(data.get("delete_assignment_id") or data.get("assignment_id", "")).strip()
+                        if asgn_id:
+                            service.delete_assignment(asgn_id)
+                            return {"assignments": [a.to_dict() for a in service.list_assignments(film_id)]}
+
+                    entity_type = str(data.get("entity_type", "")).strip()
+                    entity_id = str(data.get("entity_id", "")).strip()
+                    variant_id = str(data.get("variant_id", "")).strip() or None
+                    parsed_ranges = _parse_color_bible_ranges(data.get("ranges", []))
+                    confidence = float(data.get("confidence", 1.0))
+                    approval_status = str(data.get("approval_status", "approved")).strip()
+                    provenance = str(data.get("provenance", "manual")).strip()
+
+                    assignments = service.assign_entity_ranges(
+                        film_id=film_id,
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        ranges=parsed_ranges,
+                        variant_id=variant_id,
+                        confidence=confidence,
+                        approval_status=approval_status,
+                        provenance=provenance,
+                    )
+                    return {"assignments": [a.to_dict() for a in assignments]}
+
+            self._send_result("Color Bible assign ranges", assign_ranges_action)
+        elif parsed.path == "/api/color-bible/reference":
+            keyframe_str = str(data.get("keyframe_path", "")).strip()
+            resolved_kf = resolve_served(keyframe_str, served_source_paths()) if keyframe_str else None
+            if not resolved_kf or not resolved_kf.is_file():
+                self.send_error(400, "Invalid keyframe path or path traversal detected.")
+                return
+
+            mask_str = data.get("mask_uri")
+            resolved_mask = None
+            if mask_str is not None and str(mask_str).strip() != "":
+                resolved_mask = resolve_served(str(mask_str).strip(), served_source_paths())
+                if not resolved_mask or not resolved_mask.is_file():
+                    self.send_error(400, "Invalid mask path or path traversal detected.")
+                    return
+
+            def register_ref_action():
+                film_id = str(data.get("film_id", "")).strip()
+                entity_type = str(data.get("entity_type", "")).strip()
+                entity_id = str(data.get("entity_id", "")).strip()
+                variant_id = str(data.get("variant_id", "")).strip() or None
+                provenance = str(data.get("provenance", "manual")).strip()
+                source_shot_id = str(data.get("source_shot_id", "")).strip() or None
+                auto_approve = bool(data.get("auto_approve", False))
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    ref = service.register_reference_image(
+                        film_id=film_id,
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        keyframe_path=resolved_kf,
+                        mask_uri=resolved_mask,
+                        variant_id=variant_id,
+                        provenance=provenance,
+                        source_shot_id=source_shot_id,
+                        auto_approve=auto_approve,
+                    )
+                    return {"reference": ref.to_dict()}
+
+            self._send_result("Color Bible reference", register_ref_action)
+        elif parsed.path == "/api/color-bible/reference-approval":
+            def ref_approval_action():
+                ref_id = str(data.get("ref_id", "")).strip()
+                action = str(data.get("action", "")).strip().lower()
+                approved_by = str(data.get("approved_by", "colorist")).strip()
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as service:
+                    if action == "approve":
+                        ref = service.approve_reference(ref_id, approved_by=approved_by)
+                    elif action == "reject":
+                        ref = service.reject_reference(ref_id)
+                    else:
+                        raise ValueError(f"Invalid approval action: '{action}'. Must be 'approve' or 'reject'.")
+                    return {"reference": ref.to_dict()}
+
+            self._send_result("Color Bible reference approval", ref_approval_action)
         else:
             self.send_error(404)
 

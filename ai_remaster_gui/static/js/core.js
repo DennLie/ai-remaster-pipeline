@@ -425,12 +425,13 @@ function availableTabs() {
     if (st.key === 'output') tabs.push('cache');
     tabs.push(st.key);
   }
+  tabs.push('color_bible');
   tabs.push('settings');
   return tabs;
 }
 
 function drawTabs() {
-  const names = { global: 'Overview', cache: 'Cached Files', settings: 'Settings', detail: 'Detail Enhancement (legacy)' };
+  const names = { global: 'Overview', cache: 'Cached Files', color_bible: 'Color Bible', settings: 'Settings', detail: 'Detail Enhancement (legacy)' };
   const tabs = availableTabs().map(tabButton).join('');
   document.getElementById('tabs').innerHTML = tabs;
 
@@ -454,7 +455,7 @@ function drawTabs() {
 
 let tabRequest=null;
 function showStageLoading(tab,error='') {
-  const title=state?.stages?.find(item=>item.key===tab)?.title || ({global:'Overview',cache:'Cached Files',settings:'Settings'})[tab] || tab;
+  const title=state?.stages?.find(item=>item.key===tab)?.title || ({global:'Overview',cache:'Cached Files',color_bible:'Color Bible',settings:'Settings'})[tab] || tab;
   document.getElementById('app').innerHTML=`<section class="card stage-loading" aria-busy="${!error}"><h1>${esc(title)}</h1>
     <p role="${error ? 'alert' : 'status'}">${esc(error || 'Loading input and result status…')}</p>
     ${error ? '<button type="button" onclick="selectTab(active)">Try again</button>' : '<output data-tab-loading>Waiting for the server. You can switch to another tab.</output>'}</section>`;

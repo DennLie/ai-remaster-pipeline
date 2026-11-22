@@ -566,7 +566,7 @@ def source_defaults_for(source: Path, monochrome: bool | None = None, info: dict
 
 DEFAULT_ANCHOR_PROMPT = "Replace the black bars."
 # Tabs with their own page renderer; they never show the generic stage file list.
-CUSTOM_PAGE_VIEWS = {"shots", "references", "colour", "recomp", "upscale", "output"}
+CUSTOM_PAGE_VIEWS = {"shots", "references", "colour", "recomp", "upscale", "output", "color_bible"}
 
 
 def project_marker_file() -> Path:
@@ -2797,6 +2797,26 @@ class PipelineApp:
             }
         if view == "dust":
             payload["dust_edits"] = self.dust_edit_state(settings_snapshot)
+        if view == "color_bible":
+            cb_state = {"film_id": "", "film_count": 0, "films": []}
+            try:
+                from .color_bible_service import ColorBibleService
+                with ColorBibleService() as cb_service:
+                    films = cb_service.list_films()
+                    f_id = settings_snapshot.get("global", {}).get("color_bible_film_id", "")
+                    if not f_id and source_text:
+                        f_id = Path(source_text).stem
+                    if not f_id and films:
+                        f_id = films[0].film_id
+                    cb_state = {
+                        "film_id": f_id,
+                        "film_count": len(films),
+                        "films": [f.to_dict() for f in films],
+                        "snapshot_hash": cb_service.get_snapshot_hash(f_id) if f_id else None,
+                    }
+            except Exception as exc:
+                cb_state = {"error": str(exc), "film_id": "", "film_count": 0, "films": []}
+            payload["color_bible"] = cb_state
         if view in {"shots", "references", "colour", "upscale"}:
             payload["shot_views"] = shot_views(settings_snapshot, view)
         if view == "recomp":
