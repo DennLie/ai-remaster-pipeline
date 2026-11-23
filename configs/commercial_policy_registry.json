@@ -23,6 +23,14 @@
           "component_types": ["checkpoint"],
           "audited_hashes": []
         },
+        "osi_masked_lab": {
+          "name": "OSI Masked LAB Colorizer",
+          "aliases": ["osi_masked_lab", "osi-masked-lab", "osi_lab"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/DennLie/ai-remaster-pipeline",
+          "component_types": ["backend", "colorizer"],
+          "audited_hashes": []
+        },
         "qwen-image-edit-2511": {
           "name": "Qwen-Image-Edit-2511",
           "aliases": ["qwen", "qwen2511", "qwen-2511", "qwen-image-edit-2511"],

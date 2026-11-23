@@ -6,8 +6,15 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+if str(_SCRIPTS_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR.parent))
 
 import artifact_ids as aid
 import ltx_colorize
@@ -31,6 +38,60 @@ from common import (
 )
 from intermediate_video import codec_args as intermediate_codec_args, comfy_video_combine_inputs, container_args
 from stream_copy import copy_join, count_video_packets, require_frames
+
+try:
+    from ai_remaster_gui.commercial_policy import (
+        CommercialPolicyError,
+        enabled as commercial_guard_enabled,
+        evaluate_component,
+    )
+except ImportError:
+    class CommercialPolicyError(RuntimeError):  # type: ignore[no-redef]
+        """Raised when a model component fails commercial policy validation."""
+
+    def commercial_guard_enabled(settings: Any = None) -> bool:  # type: ignore[misc]
+        return False
+
+    def evaluate_component(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc]
+        class _Decision:
+            allowed = True
+            reason = ""
+        return _Decision()
+
+try:
+    from ai_remaster_gui.compliance import append_compliance_record
+except ImportError:
+    append_compliance_record = None  # type: ignore[assignment]
+
+
+def get_commercial_settings() -> dict[str, Any]:
+    try:
+        from ai_remaster_gui import state
+        if getattr(state, "APP", None) is not None and getattr(state.APP, "settings", None):
+            return state.APP.settings
+    except Exception:
+        pass
+    local_cfg = load_local_config()
+    return {
+        "global": {
+            "commercial_model_guard": str(local_cfg.get("commercial_model_guard", "true")),
+            "non_commercial_benchmark_override": str(local_cfg.get("non_commercial_benchmark_override", "false")),
+        }
+    }
+
+
+def check_commercial_guard(method: str) -> None:
+    settings = get_commercial_settings()
+    if commercial_guard_enabled(settings):
+        if method in {"cmnet2", "colormnet", "both"}:
+            raise CommercialPolicyError(
+                f"Commercial Model Guard blocked method '{method}': ColorMNet/CMNet2 non-commercial license (CC BY-NC-SA 4.0) prohibits commercial use."
+            )
+        if method == "osi_masked_lab":
+            decision = evaluate_component("osi_masked_lab", settings=settings, component_type="backend")
+            if not decision.allowed:
+                raise CommercialPolicyError(f"Commercial Model Guard blocked osi_masked_lab: {decision.reason}")
+
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 REFERENCE_INPUT_COPY_STRATEGY = "content-keyed-v1"
@@ -71,7 +132,7 @@ def parse_time(text: str) -> float:
 
 
 def method_suffix(method: str) -> str:
-    if method in {"colormnet", "cmnet2", "openai", "ltx"}:
+    if method in {"colormnet", "cmnet2", "openai", "ltx", "osi_masked_lab"}:
         return method
     return "deepexemplar"
 
@@ -302,6 +363,14 @@ def method_settings_signature(args: argparse.Namespace) -> dict[str, Any]:
                 "cmnet2_mem_every": args.cmnet2_mem_every,
                 "cmnet2_runtime": root_relative(resolve_path(args.cmnet2_dir)),
                 "cmnet2_model": root_relative(resolve_path(args.cmnet2_model)) if args.cmnet2_model else "auto",
+            }
+        )
+    elif args.method == "osi_masked_lab":
+        settings.update(
+            {
+                "masks_dir": getattr(args, "masks_dir", ""),
+                "guided_radius": getattr(args, "guided_radius", 5),
+                "guided_eps": getattr(args, "guided_eps", 1e-3),
             }
         )
     else:
@@ -1052,13 +1121,382 @@ def run_cmnet2_colorization(
     return 0
 
 
+def find_shot_mask_archive(masks_dir: Path, row: dict[str, str], index: int) -> Path | None:
+    # 1. Direct row specification
+    for key in ("masks", "mask_archive", "shot_mask", "shot_masks"):
+        if row.get(key):
+            p = resolve_path(row[key])
+            if p.is_file():
+                return p
+
+    # 2. Candidate stems
+    shot_id = row.get("shot_id") or row.get("shot") or row.get("id") or ""
+    candidates: list[str] = []
+    if shot_id:
+        candidates.extend([
+            f"{shot_id}.masks.npz",
+            f"{shot_id}.npz",
+            shot_id if shot_id.endswith(".npz") else "",
+        ])
+    candidates.extend([
+        f"shot_{index:04d}.masks.npz",
+        f"shot_{index:04d}.npz",
+        f"shot_{index}.masks.npz",
+        f"shot_{index}.npz",
+        f"{index:04d}.masks.npz",
+        f"{index:04d}.npz",
+        f"{index}.masks.npz",
+        f"{index}.npz",
+    ])
+
+    search_dirs = [masks_dir, ROOT / "intermediate" / "shot_masks"]
+    for d in search_dirs:
+        if not d.exists():
+            continue
+        for cand in candidates:
+            if not cand:
+                continue
+            cand_path = d / cand
+            if cand_path.is_file():
+                return cand_path
+    return None
+
+
+def extract_shot_grayscale_frames(
+    processing_video: Path,
+    start_frame: int,
+    frame_count: int,
+    width: int,
+    height: int,
+) -> list[Any]:
+    import cv2
+    import numpy as np
+
+    cap = cv2.VideoCapture(str(processing_video))
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open processing video for frame extraction: {processing_video}")
+    frames: list[np.ndarray] = []
+    try:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(start_frame)))
+        for _ in range(frame_count):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                break
+            if frame.ndim == 3:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = frame
+            if gray.shape != (height, width):
+                gray = cv2.resize(gray, (width, height), interpolation=cv2.INTER_AREA)
+            frames.append(gray)
+    finally:
+        cap.release()
+
+    if len(frames) < frame_count:
+        if frames:
+            while len(frames) < frame_count:
+                frames.append(frames[-1].copy())
+        else:
+            for _ in range(frame_count):
+                frames.append(np.zeros((height, width), dtype=np.uint8))
+    return frames
+
+
+def write_frames_to_video(
+    ffmpeg: str,
+    frames: list[Any],
+    output: Path,
+    fps: float,
+    width: int,
+    height: int,
+) -> None:
+    import numpy as np
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = output.with_suffix(output.suffix + ".partial" + output.suffix)
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-s:v",
+        f"{width}x{height}",
+        "-r",
+        f"{fps:.8f}",
+        "-i",
+        "-",
+        "-an",
+        "-r",
+        f"{fps:.8f}",
+        "-fps_mode",
+        "cfr",
+        *working_codec_args(),
+        *working_container_args(partial),
+        str(partial),
+    ]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    for f in frames:
+        arr = np.asarray(f, dtype=np.uint8)
+        proc.stdin.write(arr.tobytes())
+    proc.stdin.close()
+    proc.wait()
+    if proc.returncode != 0:
+        err = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+        raise RuntimeError(f"FFmpeg failed writing segment {partial}: {err}")
+    if proc.stderr:
+        proc.stderr.close()
+    replace_with_retry(partial, output)
+
+
+def run_osi_masked_lab_colorization(
+    args: argparse.Namespace,
+    manifest: Path | None = None,
+    source_video: Path | None = None,
+    rows: list[dict[str, str]] | None = None,
+    output: Path | None = None,
+    sig: dict[str, Any] | None = None,
+    ffmpeg: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    fps: float | None = None,
+    total_frames: int | None = None,
+) -> int:
+    try:
+        from scripts.osi_masked_lab import propagate_shot_chroma
+        from scripts.rle_masks import load_shot_masks_npz
+    except ImportError:
+        from osi_masked_lab import propagate_shot_chroma
+        from rle_masks import load_shot_masks_npz
+    import cv2
+    import numpy as np
+
+    # 1. Enforce commercial clearance
+    check_commercial_guard(args.method)
+
+    # 2. Setup inputs and manifest if not passed
+    if manifest is None:
+        manifest = resolve_path(args.manifest)
+    if rows is None:
+        source_from_manifest, rows = read_manifest(manifest)
+    else:
+        source_from_manifest = None
+    if args.limit is not None:
+        rows = rows[: args.limit]
+    if not rows:
+        raise RuntimeError(f"No enabled rows in manifest: {manifest}")
+
+    if source_video is None:
+        source_video = resolve_path(args.source_video or source_from_manifest or "")
+    if not source_video.exists():
+        raise FileNotFoundError(f"Source video not found for colourisation: {source_video}")
+
+    source_info = video_info(source_video)
+    source_width, source_height = int(source_info["width"]), int(source_info["height"])
+    target_width, target_height = processing_dimensions(source_width, source_height, args.processing_height)
+
+    if output is None:
+        output = resolve_path(args.output) if args.output else default_output(manifest, source_from_manifest, args.method)
+
+    if sig is None:
+        sig = signature(args, manifest, source_video, rows)
+
+    if not args.force and resumable_output(output, sig, width=target_width, height=target_height):
+        print(f"Reuse colorized video: {output}", flush=True)
+        return 0
+
+    if args.dry_run:
+        counts = [len(row_references(row)) for row in rows]
+        print(
+            f"Would colorize {len(rows)} shot segment(s) with OSI Masked LAB: {source_video} -> {output}; "
+            f"references per shot: {counts}.",
+            flush=True,
+        )
+        return 0
+
+    if ffmpeg is None:
+        ffmpeg = find_ffmpeg(args.ffmpeg)
+
+    processing_video = prepare_processing_video(
+        ffmpeg, source_video, target_width, target_height, source_width, source_height
+    )
+    info = video_info(processing_video)
+    width = int(info["width"])
+    height = int(info["height"])
+    fps = float(info["fps"])
+    total_frames = int(info["frames"])
+
+    # 3. Divide processing video into shots
+    plan, transitions = shot_plan(rows, total_frames, fps)
+    cache_dir = ROOT / ".cache" / "colorized_chunks" / "osi_masked_lab" / safe_stem(source_video.name)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    masks_dir = resolve_path(args.masks_dir) if getattr(args, "masks_dir", None) else ROOT / "intermediate" / "shot_masks"
+
+    chunks: list[Path] = []
+    for index, row in enumerate(rows):
+        item = plan[index]
+        start_frame = item["start"]
+        end_frame = item["end"]
+        frame_count = max(1, end_frame - start_frame)
+        references = row_references(row)
+
+        chunk = cache_dir / f"segment_{index:04d}_{start_frame:06d}_{end_frame:06d}.mkv"
+        chunk_sig = segment_signature(
+            args,
+            source_video,
+            row,
+            references,
+            start_frame,
+            end_frame,
+            item["base_start"],
+            item["base_end"],
+            width,
+            height,
+            fps,
+        )
+
+        if not args.force and segment_resumable(chunk, chunk_sig, width, height, frame_count):
+            print(f"Reuse colorized segment {index + 1}/{len(rows)}: {chunk}", flush=True)
+            chunks.append(chunk)
+            continue
+
+        # Extract grayscale frames for this shot
+        frames_gray = extract_shot_grayscale_frames(
+            processing_video, start_frame, frame_count, width, height
+        )
+
+        # Gather approved reference keyframe(s)
+        keyframes_color: dict[int, np.ndarray] = {}
+        for r_idx, ref in enumerate(references):
+            prep_ref_path = prepare_processing_reference(ref["path"], width, height)
+            bgr = cv2.imread(str(prep_ref_path), cv2.IMREAD_COLOR)
+            if bgr is None:
+                continue
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            if rgb.shape[:2] != (height, width):
+                rgb = cv2.resize(rgb, (width, height), interpolation=cv2.INTER_LANCZOS4)
+
+            sel = ref.get("selected_frame")
+            if sel is not None:
+                local_k = max(0, min(frame_count - 1, int(sel) - start_frame))
+            else:
+                if len(references) == 1:
+                    local_k = 0
+                else:
+                    local_k = int(round(r_idx * (frame_count - 1) / max(1, len(references) - 1)))
+            keyframes_color[local_k] = rgb
+
+        if not keyframes_color and frames_gray:
+            keyframes_color[0] = cv2.cvtColor(frames_gray[0], cv2.COLOR_GRAY2RGB)
+
+        # Load shot mask archive if available
+        mask_archive = None
+        mask_path = find_shot_mask_archive(masks_dir, row, index)
+        if mask_path is not None and load_shot_masks_npz is not None:
+            try:
+                mask_archive = load_shot_masks_npz(mask_path)
+            except Exception as exc:
+                print(f"Warning: could not load mask archive {mask_path}: {exc}", flush=True)
+                mask_archive = None
+
+        # Resolve color bible anchors if provided in row
+        anchors = None
+        if row.get("color_bible_anchors"):
+            try:
+                anchors = json.loads(row["color_bible_anchors"])
+            except Exception:
+                pass
+
+        print(
+            f"Colorize segment {index + 1}/{len(rows)} with osi_masked_lab: frames {start_frame}-{end_frame} "
+            f"using {len(keyframes_color)} reference(s)"
+            + (f" with mask archive {mask_path.name}" if mask_archive is not None else " (unmasked)"),
+            flush=True,
+        )
+
+        output_frames = propagate_shot_chroma(
+            frames_gray=frames_gray,
+            keyframes_color=keyframes_color,
+            mask_archive=mask_archive,
+            color_bible_anchors=anchors,
+            radius=getattr(args, "guided_radius", 5),
+            eps=getattr(args, "guided_eps", 1e-3),
+        )
+
+        write_frames_to_video(ffmpeg, output_frames, chunk, fps, width, height)
+        write_signature(chunk, chunk_sig)
+        chunks.append(chunk)
+
+    # 4. Combine / stitch chunks
+    stitch_colorized(ffmpeg, chunks, transitions, output, fps, safe_stem(source_video.name))
+    write_signature(output, sig)
+
+    # 5. Append compliance record
+    if append_compliance_record is not None and getattr(args, "compliance_output_dir", None):
+        comp_dir = resolve_path(args.compliance_output_dir)
+        osi_script = ROOT / "scripts" / "osi_masked_lab.py"
+        models_entry = [{
+            "model_id": "osi_masked_lab",
+            "component_type": "backend",
+        }]
+        if osi_script.is_file():
+            models_entry[0]["file_path"] = str(osi_script)
+            try:
+                from ai_remaster_gui.commercial_policy import compute_sha256
+                models_entry[0]["sha256"] = compute_sha256(osi_script)
+            except Exception:
+                pass
+
+        cb_version = None
+        for r in rows:
+            if r.get("color_bible_version"):
+                cb_version = str(r["color_bible_version"]).strip()
+                break
+        if not cb_version and manifest and manifest.is_file():
+            try:
+                with manifest.open("r", encoding="utf-8-sig") as f:
+                    for line in f:
+                        if not line.startswith("#"):
+                            break
+                        if line.startswith("# color_bible_version="):
+                            cb_version = line.split("=", 1)[1].strip()
+                            break
+                        if line.startswith("# color_bible="):
+                            cb_version = line.split("=", 1)[1].strip()
+                            break
+            except Exception:
+                pass
+
+        try:
+            append_compliance_record(
+                output_dir=comp_dir,
+                stage="colour",
+                models=models_entry,
+                settings=get_commercial_settings(),
+                color_bible_version=cb_version,
+            )
+        except Exception as exc:
+            print(f"Warning: could not append compliance record: {exc}", flush=True)
+
+    print(f"Wrote OSI Masked LAB colorized video: {output}", flush=True)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     config = load_local_config()
     parser = argparse.ArgumentParser(description="Colorize outpainted video shots with reference-guided ComfyUI colorization.")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--source-video", help="Override the # source_video from the manifest.")
     parser.add_argument("--output")
-    parser.add_argument("--method", choices=["deepexemplar", "colormnet", "cmnet2", "openai", "ltx", "both"], default="deepexemplar")
+    parser.add_argument("--method", choices=["deepexemplar", "colormnet", "cmnet2", "openai", "ltx", "osi_masked_lab", "both"], default="deepexemplar")
+    parser.add_argument("--masks-dir", default=str(ROOT / "intermediate" / "shot_masks"), help="Directory containing per-shot .masks.npz archives.")
+    parser.add_argument("--guided-radius", type=int, default=5, help="Guided filter window radius for OSI Masked LAB colorization.")
+    parser.add_argument("--guided-eps", type=float, default=1e-3, help="Guided filter regularization epsilon for OSI Masked LAB colorization.")
+    parser.add_argument("--compliance-output-dir", default="output", help="Directory where compliance_report.json is recorded.")
     parser.add_argument("--comfy-url", default=config.get("comfy_url", "http://127.0.0.1:8188"))
     parser.add_argument("--comfy-dir", default=config.get("comfy_dir", str(ROOT / "tools" / "comfyui")))
     parser.add_argument("--comfy-output-root", default="")
@@ -1106,6 +1544,7 @@ def main() -> int:
     global CURRENT_INTERMEDIATE_PROFILE
     args = build_parser().parse_args()
     CURRENT_INTERMEDIATE_PROFILE = args.intermediate_profile
+    check_commercial_guard(args.method)
     if args.method == "both":
         for method in ("deepexemplar", "colormnet"):
             child = argparse.Namespace(**vars(args))
@@ -1113,12 +1552,17 @@ def main() -> int:
             child.output = ""
             run(child)
         return 0
+    if args.method == "osi_masked_lab":
+        return run_osi_masked_lab_colorization(args)
     return run(args)
 
 
 def run(args: argparse.Namespace) -> int:
     global CURRENT_INTERMEDIATE_PROFILE
     CURRENT_INTERMEDIATE_PROFILE = getattr(args, "intermediate_profile", "high")
+    check_commercial_guard(args.method)
+    if args.method == "osi_masked_lab":
+        return run_osi_masked_lab_colorization(args)
     manifest = resolve_path(args.manifest)
     source_from_manifest, rows = read_manifest(manifest)
     if args.limit is not None:

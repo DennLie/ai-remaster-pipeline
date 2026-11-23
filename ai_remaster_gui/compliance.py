@@ -50,6 +50,8 @@ VALID_COMPONENT_TYPES: set[str] = {
     "lora",
     "encoder",
     "tool",
+    "backend",
+    "colorizer",
 }
 
 VALID_GUARD_MODES: set[str] = {

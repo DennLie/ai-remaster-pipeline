@@ -93,6 +93,43 @@ class CommercialModelPolicyTests(unittest.TestCase):
                 self.settings["colour"]["method"] = model
                 self.assertTrue(stage_issue(self.settings, "colour"))
 
+        # osi_masked_lab passes under commercial guard
+        self.settings["colour"]["method"] = "osi_masked_lab"
+        self.assertEqual(stage_issue(self.settings, "colour"), "")
+        self.settings["colour"]["method"] = "osi-masked-lab"
+        self.assertEqual(stage_issue(self.settings, "colour"), "")
+
+    def test_osi_masked_lab_commercial_clearance(self):
+        # 1. osi_masked_lab evaluates as allowed_osi with Apache-2.0 license
+        decision = evaluate_component("osi_masked_lab")
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.status, "allowed_osi")
+        self.assertEqual(decision.license, "Apache-2.0")
+        self.assertIn("Apache-2.0", decision.reason)
+
+        decision_alias = evaluate_component("osi-masked-lab")
+        self.assertTrue(decision_alias.allowed)
+        self.assertEqual(decision_alias.status, "allowed_osi")
+        self.assertEqual(decision_alias.license, "Apache-2.0")
+
+        # 2. In Commercial Mode (guard()), stage_issue returns "" (not blocked)
+        self.guard()
+        self.assertEqual(stage_issue(self.settings, "colour", model_override="osi_masked_lab"), "")
+        self.assertEqual(stage_issue(self.settings, "colour", model_override="osi-masked-lab"), "")
+
+        # 3. cmnet2, colormnet, and both remain strictly blocked
+        for blocked in ("cmnet2", "colormnet", "both"):
+            issue = stage_issue(self.settings, "colour", model_override=blocked)
+            self.assertTrue(issue)
+            self.assertIn("ColorMNet", issue)
+
+        # enforce_component allows osi_masked_lab and blocks cmnet2/colormnet
+        self.assertTrue(enforce_component("osi_masked_lab").allowed)
+        with self.assertRaises(CommercialPolicyError):
+            enforce_component("cmnet2")
+        with self.assertRaises(CommercialPolicyError):
+            enforce_component("colormnet")
+
     def test_utility_stages_are_not_blocked(self):
         self.guard()
         for stage in ("stabilize", "shots", "recomp", "output"):
@@ -117,6 +154,8 @@ class CommercialModelPolicyTests(unittest.TestCase):
         for cid, expected_lic in (
             ("ddcolor", "Apache-2.0"),
             ("deoldify", "MIT"),
+            ("osi_masked_lab", "Apache-2.0"),
+            ("osi-masked-lab", "Apache-2.0"),
             ("qwen3-vl", "Apache-2.0"),
             ("sam2", "Apache-2.0"),
             ("sam2.1", "Apache-2.0"),
@@ -133,6 +172,8 @@ class CommercialModelPolicyTests(unittest.TestCase):
         self.assertEqual(stage_issue(self.settings, "references", model_override="ddcolor"), "")
         # DeOldify in colour stage is not blocked
         self.assertEqual(stage_issue(self.settings, "colour", model_override="deoldify"), "")
+        # OSI Masked LAB in colour stage is not blocked
+        self.assertEqual(stage_issue(self.settings, "colour", model_override="osi_masked_lab"), "")
 
         # Qwen-2511 requires audited SHA-256 or audit flag
         qwen_decision = evaluate_component("qwen-image-edit-2511")

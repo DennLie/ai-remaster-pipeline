@@ -297,6 +297,69 @@ class ComplianceReportingTests(unittest.TestCase):
         self.assertFalse(valid)
         self.assertTrue(len(errors) >= 2)
 
+    def test_osi_masked_lab_compliance_recording(self):
+        settings = {
+            "global": {
+                "commercial_model_guard": "true",
+                "non_commercial_benchmark_override": "false",
+            }
+        }
+        report_path = append_compliance_record(
+            output_dir=self.output_dir,
+            stage="colour",
+            models=[{"model_id": "osi_masked_lab", "component_type": "backend"}],
+            settings=settings,
+            seeds={"colour_seed": 4242},
+            color_bible_version="v2.0-approved",
+            conditional_attestations={},
+        )
+        self.assertTrue(report_path.is_file())
+        data = load_compliance_report(self.output_dir)
+        self.assertIsNotNone(data)
+        self.assertEqual(data["schema_version"], "1.0.0")
+        self.assertTrue(data["overall_commercial_compliant"])
+        self.assertEqual(len(data["runs"]), 1)
+
+        run = data["runs"][0]
+        self.assertEqual(run["stage"], "colour")
+        self.assertEqual(run["guard_mode"], "strict")
+        self.assertTrue(run["is_commercial_compliant"])
+        self.assertEqual(run["seeds"], {"colour_seed": 4242})
+        self.assertEqual(run["color_bible_version"], "v2.0-approved")
+        self.assertEqual(len(run["models"]), 1)
+
+        model = run["models"][0]
+        self.assertEqual(model["model_id"], "osi_masked_lab")
+        self.assertEqual(model["status"], "allowed_osi")
+        self.assertEqual(model["license"], "Apache-2.0")
+        self.assertEqual(model["source_url"], "https://github.com/DennLie/ai-remaster-pipeline")
+        self.assertIn("Apache-2.0", model["reason"])
+
+        valid, errors = validate_compliance_report(self.output_dir)
+        self.assertTrue(valid)
+        self.assertEqual(errors, [])
+
+        # Subtest without explicit component_type
+        dir2 = self.output_dir / "default_comp_type"
+        append_compliance_record(
+            output_dir=dir2,
+            stage="colour",
+            models=[{"model_id": "osi_masked_lab"}],
+            settings=settings,
+            color_bible_version="v1.0.0-snapshot",
+        )
+        data2 = load_compliance_report(dir2)
+        self.assertIsNotNone(data2)
+        self.assertTrue(data2["overall_commercial_compliant"])
+        self.assertEqual(data2["runs"][0]["stage"], "colour")
+        self.assertEqual(data2["runs"][0]["color_bible_version"], "v1.0.0-snapshot")
+        self.assertEqual(data2["runs"][0]["models"][0]["model_id"], "osi_masked_lab")
+        self.assertEqual(data2["runs"][0]["models"][0]["status"], "allowed_osi")
+        self.assertEqual(data2["runs"][0]["models"][0]["license"], "Apache-2.0")
+        valid2, errors2 = validate_compliance_report(dir2)
+        self.assertTrue(valid2)
+        self.assertEqual(errors2, [])
+
     def test_cli_subcommands(self):
         # 1. Generate via CLI
         code = cli_main([

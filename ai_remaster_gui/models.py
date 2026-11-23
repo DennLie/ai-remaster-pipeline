@@ -250,7 +250,7 @@ STAGES = (
         (
             ("compute", "Compute", "select:local|runpod", "local"),
             ("manifest", "Manifest", "file", ""),
-            ("method", "Method", "select:deepexemplar|colormnet|cmnet2|ltx|openai|both", "deepexemplar"),
+            ("method", "Method", "select:deepexemplar|colormnet|cmnet2|ltx|openai|osi_masked_lab|both", "deepexemplar"),
             ("processing_height", "Processing scale", "select:source|2160|1440|1080|720|540", "source"),
             ("openai_image_model", "OpenAI image model", "select:gpt-image-2|gpt-image-1.5|gpt-image-1|gpt-image-1-mini", "gpt-image-2"),
             ("openai_previous_frames", "Preceding generated frames", "range:0|12|1", "3"),
@@ -280,7 +280,7 @@ STAGES = (
             ("compute", "Compute", "select:local|runpod", "local"),
             ("outpainted_video", "Outpainted video", "file", ""),
             ("source", "Original source", "file", ""),
-            ("colorization_method", "Colorization layer", "select:deepexemplar|colormnet|cmnet2|ltx|openai", "deepexemplar"),
+            ("colorization_method", "Colorization layer", "select:deepexemplar|colormnet|cmnet2|ltx|openai|osi_masked_lab", "deepexemplar"),
             ("colorized_video", "Colorized video", "file", ""),
             ("feather_pixels", "Feather pixels", "range:0|240|1", "80"),
             ("native_source_resolution", "Recomposite at source resolution", "checkbox", "false"),

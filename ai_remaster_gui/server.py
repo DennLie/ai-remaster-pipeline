@@ -2558,10 +2558,20 @@ class PipelineApp:
             segment = 0
             total = 0
             for line in colour_log.splitlines():
-                marker = "Colorize segment "
-                if marker not in line:
+                matched_marker = None
+                for marker in (
+                    "Colorize segment ",
+                    "Reuse colorized segment ",
+                    "Reuse osi_masked_lab segment ",
+                    "Reuse OSI segment ",
+                    "Reuse CMNET2 segment ",
+                ):
+                    if marker in line:
+                        matched_marker = marker
+                        break
+                if not matched_marker:
                     continue
-                tail = line.split(marker, 1)[1].split(" ", 1)[0]
+                tail = line.split(matched_marker, 1)[1].split(" ", 1)[0]
                 if "/" not in tail:
                     continue
                 try:
@@ -3964,6 +3974,16 @@ class PipelineApp:
         if method == "cmnet2":
             add(["--cmnet2-dir", str(ROOT / "vendor" / "cmnet2")])
             add(["--comfy-dir", comfy_dir_for(config)])
+            return cmd
+        if method == "osi_masked_lab":
+            if values.get("masks_dir"):
+                add(["--masks-dir", values["masks_dir"]])
+            if values.get("guided_radius"):
+                add(["--guided-radius", values["guided_radius"]])
+            if values.get("guided_eps"):
+                add(["--guided-eps", values["guided_eps"]])
+            if values.get("compliance_output_dir"):
+                add(["--compliance-output-dir", values["compliance_output_dir"]])
             return cmd
         add(["--comfy-dir", comfy_dir_for(config)])
         add(["--comfy-url", comfy_url_for(config)])

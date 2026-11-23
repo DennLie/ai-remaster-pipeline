@@ -423,7 +423,7 @@ def stage_issue(
                 reasons.append("Deep Exemplar checkpoints and dependencies need licence verification")
         elif model == "openai":
             reasons.append("OpenAI Cloud Colorization uses separate service terms")
-        elif model == "deoldify":
+        elif model in {"deoldify", "osi_masked_lab", "osi-masked-lab", "osi_lab"}:
             pass
         else:
             reasons.append(f"unknown colorization model {model!r} has not been reviewed")
