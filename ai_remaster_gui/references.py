@@ -120,6 +120,36 @@ def shot_rows(
     cached_preview_dir = PREVIEW_DIR / "shot_scrub" / safe_preview_name(path) if cached_preview_source else None
     start = 0.0
     start_frame = 0
+
+    color_bible_service = None
+    settings = getattr(state.APP, "settings", {}) if state.APP and hasattr(state.APP, "settings") else {}
+    global_cfg = settings.get("global", {}) if isinstance(settings.get("global"), dict) else {}
+    ref_cfg = settings.get("references", {}) if isinstance(settings.get("references"), dict) else {}
+    film_id = (
+        global_cfg.get("color_bible_film_id")
+        or ref_cfg.get("color_bible_film_id")
+        or settings.get("color_bible_film_id")
+    )
+    if film_id:
+        film_id = str(film_id).strip()
+    db_path = (
+        global_cfg.get("color_bible_db")
+        or ref_cfg.get("color_bible_db")
+        or settings.get("color_bible_db")
+    )
+    raw_conf = ref_cfg.get("confidence_threshold") or global_cfg.get("confidence_threshold") or "0.8"
+    try:
+        conf_threshold = float(raw_conf)
+    except (ValueError, TypeError):
+        conf_threshold = 0.8
+
+    if film_id:
+        try:
+            from .color_bible_service import ColorBibleService
+            color_bible_service = ColorBibleService(db_path=db_path)
+        except Exception:
+            color_bible_service = None
+
     for index, row in enumerate(rows):
         row_start_frame = optional_int(row.get("start_frame"))
         row_end_frame = optional_int(row.get("end_frame"))
@@ -157,9 +187,50 @@ def shot_rows(
                 "prompt": reference.get("prompt", ""),
             })
         color_reference_versions = reference_edit_versions(manifest_text, index)
+        qc_status = str(row.get("qc_status") or "").strip()
+        needs_review = (qc_status == "needs_review")
+        review_reasons: list[str] = [f"Shot QC status is '{qc_status}'"] if needs_review else []
+        color_bible_entities: list[dict[str, Any]] = []
+
+        if color_bible_service is not None and film_id:
+            try:
+                assignments = color_bible_service.get_shot_palette_assignments(film_id, index)
+                color_bible_entities = assignments
+                for asgn_item in assignments:
+                    asgn_dict = asgn_item.get("assignment") if isinstance(asgn_item.get("assignment"), dict) else asgn_item
+                    raw_status = str(asgn_dict.get("approval_status") or asgn_item.get("approval_status") or "").strip().lower()
+                    raw_conf = asgn_dict.get("confidence", asgn_item.get("confidence", 1.0))
+                    try:
+                        conf = float(raw_conf) if raw_conf is not None else 1.0
+                    except (ValueError, TypeError):
+                        conf = 1.0
+                    entity_id = str(asgn_item.get("entity_id") or asgn_dict.get("entity_id") or "unknown")
+                    variant_id = str(asgn_item.get("variant_id") or asgn_dict.get("variant_id") or "")
+                    entity_info = asgn_item.get("entity") if isinstance(asgn_item.get("entity"), dict) else {}
+                    entity_name = str(entity_info.get("name") or entity_id)
+                    label = f"Entity '{entity_name}'"
+                    if variant_id:
+                        label += f" costume '{variant_id}'"
+                    if raw_status == "pending_review":
+                        needs_review = True
+                        reason = f"{label} assignment status is 'pending_review'"
+                        if reason not in review_reasons:
+                            review_reasons.append(reason)
+                    elif conf < conf_threshold:
+                        needs_review = True
+                        reason = f"{label} assignment has confidence {conf:.2f} < {conf_threshold:.2f}"
+                        if reason not in review_reasons:
+                            review_reasons.append(reason)
+            except Exception:
+                pass
+
         item = {
                 "index": index,
                 "enabled": row.get("enabled", "true"),
+                "qc_status": qc_status,
+                "needs_review": needs_review,
+                "review_reasons": review_reasons,
+                "color_bible_entities": color_bible_entities,
                 "start": round(start, 6),
                 "end": round(end, 6),
                 "fps": fps,
@@ -181,7 +252,7 @@ def shot_rows(
                 "recent_color_references": recent_color_references(rows, index),
                 "color_reference_versions": color_reference_versions,
                 "color_reference_edited": bool(color_reference and color_reference in color_reference_versions),
-                "masked_edit_available": bool(state.APP.settings.get("references", {}).get("masked_workflow", "")),
+                "masked_edit_available": bool(settings.get("references", {}).get("masked_workflow", "")),
                 "can_merge_next": index < len(rows) - 1,
                 "can_split": end - start >= 0.1,
                 "can_fade_next": index < len(rows) - 1,
@@ -214,6 +285,11 @@ def shot_rows(
         out.append(item)
         start_frame = end_frame_exclusive
         start = end
+    if color_bible_service is not None:
+        try:
+            color_bible_service.close()
+        except Exception:
+            pass
     for item in out:
         item["cq_guide_shot_numbers"] = guide_shot_numbers(out, str(item.get("cq_guide_shots", "")), int(item["index"]))
     return out
@@ -853,6 +929,7 @@ def reference_regeneration_command(manifest_text: str, index: int, reference_ind
         "--save-node-id",
         values.get("save_node_id", "auto"),
         *reference_seed_args(values),
+        *color_bible_cli_args(values),
         *[item for path in qwen_reference_images(manifest_text, index, reference_index, qwen_reference_count(values)) for item in ("--reference-image", path)],
         "--force",
     ]
@@ -949,6 +1026,33 @@ def previous_reference_count(values: dict[str, str]) -> int:
     return max(0, min(MAX_PREVIOUS_REFERENCES, count))
 
 
+def color_bible_cli_args(values: dict[str, str] | None = None) -> list[str]:
+    """Return CLI args for Color Bible parameters when configured in settings."""
+    settings = getattr(state.APP, "settings", {}) if state.APP and hasattr(state.APP, "settings") else {}
+    ref_values = values if values is not None else (settings.get("references", {}) if isinstance(settings.get("references"), dict) else {})
+    global_values = settings.get("global", {}) if isinstance(settings.get("global"), dict) else {}
+    film_id = (
+        ref_values.get("color_bible_film_id")
+        or global_values.get("color_bible_film_id")
+        or ref_values.get("film_id")
+        or global_values.get("film_id")
+    )
+    runner = ref_values.get("reference_runner") or global_values.get("reference_runner")
+    conf = ref_values.get("confidence_threshold") or global_values.get("confidence_threshold")
+    db_path = ref_values.get("color_bible_db") or global_values.get("color_bible_db")
+
+    args: list[str] = []
+    if film_id and str(film_id).strip():
+        args.extend(["--film-id", str(film_id).strip()])
+    if runner and str(runner).strip():
+        args.extend(["--reference-runner", str(runner).strip()])
+    if conf and str(conf).strip():
+        args.extend(["--confidence-threshold", str(conf).strip()])
+    if db_path and str(db_path).strip():
+        args.extend(["--color-bible-db", str(db_path).strip()])
+    return args
+
+
 def reference_seed_args(values: dict[str, str]) -> list[str]:
     """The Qwen sampler seed: -1 (or blank) is a new random seed every attempt, so regenerating
     a still gives a different take; a fixed number repeats a take. Random is the scripts' own
@@ -994,6 +1098,7 @@ def qwen21_reference_regeneration_command(manifest_text: str, index: int, refere
         "--comfy-output-root", comfy_output_root_for(config),
         *qwen21_reference_args(values),
         *reference_seed_args(values),
+        *color_bible_cli_args(values),
         "--force",
     ]
     return cmd, output
@@ -1015,6 +1120,9 @@ def ddcolor_reference_regeneration_command(manifest_text: str, index: int, refer
     seed_args = reference_seed_args(values)
     if seed_args:
         cmd.extend(seed_args)
+    cb_args = color_bible_cli_args(values)
+    if cb_args:
+        cmd.extend(cb_args)
     return cmd, output
 
 

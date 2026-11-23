@@ -123,6 +123,8 @@ class ColorBibleApiTests(unittest.TestCase):
         self.assertTrue(shot_res.get("ok"))
         self.assertEqual(len(shot_res["assignments"]), 1)
         self.assertEqual(shot_res["assignments"][0]["variant"]["costume_id"], "costume_trench")
+        self.assertFalse(shot_res.get("needs_review"))
+        self.assertEqual(shot_res.get("approval_status"), "approved")
 
         # Delete single assignment
         del_handler = _MockHandler(
@@ -137,6 +139,29 @@ class ColorBibleApiTests(unittest.TestCase):
         del_res = del_handler.responses.get("json")
         self.assertTrue(del_res.get("ok"))
         self.assertEqual(len(del_res["assignments"]), 1)
+
+    def test_shot_assignments_needs_review_and_approval_status(self) -> None:
+        with ColorBibleService(db_path=self.db_path) as svc:
+            char = svc.list_characters("film_test")[0]
+            svc.assign_entity_ranges(
+                film_id="film_test",
+                entity_type="character",
+                entity_id=char.character_id,
+                ranges=[(50, 55)],
+                confidence=0.65,
+                approval_status="pending_review",
+            )
+            svc.update_shot_qc_status("film_test", 50, "needs_review")
+
+        handler = _MockHandler("/api/color-bible/shot-assignments?film_id=film_test&shot_index=50")
+        handler.do_GET()
+        res = handler.responses.get("json")
+        self.assertIsNotNone(res)
+        self.assertTrue(res.get("ok"))
+        self.assertTrue(res.get("needs_review"))
+        self.assertEqual(res.get("qc_status"), "needs_review")
+        self.assertEqual(res.get("approval_status"), "needs_review")
+        self.assertTrue(len(res.get("review_reasons", [])) > 0)
 
     def test_objects_and_locations_post(self) -> None:
         # Create object

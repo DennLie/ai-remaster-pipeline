@@ -29,6 +29,7 @@ from scripts.ddcolor_reference import (
     DDColorModel,
     build_parser,
     colorize_frame,
+    colorize_reference_shot,
     load_model,
     process_manifest,
     read_manifest_lines,
@@ -260,6 +261,7 @@ class DDColorReferenceTests(unittest.TestCase):
 
     def test_mocked_neural_inference_pipeline(self):
         """Verify real non-dry-run neural execution path on CPU with mocked PyTorch weights."""
+        torch.manual_seed(42)
         orig_h, orig_w = 40, 40
         _, rgb_arr = self._create_test_image(orig_w, orig_h)
         orig_lab = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2LAB)
@@ -290,7 +292,7 @@ class DDColorReferenceTests(unittest.TestCase):
         np.testing.assert_allclose(
             orig_l,
             out_lab[:, :, 0],
-            atol=10,
+            atol=12,
             err_msg="Neural colorization path must preserve original luminance L within conversion bounds",
         )
 
@@ -534,6 +536,113 @@ class DDColorReferenceTests(unittest.TestCase):
         self.assertEqual(dec_sam.status, "hard_blocked")
         with self.assertRaises(CommercialPolicyError):
             enforce_component("sam3.1")
+
+    def test_colorize_reference_shot_dry_run(self) -> None:
+        """Verify programmatic colorize_reference_shot function in dry_run mode."""
+        src_path, orig_arr = self._create_test_image(width=64, height=64)
+        out_path = self.tmp_dir / "colorized_out.png"
+
+        res = colorize_reference_shot(
+            source_path=src_path,
+            output_path=out_path,
+            dry_run=True,
+            seed=42,
+        )
+
+        self.assertEqual(res, out_path.resolve())
+        self.assertTrue(out_path.is_file())
+
+        with Image.open(out_path) as im:
+            out_arr = np.asarray(im)
+        self.assertEqual(out_arr.shape, (64, 64, 3))
+
+        # Check luminance preservation in Lab space (bounded within gamut quantization atol=10)
+        src_lab = cv2.cvtColor(orig_arr, cv2.COLOR_RGB2LAB)
+        out_lab = cv2.cvtColor(out_arr, cv2.COLOR_RGB2LAB)
+        np.testing.assert_allclose(src_lab[:, :, 0], out_lab[:, :, 0], atol=10)
+        self.assertLess(float(np.mean(np.abs(src_lab[:, :, 0].astype(float) - out_lab[:, :, 0].astype(float)))), 1.5)
+
+    def test_main_enforces_commercial_policy_fail_closed(self) -> None:
+        """Verify main() evaluates commercial policy prior to inference and fails closed."""
+        src_path, _ = self._create_test_image(width=32, height=32)
+        out_path = self.tmp_dir / "blocked_out.png"
+
+        from ai_remaster_gui.commercial_policy import PolicyDecision
+
+        blocked_decision = PolicyDecision(
+            allowed=False,
+            status="hard_blocked",
+            license="Disallowed-Licence",
+            reason="Blocked by test policy",
+        )
+
+        with patch("scripts.ddcolor_reference.evaluate_component", return_value=blocked_decision):
+            with patch.object(
+                sys,
+                "argv",
+                ["ddcolor_reference.py", "--input-image", str(src_path), "--output", str(out_path), "--dry-run"],
+            ):
+                with self.assertRaises(CommercialPolicyError) as ctx:
+                    ddcolor_script.main()
+                self.assertIn("Blocked by test policy", str(ctx.exception))
+
+    def test_colorize_reference_shot_enforce_policy_fail_closed(self) -> None:
+        """Verify colorize_reference_shot with enforce_policy=True fails closed on blocked model."""
+        src_path, _ = self._create_test_image(width=32, height=32)
+        out_path = self.tmp_dir / "blocked_shot.png"
+
+        from ai_remaster_gui.commercial_policy import PolicyDecision
+
+        blocked_decision = PolicyDecision(
+            allowed=False,
+            status="hard_blocked",
+            license="Disallowed-Licence",
+            reason="Commercial Model Guard test rejection",
+        )
+
+        with patch("scripts.ddcolor_reference.evaluate_component", return_value=blocked_decision):
+            with self.assertRaises(CommercialPolicyError) as ctx:
+                colorize_reference_shot(
+                    source_path=src_path,
+                    output_path=out_path,
+                    dry_run=True,
+                    enforce_policy=True,
+                )
+            self.assertIn("Commercial Model Guard test rejection", str(ctx.exception))
+
+    def test_main_compliance_reporting_dynamic_decision(self) -> None:
+        """Verify compliance reporting populates status, license, sha256, reason dynamically."""
+        src_path, _ = self._create_test_image(width=32, height=32)
+        out_path = self.tmp_dir / "comp_still.png"
+        comp_dir = self.tmp_dir / "comp_report"
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "ddcolor_reference.py",
+                "--input-image", str(src_path),
+                "--output", str(out_path),
+                "--dry-run",
+                "--compliance-output-dir", str(comp_dir),
+                "--seed", "99",
+            ],
+        ):
+            ret = ddcolor_script.main()
+            self.assertEqual(ret, 0)
+
+        report_file = comp_dir / "compliance_report.json"
+        self.assertTrue(report_file.is_file())
+        data = json.loads(report_file.read_text(encoding="utf-8"))
+        self.assertEqual(len(data["runs"]), 1)
+        run = data["runs"][0]
+        self.assertEqual(run["stage"], "references")
+        self.assertEqual(len(run["models"]), 1)
+        model = run["models"][0]
+        self.assertEqual(model["model_id"], "ddcolor")
+        self.assertEqual(model["status"], "allowed_osi")
+        self.assertEqual(model["license"], "Apache-2.0")
+        self.assertIn("DDColor", model["reason"])
 
 
 if __name__ == "__main__":

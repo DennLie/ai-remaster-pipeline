@@ -14,6 +14,7 @@ from typing import Any
 from comfy_api import extract_output_files, node_by_id, queue_prompt, set_widget, wait_for_comfy, wait_for_prompt, widget_fallback_inputs, workflow_to_prompt, http_json
 from common import QWEN_IMAGE_EDIT_MODEL, ROOT, copy_to_comfy_input, file_fingerprint, load_local_config, newest_output, resolve_path, root_relative, resumable_output, write_signature
 from dependency_manager import ensure_qwen_image_edit_models
+from ddcolor_reference import colorize_reference_shot
 from reference_sets import expanded_reference_rows
 
 DEFAULT_PROMPT = (
@@ -203,10 +204,65 @@ def reference_images_prompt(prompt: str, count: int) -> str:
     )
 
 
-def reference_images_for(rows: list[dict[str, str]], index: int, count: int) -> list[Path]:
-    """Colour references to show Qwen with one still. The shot's own references for its other
-    frames always go (the same scene, so the palette a new keyframe must keep); the nearest other
-    shots' fill any remaining of count slots. At most MAX_REFERENCE_IMAGES in all."""
+def resolve_shot_references(
+    rows: list[dict[str, str]],
+    index: int,
+    count: int = MAX_REFERENCE_IMAGES,
+    film_id: str | None = None,
+    color_bible_service: Any | None = None,
+    confidence_threshold: float = 0.8,
+) -> Any:
+    """Resolve semantic color references for a shot, returning SemanticMatchResult."""
+    try:
+        from ai_remaster_gui.semantic_matching import ColorBibleMatcher
+        return ColorBibleMatcher.resolve_references(
+            rows=rows,
+            index=index,
+            count=count,
+            film_id=film_id,
+            service=color_bible_service,
+            confidence_threshold=confidence_threshold,
+        )
+    except ImportError:
+        from ai_remaster_gui.semantic_matching import SemanticMatchResult
+        neighbor_refs = _neighbor_reference_images_for(rows, index, count)
+        return SemanticMatchResult(
+            reference_paths=neighbor_refs,
+            retrieved_ref_ids=[],
+            retrieved_ref_hashes={},
+            entities=[],
+            needs_review=False,
+            review_reasons=[],
+            color_bible_version="",
+        )
+
+
+def reference_images_for(
+    rows: list[dict[str, str]],
+    index: int,
+    count: int,
+    film_id: str | None = None,
+    color_bible_service: Any | None = None,
+    confidence_threshold: float = 0.8,
+) -> list[Path]:
+    """Colour references to show Qwen with one still. When color_bible_service and film_id
+    are provided, delegates to ColorBibleMatcher.resolve_references(...).
+    When color_bible_service or film_id is None, preserves 100% backward compatibility
+    with the existing adjacent-shot neighbor selection. At most count slots."""
+    if color_bible_service is not None and film_id:
+        match_result = resolve_shot_references(
+            rows=rows,
+            index=index,
+            count=count,
+            film_id=film_id,
+            color_bible_service=color_bible_service,
+            confidence_threshold=confidence_threshold,
+        )
+        return match_result.reference_paths
+    return _neighbor_reference_images_for(rows, index, count)
+
+
+def _neighbor_reference_images_for(rows: list[dict[str, str]], index: int, count: int) -> list[Path]:
     shot = rows[index].get('_shot_index')
 
     def shot_number(position: int) -> int:
@@ -260,8 +316,36 @@ def prepare_reference_image(path: Path, comfy_dir: Path) -> str:
     return copy_to_comfy_input(path, comfy_dir, 'arp_qwen_ref_images')
 
 
-def signature(args: argparse.Namespace, workflow_path: Path, source_path: Path, prompt: str) -> dict[str, Any]:
-    return {
+def signature(
+    args: argparse.Namespace,
+    workflow_path: Path,
+    source_path: Path,
+    prompt: str,
+    shot_index: int = 0,
+    retrieved_ref_hashes: dict[str, str] | None = None,
+    retrieved_ref_ids: list[str] | None = None,
+    color_bible_version: str | None = None,
+) -> dict[str, Any]:
+    ref_hashes = retrieved_ref_hashes or {}
+    ref_ids = retrieved_ref_ids or sorted(list(ref_hashes.keys()))
+    version_str = color_bible_version or ""
+
+    backend_params: dict[str, Any] = {
+        'workflow': root_relative(workflow_path),
+        'load_image_node_id': str(getattr(args, 'load_image_node_id', 'auto')),
+        'prompt_node_id': str(args.prompt_node_id) if getattr(args, 'prompt_node_id', None) else None,
+        'save_node_id': str(getattr(args, 'save_node_id', 'auto')),
+        'reference_description_provider': getattr(args, 'reference_description_provider', 'none'),
+        'continuity_reference_count': getattr(args, 'continuity_reference_count', 0),
+        'reference_description_max_chars': getattr(args, 'reference_description_max_chars', 220),
+        'normalize_to_source_size': not getattr(args, 'no_normalize_to_source_size', False),
+        'model_backend': getattr(args, 'model_backend', 'gguf'),
+        'gguf_model': getattr(args, 'gguf_model', None) if getattr(args, 'model_backend', 'gguf') == 'gguf' else None,
+        **({'seed': args.seed} if getattr(args, 'seed', -1) >= 0 else {}),
+        **({'reference_count': args.reference_count} if getattr(args, 'reference_count', 0) > 0 else {}),
+    }
+
+    legacy_metadata = {
         'version': 5,
         'tool': 'qwen_colorize_references.py',
         'source': root_relative(source_path),
@@ -269,22 +353,33 @@ def signature(args: argparse.Namespace, workflow_path: Path, source_path: Path, 
         'workflow': root_relative(workflow_path),
         'workflow_fingerprint': file_fingerprint(workflow_path),
         'prompt': prompt,
-        'load_image_node_id': str(args.load_image_node_id),
-        'prompt_node_id': str(args.prompt_node_id) if args.prompt_node_id else None,
-        'save_node_id': str(args.save_node_id),
-        'reference_description_provider': args.reference_description_provider,
-        'continuity_reference_count': args.continuity_reference_count,
-        'reference_description_max_chars': args.reference_description_max_chars,
-        'normalize_to_source_size': not args.no_normalize_to_source_size,
-        'model_backend': args.model_backend,
-        'gguf_model': args.gguf_model if args.model_backend == 'gguf' else None,
-        # A random seed (-1) never makes a still stale; a chosen seed is part of what it was made with.
-        **({'seed': args.seed} if args.seed >= 0 else {}),
-        # Which images were shown is left out on purpose: a neighbour's new take would otherwise
-        # make every later still stale in a batch run. Only opting into nearby shots is recorded,
-        # so existing references stay reusable.
-        **({'reference_count': args.reference_count} if args.reference_count > 0 else {}),
+        'load_image_node_id': str(getattr(args, 'load_image_node_id', 'auto')),
+        'prompt_node_id': str(args.prompt_node_id) if getattr(args, 'prompt_node_id', None) else None,
+        'save_node_id': str(getattr(args, 'save_node_id', 'auto')),
+        'reference_description_provider': getattr(args, 'reference_description_provider', 'none'),
+        'continuity_reference_count': getattr(args, 'continuity_reference_count', 0),
+        'reference_description_max_chars': getattr(args, 'reference_description_max_chars', 220),
+        'normalize_to_source_size': not getattr(args, 'no_normalize_to_source_size', False),
+        'model_backend': getattr(args, 'model_backend', 'gguf'),
+        'gguf_model': getattr(args, 'gguf_model', None) if getattr(args, 'model_backend', 'gguf') == 'gguf' else None,
+        **({'seed': args.seed} if getattr(args, 'seed', -1) >= 0 else {}),
+        **({'reference_count': args.reference_count} if getattr(args, 'reference_count', 0) > 0 else {}),
     }
+
+    try:
+        from ai_remaster_gui.semantic_matching import build_reference_signature
+        return build_reference_signature(
+            shot_index=shot_index,
+            source_fingerprint=file_fingerprint(source_path),
+            retrieved_ref_hashes=ref_hashes,
+            prompt=prompt,
+            backend_params=backend_params,
+            color_bible_version=version_str,
+            retrieved_ref_ids=ref_ids,
+            extra_metadata=legacy_metadata,
+        )
+    except ImportError:
+        return legacy_metadata
 
 
 def patch_workflow(args: argparse.Namespace, workflow: dict[str, Any], source_path: Path, output_path: Path, prompt: str) -> dict[str, Any]:
@@ -689,6 +784,35 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--print-final-prompt', action='store_true')
     parser.add_argument('--print-api-prompt', action='store_true')
+    parser.add_argument(
+        '--reference-runner',
+        choices=['auto', 'guided_only', 'ddcolor_only'],
+        default='auto',
+        help='Reference colorization runner mode: auto (two-stage), guided_only, or ddcolor_only.',
+    )
+    parser.add_argument(
+        '--guided-backend',
+        default='qwen2511',
+        help='Default guided reference backend to use (default: qwen2511).',
+    )
+    parser.add_argument(
+        '--film-id',
+        default=None,
+        type=str,
+        help='Film ID for Color Bible semantic reference matching.',
+    )
+    parser.add_argument(
+        '--color-bible-db',
+        default=None,
+        type=Path,
+        help='Path to Color Bible SQLite database.',
+    )
+    parser.add_argument(
+        '--confidence-threshold',
+        type=float,
+        default=0.8,
+        help='Confidence threshold for Color Bible assignments below which a shot is paused for review (default: 0.8).',
+    )
     return parser
 
 
@@ -716,65 +840,198 @@ def main_with_args(args: argparse.Namespace) -> int:
         sample = ', '.join(str(path) for path in missing_sources[:3])
         more = f' and {len(missing_sources) - 3} more' if len(missing_sources) > 3 else ''
         raise FileNotFoundError(f'Reference source image not found: {sample}{more}')
-    if not args.dry_run and rows:
+
+    color_bible_service = None
+    if getattr(args, 'film_id', None):
+        try:
+            from ai_remaster_gui.color_bible_service import ColorBibleService
+            color_bible_service = ColorBibleService(db_path=getattr(args, 'color_bible_db', None))
+        except Exception as e:
+            print(f'Warning: Failed to initialize ColorBibleService: {e}')
+            color_bible_service = None
+
+    needs_comfy = not args.dry_run and rows and getattr(args, 'reference_runner', 'auto') != 'ddcolor_only'
+    if needs_comfy:
         if args.model_backend == 'gguf' and not (comfy_dir / 'custom_nodes' / 'ComfyUI-GGUF').exists():
             raise FileNotFoundError(f'ComfyUI-GGUF is required for Qwen GGUF. Re-run install_windows.bat, then restart ComfyUI: {comfy_dir / "custom_nodes" / "ComfyUI-GGUF"}')
         ensure_qwen_image_edit_models(comfy_dir)
         print(f'Waiting for ComfyUI at {args.comfy_url}...')
         wait_for_comfy(args.comfy_url, timeout_seconds=180, poll_seconds=args.poll_seconds)
-    for index, row in enumerate(rows):
-        src = resolve_path(row_source(row))
-        dst = output_for_row(args, row)
-        refs = continuity_reference_paths(args, rows, index)
-        extra_description = continuity_description(args, refs)
-        prompt = build_prompt(args, extra_description, row.get('prompt') or row.get('custom_prompt') or '')
-        sig = signature(args, workflow_path, src, prompt)
-        if args.print_final_prompt:
-            print(f'Final prompt {index:04d}: {prompt}')
-        if not args.force and resumable_output(dst, sig, image_like=src):
-            print(f'Reuse {index:04d}: {dst}')
-            continue
-        ref_note = f', described refs={len(refs)}' if refs else ''
-        args.active_seed = args.seed if args.seed >= 0 else random.randint(0, 2**31 - 1)
-        shown = [resolve_path(path) for path in args.reference_image if resolve_path(path).is_file()][:MAX_REFERENCE_IMAGES] or reference_images_for(rows, index, args.reference_count)
-        shown = [path for path in shown if path.resolve() != dst.resolve()]
-        args.active_reference_names = [prepare_reference_image(path, comfy_dir) for path in shown] if not args.dry_run else [path.name for path in shown]
-        colours = reference_colours(args, shown) if shown and args.describe_references and not args.dry_run else ''
-        # The colours as words go with the redo without images too: text alone cannot be copied.
-        base_prompt = f'{prompt} {colours}'.strip()
-        prompt = f'{reference_images_prompt(prompt, len(shown))} {colours}'.strip()
-        if shown:
-            print(f'Qwen colour references {index:04d}: ' + ', '.join(path.name for path in shown), flush=True)
-        print(f'Colorize {index:04d}: {src} -> {dst}{ref_note}')
-        print(f'Qwen prompt {index:04d}: {prompt}')
-        print(f'Qwen seed {index:04d}: {args.active_seed}', flush=True)
-        workflow = load_workflow(workflow_path)
-        patch_qwen_model_backend(args, workflow)
-        if args.dry_run:
-            prompt_payload = patch_workflow(args, workflow, src, dst, prompt)
-            if args.print_api_prompt:
-                print(json.dumps(prompt_payload, indent=2))
-            continue
-        if not src.is_file():
-            raise FileNotFoundError(f'Reference source not found: {src}')
-        prompt_payload = patch_workflow(args, workflow, src, dst, prompt)
-        if args.print_api_prompt:
-            print(json.dumps(prompt_payload, indent=2))
-        produced = render(args, prompt_payload)
-        if shown and composition_score(produced, src) < COPY_THRESHOLD:
-            print(f'Composition check {index:04d}: the colour references took over this still; colouring it again without them.', flush=True)
-            args.active_reference_names = []
-            workflow = load_workflow(workflow_path)
-            patch_qwen_model_backend(args, workflow)
-            produced = render(args, patch_workflow(args, workflow, src, dst, base_prompt))
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dst.with_suffix(dst.suffix + '.partial')
-        shutil.copy2(produced, tmp)
-        if not args.no_normalize_to_source_size:
-            normalize_to_source_size(tmp, src, dst)
-        tmp.replace(dst)
-        write_signature(dst, sig)
-        print(f'Wrote {dst}')
+
+    try:
+        from ai_remaster_gui.semantic_matching import (
+            ColorBibleMatcher,
+            PromptEnricher,
+            TwoStageReferenceRouter,
+            record_reference_compliance,
+        )
+        from ai_remaster_gui.commercial_policy import evaluate_component, CommercialPolicyError
+        from ai_remaster_gui.manifests import update_manifest_row
+
+        for index, row in enumerate(rows):
+            src = resolve_path(row_source(row))
+            dst = output_for_row(args, row)
+            shot_idx = int(row.get('_shot_index', index))
+
+            # 1. Resolve semantic references
+            match_result = ColorBibleMatcher.resolve_references(
+                rows=rows,
+                index=index,
+                count=MAX_REFERENCE_IMAGES,
+                film_id=getattr(args, 'film_id', None),
+                service=color_bible_service,
+                confidence_threshold=getattr(args, 'confidence_threshold', 0.8),
+            )
+
+            # 2. Priority C Review Gate Check (MUST BE BEFORE CACHE HIT CHECK)
+            if match_result.needs_review:
+                row['qc_status'] = 'needs_review'
+                try:
+                    update_manifest_row(manifest, shot_idx, {'qc_status': 'needs_review'})
+                except Exception as exc:
+                    print(f'Warning: Failed to update manifest CSV for shot {shot_idx}: {exc}')
+
+                if color_bible_service is not None and getattr(args, 'film_id', None):
+                    try:
+                        color_bible_service.update_shot_qc_status(args.film_id, shot_idx, 'needs_review')
+                    except Exception as exc:
+                        print(f'Warning: Failed to update Color Bible shot record for shot {shot_idx}: {exc}')
+
+                print(f"[Review Gate] Shot {shot_idx:04d} paused for human review: {', '.join(match_result.review_reasons)}")
+                continue
+
+            # 3. Select Backend
+            effective_runner = getattr(args, 'reference_runner', 'auto')
+            if not getattr(args, 'film_id', None) and effective_runner == 'auto':
+                # Without film_id, default to guided backend for backward compatibility with standalone Qwen colorizer
+                effective_runner = 'guided_only'
+
+            backend = TwoStageReferenceRouter.select_backend(
+                row=row,
+                has_color_bible_entities=bool(match_result.entities),
+                reference_runner=effective_runner,
+                default_guided_backend=getattr(args, 'guided_backend', 'qwen2511'),
+            )
+
+            # 4. Enrich Prompt
+            refs = continuity_reference_paths(args, rows, index)
+            extra_description = continuity_description(args, refs)
+            raw_prompt = build_prompt(args, extra_description, row.get('prompt') or row.get('custom_prompt') or '')
+            prompt = PromptEnricher.enrich_prompt(raw_prompt, match_result.entities)
+
+            # 5. Check Scoped Cache
+            sig = signature(
+                args,
+                workflow_path,
+                src,
+                prompt,
+                shot_index=shot_idx,
+                retrieved_ref_hashes=match_result.retrieved_ref_hashes,
+                retrieved_ref_ids=match_result.retrieved_ref_ids,
+                color_bible_version=match_result.color_bible_version,
+            )
+            if args.print_final_prompt:
+                print(f'Final prompt {index:04d}: {prompt}')
+            if not args.force and resumable_output(dst, sig, image_like=src):
+                print(f'Reuse {index:04d}: {dst}')
+                continue
+
+            # 6. Commercial Model Guard
+            model_name = "ddcolor" if backend == "ddcolor" else "qwen-image-edit-2511"
+            comm_settings = None
+            try:
+                from ai_remaster_gui import state
+                if getattr(state, "APP", None) is not None and getattr(state.APP, "settings", None):
+                    comm_settings = state.APP.settings
+            except Exception:
+                pass
+            if comm_settings is None:
+                local_cfg = load_local_config()
+                comm_settings = {
+                    "global": {
+                        "commercial_model_guard": str(local_cfg.get("commercial_model_guard", "true")),
+                        "non_commercial_benchmark_override": str(local_cfg.get("non_commercial_benchmark_override", "false")),
+                        "qwen_2511_audited": str(local_cfg.get("qwen_2511_audited", "true")),
+                    }
+                }
+            global_comm = comm_settings.get("global", {}) if isinstance(comm_settings.get("global"), dict) else comm_settings
+            is_audited = str(global_comm.get("qwen_2511_audited", "true")).strip().lower() in ("true", "1", "yes")
+            decision = evaluate_component(
+                model_name,
+                component_type="checkpoint",
+                settings=comm_settings,
+                conditional_attestations={"qwen_2511_audited": is_audited},
+            )
+            if not decision.allowed:
+                raise CommercialPolicyError(f"Commercial policy blocked backend '{backend}' ({model_name}): {decision.reason}")
+
+            args.active_seed = args.seed if args.seed >= 0 else random.randint(0, 2**31 - 1)
+
+            # 7. Execute Selected Backend
+            if backend == "ddcolor":
+                print(f'DDColor colorize {index:04d}: {src} -> {dst}')
+                colorize_reference_shot(src, dst, dry_run=args.dry_run, seed=args.active_seed)
+            else:
+                ref_note = f', described refs={len(refs)}' if refs else ''
+                shown = [resolve_path(path) for path in args.reference_image if resolve_path(path).is_file()][:MAX_REFERENCE_IMAGES]
+                if not shown:
+                    if getattr(args, 'film_id', None) and match_result.reference_paths:
+                        shown = match_result.reference_paths[:MAX_REFERENCE_IMAGES]
+                    else:
+                        shown = reference_images_for(rows, index, args.reference_count)
+                shown = [path for path in shown if path.resolve() != dst.resolve()]
+                args.active_reference_names = [prepare_reference_image(path, comfy_dir) for path in shown] if not args.dry_run else [path.name for path in shown]
+                colours = reference_colours(args, shown) if shown and args.describe_references and not args.dry_run else ''
+                base_prompt = f'{prompt} {colours}'.strip()
+                prompt = f'{reference_images_prompt(prompt, len(shown))} {colours}'.strip()
+                if shown:
+                    print(f'Qwen colour references {index:04d}: ' + ', '.join(path.name for path in shown), flush=True)
+                print(f'Colorize {index:04d}: {src} -> {dst}{ref_note}')
+                print(f'Qwen prompt {index:04d}: {prompt}')
+                print(f'Qwen seed {index:04d}: {args.active_seed}', flush=True)
+                workflow = load_workflow(workflow_path)
+                patch_qwen_model_backend(args, workflow)
+                if args.dry_run:
+                    prompt_payload = patch_workflow(args, workflow, src, dst, prompt)
+                    if args.print_api_prompt:
+                        print(json.dumps(prompt_payload, indent=2))
+                    continue
+                if not src.is_file():
+                    raise FileNotFoundError(f'Reference source not found: {src}')
+                prompt_payload = patch_workflow(args, workflow, src, dst, prompt)
+                if args.print_api_prompt:
+                    print(json.dumps(prompt_payload, indent=2))
+                produced = render(args, prompt_payload)
+                if shown and composition_score(produced, src) < COPY_THRESHOLD:
+                    print(f'Composition check {index:04d}: the colour references took over this still; colouring it again without them.', flush=True)
+                    args.active_reference_names = []
+                    workflow = load_workflow(workflow_path)
+                    patch_qwen_model_backend(args, workflow)
+                    produced = render(args, patch_workflow(args, workflow, src, dst, base_prompt))
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                tmp = dst.with_suffix(dst.suffix + '.partial')
+                shutil.copy2(produced, tmp)
+                if not args.no_normalize_to_source_size:
+                    normalize_to_source_size(tmp, src, dst)
+                tmp.replace(dst)
+
+            # 8. Write signature and record compliance
+            write_signature(dst, sig)
+            record_reference_compliance(
+                output_path=dst,
+                model_id=model_name,
+                component_type="checkpoint",
+                color_bible_version=match_result.color_bible_version,
+                retrieved_ref_ids=match_result.retrieved_ref_ids,
+                settings=comm_settings,
+                seed=args.active_seed,
+                conditional_attestations={"qwen_2511_audited": is_audited},
+            )
+            print(f'Wrote {dst}')
+    finally:
+        if color_bible_service is not None:
+            color_bible_service.close()
+
     return 0
 
 

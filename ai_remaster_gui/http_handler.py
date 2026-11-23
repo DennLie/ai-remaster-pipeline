@@ -457,6 +457,7 @@ class Handler(BaseHTTPRequestHandler):
                     locations = [l.to_dict() for l in repo.list_locations(film_id)] if film_id else []
                     assignments = [a.to_dict() for a in repo.list_assignments(film_id)] if film_id else []
                     references = [r.to_dict() for r in repo.list_references(film_id)] if film_id else []
+                    shots = [s.to_dict() for s in repo.list_shots(film_id)] if film_id else []
                     snapshot_hash = service.get_snapshot_hash(film_id) if film_id else None
 
                     self.send_json({
@@ -469,6 +470,7 @@ class Handler(BaseHTTPRequestHandler):
                         "locations": locations,
                         "assignments": assignments,
                         "references": references,
+                        "shots": shots,
                         "snapshot_hash": snapshot_hash,
                     })
             except Exception as exc:
@@ -478,17 +480,58 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             try:
                 film_id = query.get("film_id", [""])[0].strip()
+                if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
+                    film_id = str(state.APP.settings.get("global", {}).get("color_bible_film_id", "")).strip()
                 raw_index = query.get("shot_index", [""])[0]
                 if not str(raw_index).strip().lstrip("+-").isdigit():
                     raise ValueError(f"Invalid shot_index: {raw_index!r}")
                 shot_index = int(str(raw_index).strip())
+
+                raw_conf = query.get("confidence_threshold", [""])[0].strip()
+                conf_threshold = float(raw_conf) if raw_conf else 0.8
+
                 from .color_bible_service import ColorBibleService
                 with ColorBibleService() as service:
                     assignments = service.get_shot_palette_assignments(film_id, shot_index)
+                    shot_record = service.get_shot_by_index(film_id, shot_index)
+                    qc_status = shot_record.qc_status if shot_record else ""
+
+                    needs_review = (qc_status == "needs_review")
+                    review_reasons: list[str] = [f"Shot QC status is '{qc_status}'"] if needs_review else []
+                    for item in assignments:
+                        asgn = item.get("assignment", {})
+                        status = str(asgn.get("approval_status", "")).strip().lower()
+                        try:
+                            conf = float(asgn.get("confidence", 1.0))
+                        except (ValueError, TypeError):
+                            conf = 1.0
+                        entity_name = (item.get("entity") or {}).get("name") or item.get("entity_id") or "unknown"
+                        variant_id = item.get("variant_id") or ""
+                        label = f"Entity '{entity_name}'"
+                        if variant_id:
+                            label += f" costume '{variant_id}'"
+                        if status == "pending_review":
+                            needs_review = True
+                            reason = f"{label} assignment status is 'pending_review'"
+                            if reason not in review_reasons:
+                                review_reasons.append(reason)
+                        elif conf < conf_threshold:
+                            needs_review = True
+                            reason = f"{label} assignment has confidence {conf:.2f} < {conf_threshold:.2f}"
+                            if reason not in review_reasons:
+                                review_reasons.append(reason)
+
+                    approval_status = qc_status if qc_status else ("pending_review" if needs_review else "approved")
+
                     self.send_json({
                         "ok": True,
                         "shot_index": shot_index,
                         "assignments": assignments,
+                        "needs_review": needs_review,
+                        "review_reasons": review_reasons,
+                        "qc_status": qc_status,
+                        "approval_status": approval_status,
+                        "shot": shot_record.to_dict() if shot_record else None,
                     })
             except Exception as exc:
                 state.APP.log.append(f"Color Bible shot assignments failed: {exc}")

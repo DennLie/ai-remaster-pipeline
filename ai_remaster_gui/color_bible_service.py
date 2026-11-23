@@ -621,6 +621,40 @@ class ColorBibleService:
     def get_shot_by_index(self, film_id: str, shot_index: int) -> ShotRecord | None:
         return self.repo.get_shot_by_index(film_id, shot_index)
 
+    def update_shot_qc_status(self, film_id: str, shot_index: int, qc_status: str) -> ShotRecord | None:
+        shot = self.repo.get_shot_by_index(film_id, shot_index)
+        if shot is None:
+            updated = ShotRecord(
+                shot_id=f"shot_{film_id}_{shot_index}",
+                film_id=film_id,
+                sequence_id=None,
+                shot_index=shot_index,
+                start_frame=0,
+                end_frame=0,
+                start_time=0.0,
+                end_time=0.0,
+                source_reference=None,
+                color_reference=None,
+                qc_status=qc_status,
+                updated_at=_utcnow_iso(),
+            )
+            return self.repo.upsert_shot(updated)
+        updated = ShotRecord(
+            shot_id=shot.shot_id,
+            film_id=shot.film_id,
+            sequence_id=shot.sequence_id,
+            shot_index=shot.shot_index,
+            start_frame=shot.start_frame,
+            end_frame=shot.end_frame,
+            start_time=shot.start_time,
+            end_time=shot.end_time,
+            source_reference=shot.source_reference,
+            color_reference=shot.color_reference,
+            qc_status=qc_status,
+            updated_at=_utcnow_iso(),
+        )
+        return self.repo.upsert_shot(updated)
+
     def list_shots(self, film_id: str) -> list[ShotRecord]:
         return self.repo.list_shots(film_id)
 

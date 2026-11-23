@@ -396,6 +396,7 @@ def append_compliance_record(
     seeds: Mapping[str, int] | None = None,
     color_bible_version: str | None = None,
     conditional_attestations: Mapping[str, bool | str] | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> Path:
     """Record a stage run into output/compliance_report.json, preserving multi-stage history.
 
@@ -443,6 +444,8 @@ def append_compliance_record(
         "conditional_attestations": attestations,
         "eu_ai_act_article_50_disclosure": disclosure,
     }
+    if metadata:
+        run_record["metadata"] = dict(metadata)
 
     existing_data: dict[str, Any] = {}
     if report_path.is_file():

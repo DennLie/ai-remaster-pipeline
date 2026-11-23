@@ -259,6 +259,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--film-id", default=None, type=str, help="Optional film ID for Color Bible integration.")
+    parser.add_argument(
+        "--reference-runner",
+        choices=["auto", "guided_only", "ddcolor_only"],
+        default="auto",
+        help="Reference runner mode compatibility argument.",
+    )
+    parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.8,
+        help="Confidence threshold compatibility argument.",
+    )
+    parser.add_argument(
+        "--color-bible-db",
+        type=Path,
+        default=None,
+        help="Optional path to Color Bible SQLite database.",
+    )
     return parser
 
 

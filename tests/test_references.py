@@ -247,5 +247,150 @@ class ReferenceScrubTests(unittest.TestCase):
             state.APP = previous_app
 
 
+class ColorBibleIntegrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.prev_app = state.APP
+        state.APP = SimpleNamespace(
+            log=[],
+            settings={
+                "global": {"color_bible_film_id": "film_test"},
+                "references": {
+                    "manifest": "",
+                    "color_bible_film_id": "film_test",
+                    "reference_runner": "auto",
+                    "confidence_threshold": "0.85",
+                },
+            },
+        )
+
+    def tearDown(self) -> None:
+        state.APP = self.prev_app
+
+    def test_shot_rows_exposes_qc_status_and_color_bible_fields(self) -> None:
+        with tempfile.TemporaryDirectory(dir=references.ROOT) as tmp_text:
+            folder = Path(tmp_text)
+            manifest = folder / "shots.csv"
+            write_manifest_details(
+                manifest,
+                "source.mp4",
+                ["start_frame", "end_frame", "end", "source_reference", "color_reference", "qc_status"],
+                [
+                    {
+                        "start_frame": "0",
+                        "end_frame": "24",
+                        "end": "00:00:01.000",
+                        "source_reference": "a.png",
+                        "color_reference": "a_color.png",
+                        "qc_status": "needs_review",
+                    },
+                    {
+                        "start_frame": "24",
+                        "end_frame": "48",
+                        "end": "00:00:02.000",
+                        "source_reference": "b.png",
+                        "color_reference": "b_color.png",
+                        "qc_status": "approved",
+                    },
+                ],
+            )
+
+            mock_service = mock.MagicMock()
+            mock_service.get_shot_palette_assignments.return_value = [
+                {
+                    "assignment": {"approval_status": "approved", "confidence": 0.9},
+                    "entity_type": "character",
+                    "entity_id": "char_1",
+                    "variant_id": "var_1",
+                    "entity": {"name": "Alice"},
+                    "color_references": [],
+                }
+            ]
+
+            with (
+                mock.patch("ai_remaster_gui.color_bible_service.ColorBibleService", return_value=mock_service),
+                mock.patch.object(references, "manifest_fps", return_value=24.0),
+            ):
+                rows = references.shot_rows(references.rel(manifest))
+
+            self.assertEqual(len(rows), 2)
+            # Shot 0 has qc_status='needs_review'
+            self.assertEqual(rows[0]["qc_status"], "needs_review")
+            self.assertTrue(rows[0]["needs_review"])
+            self.assertIn("Shot QC status is 'needs_review'", rows[0]["review_reasons"][0])
+            self.assertEqual(len(rows[0]["color_bible_entities"]), 1)
+
+            # Shot 1 has qc_status='approved'
+            self.assertEqual(rows[1]["qc_status"], "approved")
+            self.assertFalse(rows[1]["needs_review"])
+            self.assertEqual(rows[1]["review_reasons"], [])
+
+    def test_regeneration_commands_pass_color_bible_args(self) -> None:
+        with tempfile.TemporaryDirectory(dir=references.ROOT) as tmp_text:
+            folder = Path(tmp_text)
+            manifest = folder / "shots.csv"
+            write_manifest_details(
+                manifest,
+                "source.mp4",
+                ["start_frame", "end_frame", "end", "source_reference", "color_reference"],
+                [
+                    {
+                        "start_frame": "0",
+                        "end_frame": "24",
+                        "end": "00:00:01.000",
+                        "source_reference": "src.png",
+                        "color_reference": "dst.png",
+                    }
+                ],
+            )
+
+            # 1. ddcolor command
+            cmd_dd, out_dd = references.ddcolor_reference_regeneration_command(references.rel(manifest), 0)
+            self.assertIn("--film-id", cmd_dd)
+            self.assertEqual(cmd_dd[cmd_dd.index("--film-id") + 1], "film_test")
+            self.assertIn("--reference-runner", cmd_dd)
+            self.assertEqual(cmd_dd[cmd_dd.index("--reference-runner") + 1], "auto")
+            self.assertIn("--confidence-threshold", cmd_dd)
+            self.assertEqual(cmd_dd[cmd_dd.index("--confidence-threshold") + 1], "0.85")
+
+            # 2. qwen21 command
+            cmd_q21, out_q21 = references.qwen21_reference_regeneration_command(references.rel(manifest), 0)
+            self.assertIn("--film-id", cmd_q21)
+            self.assertEqual(cmd_q21[cmd_q21.index("--film-id") + 1], "film_test")
+            self.assertIn("--reference-runner", cmd_q21)
+            self.assertEqual(cmd_q21[cmd_q21.index("--reference-runner") + 1], "auto")
+            self.assertIn("--confidence-threshold", cmd_q21)
+            self.assertEqual(cmd_q21[cmd_q21.index("--confidence-threshold") + 1], "0.85")
+
+            # 3. single reference command
+            with mock.patch("ai_remaster_gui.references.qwen_workflow_for", return_value="dummy_workflow.json"):
+                cmd_ref, out_ref = references.reference_regeneration_command(references.rel(manifest), 0)
+                self.assertIn("--film-id", cmd_ref)
+                self.assertEqual(cmd_ref[cmd_ref.index("--film-id") + 1], "film_test")
+                self.assertIn("--reference-runner", cmd_ref)
+                self.assertEqual(cmd_ref[cmd_ref.index("--reference-runner") + 1], "auto")
+                self.assertIn("--confidence-threshold", cmd_ref)
+                self.assertEqual(cmd_ref[cmd_ref.index("--confidence-threshold") + 1], "0.85")
+
+    def test_shot_rows_safe_when_app_is_none(self) -> None:
+        """Verify shot_rows executes without AttributeError when state.APP is None."""
+        prev_app = state.APP
+        state.APP = None
+        try:
+            with tempfile.TemporaryDirectory(dir=references.ROOT) as tmp_text:
+                folder = Path(tmp_text)
+                manifest = folder / "shots.csv"
+                write_manifest_details(
+                    manifest,
+                    "video.mp4",
+                    ["start", "end", "source_reference", "color_reference"],
+                    [{"start": "00:00:00.000", "end": "00:00:01.000", "source_reference": "", "color_reference": ""}],
+                )
+                rows = references.shot_rows(references.rel(manifest))
+                self.assertEqual(len(rows), 1)
+                self.assertFalse(rows[0]["masked_edit_available"])
+        finally:
+            state.APP = prev_app
+
+
 if __name__ == "__main__":
     unittest.main()

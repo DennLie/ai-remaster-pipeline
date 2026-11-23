@@ -48,6 +48,44 @@ try:
 except ImportError:
     append_compliance_record = None  # type: ignore[assignment]
 
+try:
+    from ai_remaster_gui.commercial_policy import CommercialPolicyError, evaluate_component
+except ImportError:
+    class CommercialPolicyError(RuntimeError):  # type: ignore[no-redef]
+        """Raised when a model component fails commercial policy validation."""
+
+    def evaluate_component(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
+        class _FallbackDecision:
+            allowed = True
+            status = "allowed_osi"
+            license = "Apache-2.0"
+            reason = "DDColor Apache-2.0 still reference draft generator"
+            sha256 = None
+        return _FallbackDecision()
+
+
+def get_commercial_settings(settings: Mapping[str, Any] | None = None) -> Mapping[str, Any] | None:
+    """Resolve settings for commercial policy evaluation."""
+    if settings is not None:
+        return settings
+    try:
+        from ai_remaster_gui import state
+        if getattr(state, "APP", None) is not None and getattr(state.APP, "settings", None):
+            return state.APP.settings
+    except Exception:
+        pass
+    try:
+        from scripts.common import load_local_config
+        local_cfg = load_local_config()
+        return {
+            "global": {
+                "commercial_model_guard": str(local_cfg.get("commercial_model_guard", "true")),
+                "non_commercial_benchmark_override": str(local_cfg.get("non_commercial_benchmark_override", "false")),
+            }
+        }
+    except Exception:
+        return None
+
 
 DEFAULT_MODEL_PATH = ROOT / "models" / "ddcolor" / "ddcolor_paper_tiny.pth"
 DEFAULT_OUTPUT_ROOT = ROOT / "intermediate" / "outpainted_references_color"
@@ -252,6 +290,69 @@ def colorize_frame(
     return cv2.cvtColor(lab_out, cv2.COLOR_LAB2RGB)
 
 
+def colorize_reference_shot(
+    source_path: Path | str,
+    output_path: Path | str,
+    model_path: Path | str | None = None,
+    device: str = "auto",
+    dry_run: bool = False,
+    seed: int | None = 42,
+    settings: Mapping[str, Any] | None = None,
+    enforce_policy: bool = False,
+) -> Path:
+    """Colorize a single reference still programmatically and return the output Path.
+
+    Preserves original grayscale luminance L in Lab space ("The original pixels win"),
+    predicting only chromaticity a* and b*.
+
+    Args:
+        source_path: Path to input grayscale or reference image.
+        output_path: Path to destination colorized output image.
+        model_path: Path to DDColor checkpoint (.pth). Defaults to DEFAULT_MODEL_PATH.
+        device: "auto" | "cuda" | "cpu".
+        dry_run: If True, uses deterministic synthetic colorization without weights/GPU.
+        seed: Optional RNG seed for deterministic colorization (defaults to 42).
+        settings: Optional GUI or pipeline settings mapping for commercial policy check.
+        enforce_policy: If True, evaluates Commercial Model Guard prior to inference.
+
+    Returns:
+        Path to the saved colorized output image.
+    """
+    src = resolve_path(source_path)
+    if not src.is_file():
+        raise FileNotFoundError(f"Source reference still not found: {src}")
+
+    dst = resolve_path(output_path)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+
+    m_path = resolve_path(model_path) if model_path is not None else DEFAULT_MODEL_PATH
+
+    if enforce_policy or settings is not None:
+        comm_settings = get_commercial_settings(settings)
+        decision = evaluate_component(
+            "ddcolor",
+            component_type="checkpoint",
+            file_path=m_path if m_path.is_file() else None,
+            settings=comm_settings,
+        )
+        if not decision.allowed:
+            raise CommercialPolicyError(f"Commercial Model Guard blocked DDColor: {decision.reason}")
+
+    with Image.open(src) as im:
+        rgb_in = np.asarray(im.convert("RGB"))
+
+    colorized_rgb = colorize_frame(
+        rgb_in,
+        model_path=m_path,
+        device=device,
+        dry_run=dry_run,
+        seed=seed,
+    )
+
+    Image.fromarray(colorized_rgb).save(dst)
+    return dst
+
+
 def read_manifest_lines(manifest_path: Path) -> tuple[list[str], list[str], list[dict[str, str]]]:
     """Read manifest preserving leading comments and returning headers and row dicts."""
     comments: list[str] = []
@@ -431,6 +532,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional integer row limit for manifest processing.",
     )
+    parser.add_argument(
+        "--film-id",
+        type=str,
+        default=None,
+        help="Optional film ID for Color Bible integration.",
+    )
+    parser.add_argument(
+        "--reference-runner",
+        choices=["auto", "guided_only", "ddcolor_only"],
+        default="auto",
+        help="Reference runner mode compatibility argument.",
+    )
+    parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=0.8,
+        help="Confidence threshold compatibility argument.",
+    )
+    parser.add_argument(
+        "--color-bible-db",
+        type=Path,
+        default=None,
+        help="Optional path to Color Bible SQLite database.",
+    )
     return parser
 
 
@@ -443,6 +568,17 @@ def main() -> int:
         parser.error("Either --manifest or --input-image must be provided.")
 
     model_path = resolve_path(args.model_path)
+
+    # Enforce Commercial Model Guard prior to inference
+    comm_settings = get_commercial_settings()
+    decision = evaluate_component(
+        "ddcolor",
+        component_type="checkpoint",
+        file_path=model_path if model_path.is_file() else None,
+        settings=comm_settings,
+    )
+    if not decision.allowed:
+        raise CommercialPolicyError(f"Commercial Model Guard blocked DDColor: {decision.reason}")
 
     # Single-image colorization mode
     if args.input_image:
@@ -503,9 +639,10 @@ def main() -> int:
                     "component_type": "checkpoint",
                     "file_path": str(model_path) if model_path.is_file() else None,
                     "source_url": "https://github.com/piddnad/DDColor",
-                    "license": "Apache-2.0",
-                    "status": "allowed_osi",
-                    "reason": "DDColor Apache-2.0 still reference draft generator",
+                    "license": getattr(decision, "license", "Apache-2.0"),
+                    "status": getattr(decision, "status", "allowed_osi"),
+                    "sha256": getattr(decision, "sha256", None),
+                    "reason": getattr(decision, "reason", "DDColor Apache-2.0 still reference draft generator"),
                 }
             ],
             settings={"references": {"method": "ddcolor"}},

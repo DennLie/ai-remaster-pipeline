@@ -86,7 +86,7 @@ def _comparable(value: Any) -> Any:
     if isinstance(value, dict):
         comparable = {}
         for key, item in value.items():
-            if key in {"mtime_ns", "color_reference_previous", "manifest_fingerprint"}:
+            if key in {"mtime_ns", "color_reference_previous", "manifest_fingerprint", "color_bible_version"}:
                 continue
             fingerprint = value.get(_fingerprint_key(key))
             if isinstance(item, str) and isinstance(fingerprint, dict) and fingerprint.get("sha256"):
