@@ -507,5 +507,143 @@ class TestTopLevelPipelineAndCLI(unittest.TestCase):
             self.assertIn("mp4v and XVID codecs", str(ctx.exception))
 
 
+class TestColorBibleAnchorResolution(unittest.TestCase):
+    """Unit tests for _resolve_color_anchor enhanced parsing."""
+
+    def test_resolve_percentile_dict(self) -> None:
+        from scripts.osi_masked_lab import _resolve_color_anchor
+
+        obj = MaskObjectMetadata(obj_id=1, name="character_suit", entity_type="character", entity_id="char_01", variant_id="costume_a")
+
+        # Percentile list in "a" and "b"
+        anchors = {
+            "char_01": {
+                "L": [20.0, 40.0, 50.0, 60.0, 80.0],
+                "a": [10.0, 15.0, 25.0, 35.0, 40.0],
+                "b": [-20.0, -10.0, -5.0, 0.0, 10.0],
+            }
+        }
+        res = _resolve_color_anchor(anchors, obj)
+        self.assertIsNotNone(res)
+        self.assertAlmostEqual(res[0], 25.0)
+        self.assertAlmostEqual(res[1], -5.0)
+
+    def test_resolve_scalar_dict(self) -> None:
+        from scripts.osi_masked_lab import _resolve_color_anchor
+
+        obj = MaskObjectMetadata(obj_id=2, name="hat", entity_type="object", entity_id="obj_hat")
+        anchors = {
+            "hat": {"a": 18.2, "b": -33.4}
+        }
+        res = _resolve_color_anchor(anchors, obj)
+        self.assertIsNotNone(res)
+        self.assertAlmostEqual(res[0], 18.2)
+        self.assertAlmostEqual(res[1], -33.4)
+
+    def test_resolve_median_and_p50(self) -> None:
+        from scripts.osi_masked_lab import _resolve_color_anchor
+
+        obj1 = MaskObjectMetadata(obj_id=3, name="car", entity_type="object")
+        anchors1 = {
+            3: {"median_a": 12.0, "median_b": 42.0}
+        }
+        res1 = _resolve_color_anchor(anchors1, obj1)
+        self.assertEqual(res1, (12.0, 42.0))
+
+        obj2 = MaskObjectMetadata(obj_id=4, name="sky", entity_type="location")
+        anchors2 = {
+            "4": {"p50_a": [-5.0, 0.0, 5.0], "p50_b": [-20.0, -15.0, -10.0]}
+        }
+        res2 = _resolve_color_anchor(anchors2, obj2)
+        self.assertEqual(res2, (0.0, -15.0))
+
+
+class TestColourCommandWiring(unittest.TestCase):
+    """Verify _colour_command includes osi_masked_lab flags: compliance dir, color bible db, film id."""
+
+    def test_colour_command_osi_masked_lab_flags(self) -> None:
+        from ai_remaster_gui.server import PipelineApp
+        from ai_remaster_gui.config import ROOT
+
+        app = PipelineApp()
+        app.settings["global"]["color_bible_db"] = str(ROOT / "test_cb.db")
+        app.settings["global"]["color_bible_film_id"] = "test_film"
+
+        values = {
+            "manifest": "manifests/test.csv",
+            "method": "osi_masked_lab",
+            "masks_dir": "intermediate/shot_masks",
+            "guided_radius": "7",
+            "guided_eps": "0.002",
+        }
+        cmd = app._colour_command({}, values)
+
+        self.assertIn("--method", cmd)
+        self.assertEqual(cmd[cmd.index("--method") + 1], "osi_masked_lab")
+        self.assertIn("--compliance-output-dir", cmd)
+        self.assertEqual(cmd[cmd.index("--compliance-output-dir") + 1], str(ROOT / "output"))
+        self.assertIn("--color-bible-db", cmd)
+        self.assertEqual(cmd[cmd.index("--color-bible-db") + 1], str(ROOT / "test_cb.db"))
+        self.assertIn("--film-id", cmd)
+        self.assertEqual(cmd[cmd.index("--film-id") + 1], "test_film")
+        self.assertIn("--masks-dir", cmd)
+        self.assertEqual(cmd[cmd.index("--masks-dir") + 1], "intermediate/shot_masks")
+        self.assertIn("--guided-radius", cmd)
+        self.assertEqual(cmd[cmd.index("--guided-radius") + 1], "7")
+        self.assertIn("--guided-eps", cmd)
+        self.assertEqual(cmd[cmd.index("--guided-eps") + 1], "0.002")
+
+
+class TestColorizeVideoColorBibleIntegration(unittest.TestCase):
+    """Verify scripts/colorize_video.py wiring to Color Bible DB and SAM2 masks."""
+
+    def test_build_parser_includes_color_bible_flags(self) -> None:
+        from scripts.colorize_video import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["--manifest", "dummy.csv"])
+        self.assertTrue(hasattr(args, "color_bible_db"))
+        self.assertTrue(hasattr(args, "film_id"))
+        self.assertIn("color_bible.db", args.color_bible_db)
+        self.assertIsNone(args.film_id)
+
+        args2 = parser.parse_args([
+            "--manifest", "dummy.csv",
+            "--color-bible-db", "custom.db",
+            "--film-id", "film_42",
+        ])
+        self.assertEqual(args2.color_bible_db, "custom.db")
+        self.assertEqual(args2.film_id, "film_42")
+
+    def test_run_osi_masked_lab_resolves_film_id_from_manifest_comment(self) -> None:
+        from scripts.colorize_video import build_parser, run_osi_masked_lab_colorization
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            source_file = tmp_path / "video.mp4"
+            source_file.write_bytes(b"dummy video content")
+            ref_file = tmp_path / "ref.png"
+            ref_file.write_bytes(b"dummy image")
+            manifest_file = tmp_path / "shots.csv"
+            manifest_file.write_text(
+                f"# source_video={source_file.as_posix()}\n"
+                "# color_bible_film_id=film_from_comment\n"
+                "index,start,end,reference,enabled\n"
+                f"0,0.0,1.0,{ref_file.as_posix()},true\n",
+                encoding="utf-8",
+            )
+            parser = build_parser()
+            args = parser.parse_args([
+                "--manifest", str(manifest_file),
+                "--source-video", str(source_file),
+                "--method", "osi_masked_lab",
+                "--dry-run",
+            ])
+            # Dry run returns 0 without processing frames
+            with mock.patch("scripts.colorize_video.video_info", return_value={"width": 64, "height": 64, "fps": 24.0, "frames": 24}):
+                exit_code = run_osi_masked_lab_colorization(args)
+            self.assertEqual(exit_code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

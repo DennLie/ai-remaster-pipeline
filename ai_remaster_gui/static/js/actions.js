@@ -1817,11 +1817,13 @@ async function saveGlobal() {
 }
 
 async function saveGlobalPipelineOptions() {
+  const guardChecked = Boolean(document.getElementById('globalCommercialModelGuard')?.checked);
   const snap = captureScrollState();
   await postJson('/api/settings', {
     stage: 'global',
     values: {
-      commercial_model_guard: String(document.getElementById('globalCommercialModelGuard').checked),
+      commercial_model_guard: String(guardChecked),
+      non_commercial_benchmark_override: String(!guardChecked),
       denoise: String(document.getElementById('globalDenoise').checked),
       deflicker: String(document.getElementById('globalDeflicker').checked),
       enhancement: String(document.getElementById('globalEnhancement').checked),
@@ -2248,4 +2250,13 @@ async function clearAllCache() {
   state = result.state;
   drawCache();
   lastRenderSignature = renderSignature();
+}
+
+function openColorBibleForShot(filmId, shotIndex) {
+  if (filmId && typeof cbState !== 'undefined') {
+    cbState.activeFilmId = filmId;
+  }
+  active = 'color_bible';
+  drawTabs();
+  draw();
 }

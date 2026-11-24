@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from . import state
 from .config import IMAGE_EXTS, PREVIEW_DIR, QWEN_IMAGE_EDIT_MODEL, REFERENCE_PROMPT, REFERENCE_PROMPT_SUFFIX, ROOT, SCRIPTS, comfy_output_root_for, current_config
@@ -231,6 +232,7 @@ def shot_rows(
                 "needs_review": needs_review,
                 "review_reasons": review_reasons,
                 "color_bible_entities": color_bible_entities,
+                "color_bible_film_id": str(row.get("color_bible_film_id") or film_id or "").strip(),
                 "start": round(start, 6),
                 "end": round(end, 6),
                 "fps": fps,

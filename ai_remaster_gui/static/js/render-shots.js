@@ -642,15 +642,61 @@ function colorizationLabel(method) {
   return 'Deep Exemplar';
 }
 
+function colorBibleChips(entities) {
+  if (!entities || !entities.length) return '';
+  const chips = entities.map(item => {
+    const asgn = (item && item.assignment) ? item.assignment : item;
+    const entity = (item && item.entity) ? item.entity : {};
+    const variant = (item && item.variant) ? item.variant : {};
+    const name = entity.name || item.name || item.entity_name || item.entity_id || asgn.entity_id || 'Entity';
+    const variantId = variant.variant_name || variant.name || variant.variant_id || item.variant_id || asgn.variant_id || '';
+    const rawConf = (asgn && asgn.confidence !== undefined) ? asgn.confidence : item.confidence;
+    const confStr = (rawConf !== undefined && rawConf !== null && rawConf !== '') ? ` (${Number(rawConf).toFixed(2)})` : '';
+    const status = (asgn && asgn.approval_status) || item.approval_status || '';
+    const variantPart = variantId ? ` [${esc(variantId)}]` : '';
+    const statusPart = status ? ` · <span class="approval-badge ${esc(status.toLowerCase())}" style="font-size:0.75em;padding:1px 5px;">${esc(status)}</span>` : '';
+    return `<span class="chip cb-chip" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;margin:2px 4px 2px 0;background:#1e293b;border:1px solid #334155;border-radius:12px;font-size:0.82em;color:#e2e8f0;"><strong>${esc(name)}</strong>${variantPart}${confStr}${statusPart}</span>`;
+  }).join('');
+  return `<div class="color-bible-chips-list" style="margin:6px 0;"><strong>Color Bible:</strong> <div style="display:inline-flex;flex-wrap:wrap;gap:4px;vertical-align:middle;margin-left:4px;">${chips}</div></div>`;
+}
+
 function referenceCard(context) {
   const { manifest, row, idx } = context;
   const items = row.reference_items || [];
   const primaryTime = Number(row.selected_time || row.start || 0);
   const primaryFrame = Number(row.selected_frame || row.start_frame || 0);
+
+  const needsReview = Boolean(row.needs_review && String(row.needs_review).toLowerCase() !== 'false');
+  const reviewBadge = needsReview
+    ? `<span class="badge badge-warn" style="background:#b45309;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.85em;font-weight:600;">Needs Review</span>`
+    : '';
+  const reviewReasonsHtml = (needsReview && row.review_reasons && row.review_reasons.length)
+    ? `<div class="inline-warning" style="margin:8px 0;"><strong>Review needed:</strong><ul style="margin:4px 0 0 16px;padding:0;">${row.review_reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>`
+    : '';
+  const hasEntities = Boolean(row.color_bible_entities && row.color_bible_entities.length);
+  const entitiesChipsHtml = hasEntities ? colorBibleChips(row.color_bible_entities) : '';
+  const colorBibleBtn = (needsReview || hasEntities)
+    ? `<button type="button" class="compact-btn" onclick="openColorBibleForShot('${esc(row.color_bible_film_id || '')}', ${idx})">Review in Color Bible &rarr;</button>`
+    : '';
+
+  const reviewSection = (needsReview || hasEntities)
+    ? `
+        <div class="reference-review-panel" style="margin-bottom:12px;padding:8px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            ${reviewBadge}
+            ${colorBibleBtn}
+          </div>
+          ${reviewReasonsHtml}
+          ${entitiesChipsHtml}
+        </div>
+      `
+    : '';
+
   return `
     <article class="shot-card reference-shot-card" data-shot-card-mode="references" data-shot-card-index="${idx}">
       ${shotSummary(context, `<p class="shot-empty">${items.length} reference frame${items.length === 1 ? '' : 's'}</p>`)}
       <div class="reference-shot-workspace">
+        ${reviewSection}
         <div class="reference-use-note">
           <strong>Reference frames</strong>
           <span>CMNET2 and OpenAI Cloud use every reference frame. ColorMNet and Deep Exemplar use Reference 1 only.</span>

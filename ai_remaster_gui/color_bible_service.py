@@ -372,6 +372,58 @@ class ColorBibleService:
             assignments.append(asgn)
         return assignments
 
+    def assign_palette_ranges(
+        self,
+        film_id: str,
+        entity_type: str,
+        entity_id: str,
+        ranges: list[tuple[int, int]],
+        variant_id: str | None = None,
+        confidence: float = 1.0,
+        approval_status: str = "approved",
+        provenance: str = "manual",
+    ) -> list[ShotEntityAssignment]:
+        """Convenience alias for assign_entity_ranges."""
+        return self.assign_entity_ranges(
+            film_id=film_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            ranges=ranges,
+            variant_id=variant_id,
+            confidence=confidence,
+            approval_status=approval_status,
+            provenance=provenance,
+        )
+
+    def assign_entity_variant(
+        self,
+        film_id: str,
+        entity_type: str,
+        entity_id: str,
+        shot_or_ranges: int | tuple[int, int] | list[tuple[int, int]],
+        variant_id: str | None = None,
+        confidence: float = 1.0,
+        approval_status: str = "approved",
+        provenance: str = "manual",
+    ) -> list[ShotEntityAssignment]:
+        """Assign entity variant to a single shot index or list of shot ranges."""
+        if isinstance(shot_or_ranges, int):
+            ranges = [(shot_or_ranges, shot_or_ranges)]
+        elif isinstance(shot_or_ranges, tuple) and len(shot_or_ranges) == 2:
+            ranges = [shot_or_ranges]
+        else:
+            ranges = list(shot_or_ranges)
+        return self.assign_entity_ranges(
+            film_id=film_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            ranges=ranges,
+            variant_id=variant_id,
+            confidence=confidence,
+            approval_status=approval_status,
+            provenance=provenance,
+        )
+
     def get_shot_palette_assignments(
         self,
         film_id: str,
@@ -498,6 +550,41 @@ class ColorBibleService:
             version=version,
         )
         return self.repo.upsert_reference(record)
+
+    def store_reference(
+        self,
+        film_id: str,
+        entity_type: str,
+        entity_id: str,
+        keyframe_path: Path | str,
+        mask_uri: Path | str | None = None,
+        variant_id: str | None = None,
+        provenance: str = "manual",
+        source_shot_id: str | None = None,
+        approval_status: str = "approved",
+        approved_by: str | None = None,
+    ) -> ColorReferenceRecord:
+        """Alias / convenience wrapper for registering and setting reference approval status."""
+        auto_approve = (approval_status == "approved")
+        ref = self.register_reference_image(
+            film_id=film_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            keyframe_path=keyframe_path,
+            mask_uri=mask_uri,
+            variant_id=variant_id,
+            provenance=provenance,
+            source_shot_id=source_shot_id,
+            auto_approve=auto_approve,
+            approved_by=approved_by or ("lead_colorist" if auto_approve else None),
+        )
+        if not auto_approve and approval_status != "draft":
+            ref = self.repo.update_reference_approval(
+                ref_id=ref.ref_id,
+                status=approval_status,
+                approved_by=approved_by,
+            )
+        return ref
 
     def approve_reference(
         self,

@@ -485,6 +485,98 @@ class CommercialModelPolicyTests(unittest.TestCase):
         reg_missing = load_policy_registry(missing_str)
         self.assertEqual(reg_missing, {"schema_version": "1.0.0", "policies": {}})
 
+    def test_server_update_settings_syncs_commercial_guard_and_override(self):
+        """Verify update_settings automatically syncs non_commercial_benchmark_override when commercial_model_guard changes."""
+        from unittest.mock import MagicMock
+        from ai_remaster_gui.server import PipelineApp
+
+        app_inst = PipelineApp.__new__(PipelineApp)
+        app_inst.settings = {"global": {}}
+        app_inst.lock = MagicMock()
+        app_inst.save = MagicMock()
+        app_inst.log = []
+        app_inst.clear_derived_stage_inputs = MagicMock()
+        app_inst.hydrate_stage_inputs = MagicMock()
+
+        # Guard set to false -> non_commercial_benchmark_override becomes "true"
+        app_inst.update_settings("global", {"commercial_model_guard": "false"})
+        self.assertEqual(app_inst.settings["global"]["commercial_model_guard"], "false")
+        self.assertEqual(app_inst.settings["global"]["non_commercial_benchmark_override"], "true")
+
+        # Guard set to true -> non_commercial_benchmark_override becomes "false"
+        app_inst.update_settings("global", {"commercial_model_guard": "true"})
+        self.assertEqual(app_inst.settings["global"]["commercial_model_guard"], "true")
+        self.assertEqual(app_inst.settings["global"]["non_commercial_benchmark_override"], "false")
+
+        # Explicit override is preserved
+        app_inst.update_settings("global", {"commercial_model_guard": "false", "non_commercial_benchmark_override": "custom"})
+        self.assertEqual(app_inst.settings["global"]["non_commercial_benchmark_override"], "custom")
+
+    def test_server_stage_compliance_recording_and_collection(self):
+        """Verify _record_stage_compliance resolves models for references/colour and records via append_compliance_record."""
+        from unittest.mock import MagicMock, patch
+        from ai_remaster_gui.server import PipelineApp
+
+        app_inst = PipelineApp.__new__(PipelineApp)
+        app_inst.settings = {
+            "global": {"commercial_model_guard": "true"},
+            "references": {"method": "ddcolor"},
+            "colour": {"method": "osi_masked_lab"},
+        }
+        app_inst.lock = MagicMock()
+        app_inst.save = MagicMock()
+        app_inst.log = []
+        app_inst.hydrate_stage_inputs = MagicMock()
+        app_inst._start_console_progress_reporter = MagicMock(return_value=(MagicMock(), MagicMock()))
+        app_inst._stop_console_progress_reporter = MagicMock()
+
+        # 1. references with ddcolor
+        with patch("ai_remaster_gui.compliance.append_compliance_record") as mock_append:
+            app_inst._record_stage_compliance("references")
+            mock_append.assert_called_once()
+            _, kwargs = mock_append.call_args
+            self.assertEqual(kwargs["stage"], "references")
+            self.assertEqual(kwargs["models"], [{"model_id": "ddcolor", "component_type": "checkpoint"}])
+
+        # 2. references with qwen
+        app_inst.settings["references"]["method"] = "qwen"
+        with patch("ai_remaster_gui.compliance.append_compliance_record") as mock_append:
+            app_inst._record_stage_compliance("references")
+            mock_append.assert_called_once()
+            _, kwargs = mock_append.call_args
+            self.assertEqual(kwargs["stage"], "references")
+            self.assertEqual(kwargs["models"], [{"model_id": "qwen_2511", "component_type": "checkpoint"}])
+
+        # 3. colour with osi_masked_lab
+        with patch("ai_remaster_gui.compliance.append_compliance_record") as mock_append:
+            app_inst._record_stage_compliance("colour")
+            mock_append.assert_called_once()
+            _, kwargs = mock_append.call_args
+            self.assertEqual(kwargs["stage"], "colour")
+            self.assertEqual(kwargs["models"], [{"model_id": "osi_masked_lab", "component_type": "backend"}])
+
+        # 4. Unknown/unresolved method does not call append_compliance_record
+        app_inst.settings["colour"]["method"] = "other_custom"
+        with patch("ai_remaster_gui.compliance.append_compliance_record") as mock_append:
+            app_inst._record_stage_compliance("colour")
+            mock_append.assert_not_called()
+
+        # 5. Exception during compliance recording is safely caught and logged
+        with patch("ai_remaster_gui.compliance.append_compliance_record", side_effect=RuntimeError("Disk failure")):
+            app_inst.settings["references"]["method"] = "ddcolor"
+            app_inst._record_stage_compliance("references")
+            self.assertTrue(any("Compliance recording skipped for references: Disk failure" in str(msg) for msg in app_inst.log))
+
+        # 6. _collect_output calls _record_stage_compliance on exit code 0
+        app_inst.process = MagicMock()
+        app_inst.process.stdout = ["Done line"]
+        app_inst.process.wait.return_value = 0
+        app_inst.running_stage = "references"
+        app_inst.running_stage_key = "references"
+        with patch.object(app_inst, "_record_stage_compliance") as mock_record:
+            app_inst._collect_output("references")
+            mock_record.assert_called_once_with("references")
+
 
 if __name__ == "__main__":
     unittest.main()

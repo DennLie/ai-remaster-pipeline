@@ -194,6 +194,19 @@
       ]
     },
     {
+      "id": "colour.method.osi_masked_lab",
+      "stage": "colour",
+      "field": "method",
+      "value": "osi_masked_lab",
+      "status": "cleared",
+      "reason": "Apache-2.0 / OpenCV DIS Optical Flow + native He et al. Guided Filter + SAM 2.1 Apache-2.0 masks, 100% OSI commercial-cleared",
+      "evidence": [
+        "https://github.com/facebookresearch/sam2",
+        "https://github.com/opencv/opencv",
+        "https://github.com/DennLie/ai-remaster-pipeline"
+      ]
+    },
+    {
       "id": "colour.method.both",
       "stage": "colour",
       "field": "method",

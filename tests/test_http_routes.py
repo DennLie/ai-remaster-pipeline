@@ -85,6 +85,7 @@ EXPECTED_POST_ROUTES = {
     "/api/color-bible/assign-ranges",
     "/api/color-bible/reference",
     "/api/color-bible/reference-approval",
+    "/api/sam2-track-shot",
 }
 
 
@@ -711,6 +712,75 @@ class DustMaskEditEndToEndRouteTests(unittest.TestCase):
                 reset_h.do_POST()
                 self.assertTrue(reset_h.responses["json"]["ok"])
                 self.assertTrue(reset_h.responses["json"]["state"]["dust_edits"]["stage"]["compatible"])
+
+
+class SAM2TrackShotRouteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._real_app = state.APP
+        state.APP = FakeApp()
+
+    def tearDown(self) -> None:
+        state.APP = self._real_app
+
+    def test_sam2_track_shot_success(self) -> None:
+        from pathlib import Path
+        with (
+            mock.patch("ai_remaster_gui.sam2_tracker.verify_sam2_installation") as mock_verify,
+            mock.patch("ai_remaster_gui.commercial_policy.evaluate_component") as mock_eval,
+            mock.patch("ai_remaster_gui.sam2_tracker.run_shot_tracking_pipeline") as mock_run,
+        ):
+            mock_eval.return_value = mock.MagicMock(allowed=True, reason="")
+            mock_run.return_value = Path("intermediate/shot_masks/shot_001.masks.npz")
+
+            handler = _Handler("/api/sam2-track-shot", {
+                "shot_id": "shot_001",
+                "frames": "test_frames",
+                "prompts": {"0": {"points": [[10, 10]], "labels": [1]}},
+            })
+            handler.do_POST()
+
+            mock_verify.assert_called_once()
+            mock_eval.assert_called_once()
+            mock_run.assert_called_once()
+            self.assertEqual(handler.responses["json"], {
+                "ok": True,
+                "output_npz_path": str(Path("intermediate/shot_masks/shot_001.masks.npz")),
+            })
+
+    def test_sam2_track_shot_commercial_guard_blocks(self) -> None:
+        with (
+            mock.patch("ai_remaster_gui.sam2_tracker.verify_sam2_installation"),
+            mock.patch("ai_remaster_gui.commercial_policy.evaluate_component") as mock_eval,
+        ):
+            mock_eval.return_value = mock.MagicMock(allowed=False, reason="Non-commercial model")
+
+            handler = _Handler("/api/sam2-track-shot", {
+                "shot_id": "shot_001",
+                "frames": "test_frames",
+                "prompts": {},
+            })
+            handler.do_POST()
+
+            self.assertFalse(handler.responses["json"]["ok"])
+            self.assertIn("Commercial Model Guard blocked sam2", handler.responses["json"]["error"])
+
+    def test_sam2_track_shot_path_traversal_rejected(self) -> None:
+        with (
+            mock.patch("ai_remaster_gui.sam2_tracker.verify_sam2_installation"),
+            mock.patch("ai_remaster_gui.commercial_policy.evaluate_component") as mock_eval,
+        ):
+            mock_eval.return_value = mock.MagicMock(allowed=True, reason="")
+
+            handler = _Handler("/api/sam2-track-shot", {
+                "shot_id": "shot_001",
+                "frames": "test_frames",
+                "prompts": {},
+                "output_npz_path": "../../outside/evil.masks.npz",
+            })
+            handler.do_POST()
+
+            self.assertFalse(handler.responses["json"]["ok"])
+            self.assertIn("path traversal", handler.responses["json"]["error"].lower())
 
 
 if __name__ == "__main__":

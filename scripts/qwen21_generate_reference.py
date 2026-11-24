@@ -273,6 +273,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Confidence threshold compatibility argument.",
     )
     parser.add_argument(
+        "--guided-backend",
+        default="qwen2511",
+        help="Guided backend compatibility argument.",
+    )
+    parser.add_argument(
         "--color-bible-db",
         type=Path,
         default=None,

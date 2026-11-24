@@ -30,6 +30,9 @@
   [published model repository](https://huggingface.co/piddnad/DDColor-models)
   declare **Apache-2.0**. Not currently an ARP backend: inclusion requires
   dependency review, checkpoint pinning and integration tests.
+- **OSI Masked LAB Colorizer (video colorization):** native implementation using
+  OpenCV DIS Optical Flow (Apache-2.0), native Guided Filter (He et al.), and SAM 2.1 (Apache-2.0)
+  per-shot object tracking masks. 100% OSI-cleared permissive open source.
 
 The statuses above intentionally differentiate **declared individual licence**
 from **verified commercial deployability of a complete backend**. Even Apache-2.0

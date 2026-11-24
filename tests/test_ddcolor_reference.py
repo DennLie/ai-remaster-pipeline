@@ -341,6 +341,41 @@ class DDColorReferenceTests(unittest.TestCase):
                 load_model(dummy_path, device="cpu")
             self.assertIn("unsupported format", str(ctx.exception))
 
+    def test_official_piddnad_ddcolor_checkpoint_detection_and_loading(self):
+        """Verify load_model detects official piddnad/DDColor dual-decoder checkpoints and fails closed if package missing."""
+        dummy_path = self.tmp_dir / "official_ddcolor.pth"
+        dummy_path.write_bytes(b"mock official ddcolor")
+
+        # Official hallmarks: encoder.backbone, color_decoder, pixel_decoder
+        for hallmark in (
+            "encoder.backbone.layer1.conv1.weight",
+            "color_decoder.layers.0.weight",
+            "pixel_decoder.mask_features.weight",
+        ):
+            with self.subTest(hallmark=hallmark):
+                with patch("torch.load", return_value={"params": {hallmark: torch.zeros(10)}}):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        load_model(dummy_path, device="cpu")
+                    self.assertIn("official piddnad/DDColor model", str(ctx.exception))
+                    self.assertIn("requires the optional 'ddcolor' package", str(ctx.exception))
+                    self.assertIn("pip install ddcolor", str(ctx.exception))
+
+        # Checkpoint is already nn.Module
+        mock_module = nn.Linear(2, 2)
+        with patch("torch.load", return_value=mock_module):
+            loaded = load_model(dummy_path, device="cpu")
+            self.assertIs(loaded, mock_module)
+
+        # Official hallmarks when ddcolor builder is importable
+        mock_built_model = nn.Linear(3, 2)
+        mock_builder = MagicMock(return_value=mock_built_model)
+        mock_built_model.load_state_dict = MagicMock()
+        with patch("torch.load", return_value={"params": {"encoder.backbone.conv.weight": torch.zeros(5)}}):
+            with patch.dict(sys.modules, {"ddcolor": MagicMock(), "ddcolor.builder": MagicMock(build_model=mock_builder)}):
+                loaded = load_model(dummy_path, device="cpu")
+                mock_builder.assert_called_once()
+                self.assertIs(loaded, mock_built_model)
+
     def test_ddcolor_references_stage_does_not_require_comfy(self):
         """Verify REV-MAJ-01: DDColor references stage does not trigger ensure_comfy_available_for_stage."""
         from ai_remaster_gui.server import PipelineApp

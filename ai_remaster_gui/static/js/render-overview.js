@@ -66,7 +66,15 @@ function drawGlobal() {
   const ids={denoise:'globalDenoise',deflicker:'globalDeflicker',enhancement:'globalEnhancement',cleanup:'globalCleanup',stabilize:'globalStabilize',dust:'globalDust',detail:'globalDetail',outpaint:'globalExpandOutpaint',colour:'globalColorize',audio:'globalSoundtrack',upscale:'globalUpscale'};
   for(const key of pipelineOrder().slice().reverse()) {const tile=document.getElementById(ids[key])?.closest('.workflow-stage-tile');if(tile) workflow.prepend(tile);}
   document.getElementById('globalSource').addEventListener('change', saveGlobal);
-  document.getElementById('globalCommercialModelGuard').addEventListener('change', saveGlobalPipelineOptions);
+  document.getElementById('globalCommercialModelGuard').addEventListener('change', function() {
+    if (!this.checked) {
+      if (!confirm("Disabling the Commercial Model Guard permits non-commercial, academic, and unaudited AI models (e.g., Qwen-Image-2.1, ColorMNet). Outputs generated in this mode cannot be certified commercial-safe under Apache-2.0 / MIT terms. Proceed with benchmark override?")) {
+        this.checked = true;
+        return;
+      }
+    }
+    saveGlobalPipelineOptions();
+  });
   document.getElementById('globalDenoise').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalDeflicker').addEventListener('change', saveGlobalPipelineOptions);
   document.getElementById('globalEnhancement').addEventListener('change', saveGlobalPipelineOptions);

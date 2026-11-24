@@ -48,11 +48,13 @@ reporting enabled. Existing outputs are not audited.
 | ColorMNet / CMNET2 / both | Blocked | ColorMNet CC BY-NC-SA; `both` invokes ColorMNet |
 | Deep Exemplar | Pending audit, blocked | MIT code does not automatically license every checkpoint/dependency |
 | LTX Colorizer | Blocked | Full bundle not unrestricted |
+| OSI Masked LAB (video colorization) | Allowed (OSI) | Apache-2.0 / OpenCV DIS Optical Flow + native He et al. Guided Filter + SAM 2.1 Apache-2.0 masks, 100% OSI commercial-cleared |
 | Stable Audio Open / MMAudio | Pending audit, blocked | Weight and dependency terms need review |
 | FlashVSR / SeedVR2 / LTX upscale | Pending audit or restricted, blocked | Checkpoint / dependency clearance incomplete |
 | Stabilization / shot detection / recomposition | Not blocked | No AI checkpoint selected; other obligations remain |
 
 DDColor is cleared under Apache-2.0 as an OSI-compliant reference still colorizer.
+OSI Masked LAB is cleared under Apache-2.0 as an OSI-compliant video colorizer.
 Other generative backends remain subject to audit and clearance before being allowed
 under strict guard mode.
 

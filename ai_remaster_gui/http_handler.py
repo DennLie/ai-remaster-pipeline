@@ -1134,6 +1134,52 @@ class Handler(BaseHTTPRequestHandler):
                     return {"reference": ref.to_dict()}
 
             self._send_result("Color Bible reference approval", ref_approval_action)
+        elif parsed.path == "/api/sam2-track-shot":
+            def sam2_track_shot_action() -> dict:
+                from .commercial_policy import evaluate_component, CommercialPolicyError
+                from .paths import ROOT, is_within, resolve, served_roots
+                from .sam2_tracker import run_shot_tracking_pipeline, verify_sam2_installation
+
+                verify_sam2_installation()
+
+                settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                decision = evaluate_component("sam2", settings=settings, component_type="tool")
+                if not decision.allowed:
+                    raise CommercialPolicyError(f"Commercial Model Guard blocked sam2: {decision.reason}")
+
+                shot_id = str(data.get("shot_id") or "").strip()
+                frames = data.get("frames")
+                prompts = data.get("prompts", {})
+                if not isinstance(prompts, dict):
+                    raise ValueError("prompts must be a dictionary.")
+
+                resolved_frames = frames
+                if isinstance(frames, str) and frames.strip():
+                    frame_path = resolve(frames.strip())
+                    if not any(is_within(frame_path, r) for r in served_roots(served_source_paths())):
+                        raise ValueError("Invalid frames path or path traversal detected.")
+                    resolved_frames = frame_path
+
+                raw_output_npz = data.get("output_npz_path")
+                if raw_output_npz and str(raw_output_npz).strip():
+                    out_path = resolve(str(raw_output_npz).strip())
+                    if not is_within(out_path, ROOT):
+                        raise ValueError("Invalid output_npz_path or path traversal detected.")
+                else:
+                    clean_shot_id = Path(shot_id).name
+                    out_path = ROOT / "intermediate" / "shot_masks" / f"{clean_shot_id}.masks.npz"
+                    if not is_within(out_path, ROOT):
+                        raise ValueError("Invalid shot_id or path traversal detected.")
+
+                produced_path = run_shot_tracking_pipeline(
+                    shot_id=shot_id,
+                    frames=resolved_frames,
+                    prompts=prompts,
+                    output_npz_path=out_path,
+                )
+                return {"output_npz_path": str(produced_path)}
+
+            self._send_result("SAM2 track shot", sam2_track_shot_action)
         else:
             self.send_error(404)
 

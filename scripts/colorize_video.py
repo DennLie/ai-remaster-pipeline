@@ -1336,6 +1336,41 @@ def run_osi_masked_lab_colorization(
 
     masks_dir = resolve_path(args.masks_dir) if getattr(args, "masks_dir", None) else ROOT / "intermediate" / "shot_masks"
 
+    film_id = getattr(args, "film_id", None)
+    if not film_id and manifest and manifest.is_file():
+        try:
+            with manifest.open("r", encoding="utf-8-sig") as f:
+                for line in f:
+                    if not line.startswith("#"):
+                        break
+                    if line.startswith("# color_bible_film_id="):
+                        film_id = line.split("=", 1)[1].strip()
+                        break
+                    if line.startswith("# color_bible="):
+                        film_id = line.split("=", 1)[1].strip()
+                        break
+        except Exception:
+            pass
+
+    color_bible_db_path = (
+        Path(args.color_bible_db)
+        if getattr(args, "color_bible_db", None)
+        else ROOT / "manifests" / "color_bible.db"
+    )
+
+    service = None
+    if film_id and color_bible_db_path.is_file():
+        try:
+            from ai_remaster_gui.color_bible_service import ColorBibleService
+            service = ColorBibleService(db_path=color_bible_db_path)
+        except Exception:
+            try:
+                from color_bible_service import ColorBibleService  # type: ignore[no-redef]
+                service = ColorBibleService(db_path=color_bible_db_path)
+            except Exception as exc:
+                print(f"Warning: could not initialize ColorBibleService: {exc}", flush=True)
+                service = None
+
     chunks: list[Path] = []
     for index, row in enumerate(rows):
         item = plan[index]
@@ -1409,7 +1444,90 @@ def run_osi_masked_lab_colorization(
             try:
                 anchors = json.loads(row["color_bible_anchors"])
             except Exception:
-                pass
+                anchors = None
+
+        if anchors is None and film_id and color_bible_db_path.is_file():
+            if service is None:
+                try:
+                    from ai_remaster_gui.color_bible_service import ColorBibleService
+                    service = ColorBibleService(db_path=color_bible_db_path)
+                except Exception:
+                    try:
+                        from color_bible_service import ColorBibleService  # type: ignore[no-redef]
+                        service = ColorBibleService(db_path=color_bible_db_path)
+                    except Exception as exc:
+                        print(f"Warning: could not initialize ColorBibleService: {exc}", flush=True)
+                        service = None
+
+            if service is not None:
+                try:
+                    assignments = service.get_shot_palette_assignments(film_id, index)
+                    anchors_dict: dict[Any, Any] = {}
+                    for asgn_item in assignments:
+                        refs = asgn_item.get("color_references") or []
+                        target_chroma = None
+                        for ref in refs:
+                            lab_stats = ref.get("lab_stats")
+                            if not lab_stats and ref.get("lab_stats_json"):
+                                try:
+                                    lab_stats = json.loads(ref["lab_stats_json"])
+                                except Exception:
+                                    lab_stats = None
+                            if isinstance(lab_stats, dict):
+                                med_a, med_b = None, None
+                                if "a" in lab_stats and "b" in lab_stats:
+                                    a_val, b_val = lab_stats["a"], lab_stats["b"]
+                                    if isinstance(a_val, (list, tuple)) and isinstance(b_val, (list, tuple)):
+                                        if len(a_val) > 0 and len(b_val) > 0:
+                                            med_a = float(a_val[len(a_val) // 2])
+                                            med_b = float(b_val[len(b_val) // 2])
+                                    else:
+                                        try:
+                                            med_a = float(a_val)
+                                            med_b = float(b_val)
+                                        except (ValueError, TypeError):
+                                            pass
+                                elif "median_a" in lab_stats and "median_b" in lab_stats:
+                                    try:
+                                        med_a = float(lab_stats["median_a"])
+                                        med_b = float(lab_stats["median_b"])
+                                    except (ValueError, TypeError):
+                                        pass
+                                elif "p50_a" in lab_stats and "p50_b" in lab_stats:
+                                    try:
+                                        med_a = float(lab_stats["p50_a"])
+                                        med_b = float(lab_stats["p50_b"])
+                                    except (ValueError, TypeError):
+                                        pass
+
+                                if med_a is not None and med_b is not None:
+                                    target_chroma = (med_a, med_b)
+                                    break
+                        if target_chroma is not None:
+                            entity_id = asgn_item.get("entity_id")
+                            variant_id = asgn_item.get("variant_id")
+                            name = (asgn_item.get("entity") or {}).get("name")
+                            obj_id = asgn_item.get("obj_id") or (asgn_item.get("assignment") or {}).get("obj_id") or (asgn_item.get("entity") or {}).get("obj_id")
+                            if entity_id:
+                                anchors_dict[entity_id] = target_chroma
+                            if variant_id:
+                                anchors_dict[variant_id] = target_chroma
+                            if name:
+                                anchors_dict[name] = target_chroma
+                            if obj_id is not None:
+                                anchors_dict[obj_id] = target_chroma
+                                anchors_dict[str(obj_id)] = target_chroma
+                            if mask_archive is not None:
+                                for m_obj in mask_archive.objects:
+                                    if (entity_id and m_obj.entity_id == entity_id) or \
+                                       (variant_id and m_obj.variant_id == variant_id) or \
+                                       (name and m_obj.name == name):
+                                        anchors_dict[m_obj.obj_id] = target_chroma
+                                        anchors_dict[str(m_obj.obj_id)] = target_chroma
+                    if anchors_dict:
+                        anchors = anchors_dict
+                except Exception as exc:
+                    print(f"Warning: could not query ColorBible assignments for shot {index}: {exc}", flush=True)
 
         print(
             f"Colorize segment {index + 1}/{len(rows)} with osi_masked_lab: frames {start_frame}-{end_frame} "
@@ -1482,6 +1600,12 @@ def run_osi_masked_lab_colorization(
         except Exception as exc:
             print(f"Warning: could not append compliance record: {exc}", flush=True)
 
+    if service is not None:
+        try:
+            service.close()
+        except Exception:
+            pass
+
     print(f"Wrote OSI Masked LAB colorized video: {output}", flush=True)
     return 0
 
@@ -1497,6 +1621,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--guided-radius", type=int, default=5, help="Guided filter window radius for OSI Masked LAB colorization.")
     parser.add_argument("--guided-eps", type=float, default=1e-3, help="Guided filter regularization epsilon for OSI Masked LAB colorization.")
     parser.add_argument("--compliance-output-dir", default="output", help="Directory where compliance_report.json is recorded.")
+    parser.add_argument("--color-bible-db", default=str(ROOT / "manifests" / "color_bible.db"), help="Path to Color Bible SQLite database.")
+    parser.add_argument("--film-id", default=None, type=str, help="Film ID for Color Bible entity matching.")
     parser.add_argument("--comfy-url", default=config.get("comfy_url", "http://127.0.0.1:8188"))
     parser.add_argument("--comfy-dir", default=config.get("comfy_dir", str(ROOT / "tools" / "comfyui")))
     parser.add_argument("--comfy-output-root", default="")

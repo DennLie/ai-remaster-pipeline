@@ -95,6 +95,25 @@ class ModelLicenseInventoryTests(unittest.TestCase):
         settings["references"]["method"] = "ddcolor"
         self.assertEqual(stage_issue(settings, "references"), "")
 
+    def test_osi_masked_lab_colour_entry_in_inventory(self):
+        entry = next(
+            (row for row in self.inventory["entries"] if row["id"] == "colour.method.osi_masked_lab"),
+            None,
+        )
+        self.assertIsNotNone(entry, "colour.method.osi_masked_lab must be in model-license-inventory.json")
+        self.assertEqual(entry["status"], "cleared")
+        self.assertEqual(entry["stage"], "colour")
+        self.assertEqual(entry["field"], "method")
+        self.assertEqual(entry["value"], "osi_masked_lab")
+        self.assertIn("Apache-2.0", entry["reason"])
+        self.assertTrue(all(link.startswith("https://") for link in entry["evidence"]))
+
+        # Verify commercial policy passes osi_masked_lab without issues
+        settings = base_settings()
+        settings["global"]["commercial_model_guard"] = "true"
+        settings["colour"]["method"] = "osi_masked_lab"
+        self.assertEqual(stage_issue(settings, "colour"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

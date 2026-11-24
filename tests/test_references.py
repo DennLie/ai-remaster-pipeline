@@ -391,6 +391,97 @@ class ColorBibleIntegrationTests(unittest.TestCase):
         finally:
             state.APP = prev_app
 
+    def test_references_stage_model_has_phase3_fields(self) -> None:
+        from ai_remaster_gui.models import STAGES
+        ref_stage = next(s for s in STAGES if s.key == "references")
+        field_keys = [f[0] for f in ref_stage.fields]
+        self.assertIn("reference_runner", field_keys)
+        self.assertIn("guided_backend", field_keys)
+        self.assertIn("color_bible_db", field_keys)
+        self.assertIn("film_id", field_keys)
+        self.assertIn("confidence_threshold", field_keys)
+
+    def test_server_references_command_wiring(self) -> None:
+        from ai_remaster_gui.server import PipelineApp
+        app_inst = PipelineApp.__new__(PipelineApp)
+        app_inst.settings = {
+            "global": {
+                "color_bible_db": "global_db.sqlite",
+                "color_bible_film_id": "global_film",
+            },
+            "references": {},
+        }
+
+        # 1. ddcolor method
+        cmd_dd = app_inst._references_command({}, {
+            "method": "ddcolor",
+            "manifest": "shots.csv",
+            "reference_runner": "auto",
+            "confidence_threshold": "0.85",
+        })
+        self.assertIn("--reference-runner", cmd_dd)
+        self.assertEqual(cmd_dd[cmd_dd.index("--reference-runner") + 1], "auto")
+        self.assertIn("--film-id", cmd_dd)
+        self.assertEqual(cmd_dd[cmd_dd.index("--film-id") + 1], "global_film")
+        self.assertIn("--color-bible-db", cmd_dd)
+        self.assertEqual(cmd_dd[cmd_dd.index("--color-bible-db") + 1], "global_db.sqlite")
+        self.assertIn("--confidence-threshold", cmd_dd)
+        self.assertEqual(cmd_dd[cmd_dd.index("--confidence-threshold") + 1], "0.85")
+
+        # 2. qwen21 method
+        cmd_q21 = app_inst._references_command({}, {
+            "method": "qwen21",
+            "manifest": "shots.csv",
+            "reference_runner": "guided_only",
+            "guided_backend": "qwen21",
+            "film_id": "custom_film",
+            "color_bible_db": "custom_db.sqlite",
+            "confidence_threshold": "0.9",
+        })
+        self.assertIn("--reference-runner", cmd_q21)
+        self.assertEqual(cmd_q21[cmd_q21.index("--reference-runner") + 1], "guided_only")
+        self.assertIn("--guided-backend", cmd_q21)
+        self.assertEqual(cmd_q21[cmd_q21.index("--guided-backend") + 1], "qwen21")
+        self.assertIn("--film-id", cmd_q21)
+        self.assertEqual(cmd_q21[cmd_q21.index("--film-id") + 1], "custom_film")
+        self.assertIn("--color-bible-db", cmd_q21)
+        self.assertEqual(cmd_q21[cmd_q21.index("--color-bible-db") + 1], "custom_db.sqlite")
+        self.assertIn("--confidence-threshold", cmd_q21)
+        self.assertEqual(cmd_q21[cmd_q21.index("--confidence-threshold") + 1], "0.9")
+
+        # 3. default qwen method
+        with mock.patch("ai_remaster_gui.server.qwen_workflow_for", return_value="wf.json"):
+            cmd_qwen = app_inst._references_command({}, {
+                "method": "qwen",
+                "manifest": "shots.csv",
+                "reference_runner": "auto",
+                "guided_backend": "qwen2511",
+                "film_id": "film_xyz",
+                "color_bible_db": "db_xyz.sqlite",
+                "confidence_threshold": "0.75",
+            })
+            self.assertIn("--reference-runner", cmd_qwen)
+            self.assertEqual(cmd_qwen[cmd_qwen.index("--reference-runner") + 1], "auto")
+            self.assertIn("--guided-backend", cmd_qwen)
+            self.assertEqual(cmd_qwen[cmd_qwen.index("--guided-backend") + 1], "qwen2511")
+            self.assertIn("--film-id", cmd_qwen)
+            self.assertEqual(cmd_qwen[cmd_qwen.index("--film-id") + 1], "film_xyz")
+            self.assertIn("--color-bible-db", cmd_qwen)
+            self.assertEqual(cmd_qwen[cmd_qwen.index("--color-bible-db") + 1], "db_xyz.sqlite")
+            self.assertIn("--confidence-threshold", cmd_qwen)
+            self.assertEqual(cmd_qwen[cmd_qwen.index("--confidence-threshold") + 1], "0.75")
+
+    def test_frontend_wiring_scripts(self) -> None:
+        actions_js = (references.ROOT / "ai_remaster_gui" / "static" / "js" / "actions.js").read_text(encoding="utf-8")
+        self.assertIn("function openColorBibleForShot(", actions_js)
+        self.assertIn("active = 'color_bible';", actions_js)
+
+        render_shots_js = (references.ROOT / "ai_remaster_gui" / "static" / "js" / "render-shots.js").read_text(encoding="utf-8")
+        self.assertIn("Needs Review", render_shots_js)
+        self.assertIn("inline-warning", render_shots_js)
+        self.assertIn("openColorBibleForShot", render_shots_js)
+        self.assertIn("color-bible-chips-list", render_shots_js)
+
 
 if __name__ == "__main__":
     unittest.main()

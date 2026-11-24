@@ -154,7 +154,40 @@ def load_model(model_path: Path | str, device: str = "auto") -> nn.Module:
         total_keys = len(list(model.state_dict().keys()))
         incompatible = model.load_state_dict(state_dict, strict=False)
         if len(incompatible.missing_keys) == total_keys:
-            raise ValueError(f"Checkpoint at {path} does not match DDColorModel architecture (0 matching keys).")
+            is_official = any(
+                k.startswith("encoder.backbone") or "color_decoder" in k or "pixel_decoder" in k
+                for k in state_dict.keys()
+            )
+            if is_official:
+                loaded_model = None
+                try:
+                    from ddcolor.builder import build_model  # type: ignore
+
+                    try:
+                        cfg = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+                        loaded_model = build_model(cfg)
+                    except TypeError:
+                        loaded_model = build_model()
+                except Exception:
+                    pass
+
+                if loaded_model is None:
+                    try:
+                        from ddcolor import DDColor  # type: ignore
+
+                        loaded_model = DDColor()
+                    except Exception:
+                        pass
+
+                if loaded_model is not None:
+                    loaded_model.load_state_dict(state_dict, strict=False)
+                    model = loaded_model
+                else:
+                    raise RuntimeError(
+                        f"Checkpoint at '{path}' is an official piddnad/DDColor model, which requires the optional 'ddcolor' package. Install it via 'pip install ddcolor' (or clone https://github.com/piddnad/DDColor), or supply a compatible DDColorModel state dict. Pass --dry-run for synthetic mock mode."
+                    )
+            else:
+                raise ValueError(f"Checkpoint at {path} does not match DDColorModel architecture (0 matching keys).")
     else:
         raise ValueError(
             f"Checkpoint at {path} has unsupported format: expected nn.Module or dict, got {type(checkpoint).__name__}"

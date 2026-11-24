@@ -14,6 +14,7 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -2852,6 +2853,10 @@ class PipelineApp:
         return payload
 
     def update_settings(self, stage: str, values: dict[str, str], project_expected=None) -> None:
+        if stage == "global" and "commercial_model_guard" in values:
+            if "non_commercial_benchmark_override" not in values:
+                values = dict(values)
+                values["non_commercial_benchmark_override"] = "false" if is_true(values, "commercial_model_guard") else "true"
         if stage == 'dust':
             dust_stage.options({**self.settings.get(stage, {}), **values})
         if stage == 'stabilize':
@@ -3894,6 +3899,12 @@ class PipelineApp:
         return cmd
 
     def _references_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
+        runner = str(values.get("reference_runner") or "auto").strip()
+        guided_backend = str(values.get("guided_backend") or "qwen2511").strip()
+        color_bible_db = str(values.get("color_bible_db") or self.settings.get("global", {}).get("color_bible_db") or "").strip()
+        film_id = str(values.get("film_id") or self.settings.get("global", {}).get("color_bible_film_id") or self.settings.get("global", {}).get("film_id") or "").strip()
+        confidence = str(values.get("confidence_threshold") or "0.8").strip()
+
         if values.get("method") == "ddcolor":
             cmd = [sys.executable, "-u", str(SCRIPTS / "ddcolor_reference.py")]
             cmd.extend(["--manifest", values.get("manifest", "")])
@@ -3907,6 +3918,13 @@ class PipelineApp:
                 cmd.extend(["--seed", str(values["reference_seed"]).strip()])
             if values.get("limit") and str(values["limit"]).strip():
                 cmd.extend(["--limit", str(values["limit"]).strip()])
+            cmd.extend(["--reference-runner", runner])
+            if film_id:
+                cmd.extend(["--film-id", film_id])
+            if color_bible_db:
+                cmd.extend(["--color-bible-db", color_bible_db])
+            if confidence:
+                cmd.extend(["--confidence-threshold", confidence])
             return cmd
         elif values.get("method", "qwen") == "openai":
             cmd = [sys.executable, "-u", str(SCRIPTS / "openai_generate_reference.py")]
@@ -3925,6 +3943,14 @@ class PipelineApp:
             add(["--comfy-url", values.get("comfy_url") or comfy_url_for(config), "--comfy-dir", comfy_dir_for(config), "--comfy-output-root", comfy_output_root_for(config)])
             add(qwen21_reference_args(values))
             add(reference_seed_args(values))
+            add(["--reference-runner", runner])
+            add(["--guided-backend", guided_backend])
+            if film_id:
+                cmd.extend(["--film-id", film_id])
+            if color_bible_db:
+                cmd.extend(["--color-bible-db", color_bible_db])
+            if confidence:
+                cmd.extend(["--confidence-threshold", confidence])
         else:
             cmd = [sys.executable, "-u", str(SCRIPTS / "qwen_colorize_references.py")]
             add = cmd.extend
@@ -3939,6 +3965,14 @@ class PipelineApp:
                 add(["--reference-count", str(qwen_reference_count(values))])
             if values.get("prompt_node_id"):
                 add(["--prompt-node-id", values["prompt_node_id"]])
+            add(["--reference-runner", runner])
+            add(["--guided-backend", guided_backend])
+            if film_id:
+                cmd.extend(["--film-id", film_id])
+            if color_bible_db:
+                cmd.extend(["--color-bible-db", color_bible_db])
+            if confidence:
+                cmd.extend(["--confidence-threshold", confidence])
         if values.get("limit"):
             cmd.extend(["--limit", values["limit"]])
         return cmd
@@ -3982,8 +4016,11 @@ class PipelineApp:
                 add(["--guided-radius", values["guided_radius"]])
             if values.get("guided_eps"):
                 add(["--guided-eps", values["guided_eps"]])
-            if values.get("compliance_output_dir"):
-                add(["--compliance-output-dir", values["compliance_output_dir"]])
+            add(["--compliance-output-dir", str(ROOT / "output")])
+            if values.get("color_bible_db") or self.settings.get("global", {}).get("color_bible_db"):
+                add(["--color-bible-db", str(values.get("color_bible_db") or self.settings["global"]["color_bible_db"])])
+            if values.get("film_id") or self.settings.get("global", {}).get("color_bible_film_id") or self.settings.get("global", {}).get("film_id"):
+                add(["--film-id", str(values.get("film_id") or self.settings.get("global", {}).get("color_bible_film_id") or self.settings.get("global", {}).get("film_id"))])
             return cmd
         add(["--comfy-dir", comfy_dir_for(config)])
         add(["--comfy-url", comfy_url_for(config)])
@@ -5062,6 +5099,8 @@ class PipelineApp:
             except Exception as exc:
                 with self.lock:
                     self.log.append(f"Could not record {stage_key} inputs; Run Whole Remaster will run it again: {exc}")
+        if code == 0:
+            self._record_stage_compliance(stage_key)
         with self.lock:
             self.log.append(f"Process finished with exit code {code}.")
             release_keep_awake()
@@ -5074,6 +5113,33 @@ class PipelineApp:
                 self.hydrate_stage_inputs(stage_key)
             elif code == 0 and stage_key == "upscale_preview":
                 self.log.append("Upscale preview ready.")
+
+    def _record_stage_compliance(self, stage_key: str) -> None:
+        try:
+            from .compliance import append_compliance_record
+
+            models: list[dict[str, Any]] = []
+            stage_values = self.settings.get(stage_key, {})
+            method = str(stage_values.get("method", "")).strip().lower()
+
+            if stage_key == "references":
+                if method == "ddcolor":
+                    models = [{"model_id": "ddcolor", "component_type": "checkpoint"}]
+                elif method == "qwen":
+                    models = [{"model_id": "qwen_2511", "component_type": "checkpoint"}]
+            elif stage_key == "colour":
+                if method == "osi_masked_lab":
+                    models = [{"model_id": "osi_masked_lab", "component_type": "backend"}]
+
+            if models:
+                append_compliance_record(
+                    output_dir=ROOT / "output",
+                    stage=stage_key,
+                    models=models,
+                    settings=self.settings,
+                )
+        except Exception as exc:
+            self.log.append(f"Compliance recording skipped for {stage_key}: {exc}")
 
     def _report_console_progress(self, stop: threading.Event) -> None:
         """Keep one useful status line moving while a child process is otherwise quiet."""
