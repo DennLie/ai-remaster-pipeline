@@ -14,6 +14,7 @@ from .color_bible_db import (
     ColorReferenceRecord,
     Film,
     Location,
+    QCEvent,
     ShotEntityAssignment,
     ShotRecord,
     SQLiteColorBibleRepository,
@@ -52,9 +53,12 @@ class ColorBibleService:
 
     def __init__(
         self,
-        repo: ColorBibleRepository | None = None,
+        repo: ColorBibleRepository | Path | str | None = None,
         db_path: Path | str | None = None,
     ) -> None:
+        if isinstance(repo, (Path, str)):
+            db_path = repo
+            repo = None
         if repo is not None:
             self.repo = repo
         else:
@@ -801,3 +805,68 @@ class ColorBibleService:
 
     def delete_reference(self, ref_id: str) -> bool:
         return self.repo.delete_reference(ref_id)
+
+    # --- QC Events ---
+
+    def record_qc_event(self, event: QCEvent) -> None:
+        """Record a QC event in the database, ensuring film and shot records exist."""
+        if self.repo.get_film(event.film_id) is None:
+            self.repo.upsert_film(Film(film_id=event.film_id, title=event.film_id))
+        if event.shot_id is not None and self.repo.get_shot(event.shot_id) is None:
+            self.repo.upsert_shot(
+                ShotRecord(
+                    shot_id=event.shot_id,
+                    film_id=event.film_id,
+                    shot_index=event.shot_index if event.shot_index is not None else 0,
+                    start_frame=0,
+                    end_frame=0,
+                    start_time=0.0,
+                    end_time=0.0,
+                )
+            )
+        self.repo.record_qc_event(event)
+
+    def list_qc_events(
+        self,
+        film_id: str | None = None,
+        shot_id: str | None = None,
+        limit: int = 100,
+    ) -> list[QCEvent]:
+        """List QC events optionally filtered by film_id and shot_id."""
+        return self.repo.list_qc_events(film_id=film_id, shot_id=shot_id, limit=limit)
+
+    def get_latest_qc_event(
+        self,
+        film_id: str,
+        shot_id: str,
+    ) -> QCEvent | None:
+        """Retrieve the latest QC event for a specific film and shot."""
+        return self.repo.get_latest_qc_event(film_id, shot_id=shot_id)
+
+    def get_qc_summary(
+        self,
+        film_id: str | None = None,
+        shot_id: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Return summary statistics and recent events for QC runs on a film or shot."""
+        events = self.list_qc_events(film_id=film_id, shot_id=shot_id, limit=limit)
+        status_counts = {"pass": 0, "warn": 0, "fail": 0}
+        failure_codes: dict[str, int] = {}
+
+        for ev in events:
+            if ev.qc_status in status_counts:
+                status_counts[ev.qc_status] += 1
+            else:
+                status_counts[ev.qc_status] = 1
+            for code in ev.failure_codes:
+                failure_codes[code] = failure_codes.get(code, 0) + 1
+
+        return {
+            "film_id": film_id,
+            "shot_id": shot_id,
+            "total_events": len(events),
+            "status_counts": status_counts,
+            "latest_events": [ev.to_dict() for ev in events],
+            "failure_codes": failure_codes,
+        }

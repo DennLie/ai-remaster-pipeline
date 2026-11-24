@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from ai_remaster_gui.color_bible_db import SQLiteColorBibleRepository
+from ai_remaster_gui.color_bible_db import QCEvent, SQLiteColorBibleRepository
 from ai_remaster_gui.color_bible_service import ColorBibleService, parse_time_seconds
 from ai_remaster_gui.color_science import (
     compute_lab_percentiles,
@@ -823,6 +823,72 @@ class TestColorBibleService:
         )
         approved_hash = service.get_snapshot_hash(film_id)
         assert approved_hash != base_hash
+
+    def test_qc_event_recording_and_summary(self, service: ColorBibleService) -> None:
+        """Verify service methods for recording QC events and generating aggregation summaries."""
+        film_id = "film_qc_service"
+        service.create_film(film_id, "QC Service Movie")
+
+        ev_pass = QCEvent(
+            event_id="ev_pass_1",
+            film_id=film_id,
+            shot_id="shot_1",
+            shot_index=1,
+            qc_status="pass",
+            failure_codes=[],
+            metrics={"delta_e": 1.0},
+        )
+        ev_warn = QCEvent(
+            event_id="ev_warn_1",
+            film_id=film_id,
+            shot_id="shot_1",
+            shot_index=1,
+            qc_status="warn",
+            failure_codes=["CONTRAST_SHIFT"],
+            metrics={"delta_e": 3.2},
+        )
+        ev_fail = QCEvent(
+            event_id="ev_fail_1",
+            film_id=film_id,
+            shot_id="shot_2",
+            shot_index=2,
+            qc_status="fail",
+            failure_codes=["CONTRAST_SHIFT", "GAMUT_EXCEEDED"],
+            metrics={"delta_e": 7.5},
+        )
+
+        service.record_qc_event(ev_pass)
+        service.record_qc_event(ev_warn)
+        service.record_qc_event(ev_fail)
+
+        # list_qc_events
+        all_events = service.list_qc_events(film_id)
+        assert len(all_events) == 3
+
+        shot1_events = service.list_qc_events(film_id, shot_id="shot_1")
+        assert len(shot1_events) == 2
+
+        # get_latest_qc_event
+        latest_shot1 = service.get_latest_qc_event(film_id, "shot_1")
+        assert latest_shot1 is not None
+        assert latest_shot1.event_id == "ev_warn_1"
+
+        # get_qc_summary film level
+        summary = service.get_qc_summary(film_id)
+        assert summary["film_id"] == film_id
+        assert summary["shot_id"] is None
+        assert summary["total_events"] == 3
+        assert summary["status_counts"] == {"pass": 1, "warn": 1, "fail": 1}
+        assert summary["failure_codes"] == {"CONTRAST_SHIFT": 2, "GAMUT_EXCEEDED": 1}
+        assert len(summary["latest_events"]) == 3
+
+        # get_qc_summary shot level
+        shot2_summary = service.get_qc_summary(film_id, shot_id="shot_2")
+        assert shot2_summary["film_id"] == film_id
+        assert shot2_summary["shot_id"] == "shot_2"
+        assert shot2_summary["total_events"] == 1
+        assert shot2_summary["status_counts"] == {"pass": 0, "warn": 0, "fail": 1}
+        assert shot2_summary["failure_codes"] == {"CONTRAST_SHIFT": 1, "GAMUT_EXCEEDED": 1}
 
 
 

@@ -7,19 +7,28 @@ from pathlib import Path
 import pytest
 
 from ai_remaster_gui.color_bible_db import (
+    MIGRATION_1_SQL,
+    MIGRATION_2_SQL,
     AppearanceVariant,
     Character,
     ColorBibleObject,
     ColorReferenceRecord,
     Film,
     Location,
+    QCEvent,
     Sequence,
     ShotEntityAssignment,
     ShotRecord,
     SQLiteColorBibleRepository,
+    _utcnow_iso,
+    apply_migrations,
     get_connection,
+    get_latest_qc_event,
+    list_qc_events,
+    record_qc_event,
     resolve_color_bible_db,
 )
+from ai_remaster_gui.color_bible_service import ColorBibleService
 from ai_remaster_gui.config import ROOT
 
 
@@ -75,13 +84,13 @@ def test_get_connection_memory_and_file() -> None:
 def test_schema_migrations_idempotency() -> None:
     repo = SQLiteColorBibleRepository(":memory:")
     first_run = repo.init_db()
-    assert first_run == [1]
-    assert repo.get_applied_migrations() == [1]
+    assert first_run == [1, 2]
+    assert repo.get_applied_migrations() == [1, 2]
 
     # Running second time must be a no-op
     second_run = repo.init_db()
     assert second_run == []
-    assert repo.get_applied_migrations() == [1]
+    assert repo.get_applied_migrations() == [1, 2]
     repo.close()
 
 
@@ -864,6 +873,393 @@ def test_polymorphic_assignment_cleanup_on_entity_deletion(mem_repo: SQLiteColor
     assert mem_repo.delete_location("loc_p1") is True
     assert mem_repo.get_assignment("asg_p_loc") is None
     assert len(mem_repo.list_assignments("film_poly")) == 0
+
+
+def test_migration_v2_clean_upgrade_and_zero_data_loss() -> None:
+    """Verify database initialized at v1 with existing rows upgrades cleanly to v2 without data loss."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+
+    # Apply only migration 1
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.executescript(MIGRATION_1_SQL)
+    conn.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?);",
+        (_utcnow_iso(),),
+    )
+    conn.commit()
+
+    # Populate existing v1 rows
+    conn.execute(
+        """
+        INSERT INTO films (film_id, title, source_video, created_at, updated_at)
+        VALUES ('film_noir', 'Maltese Falcon', 'media/noir.mp4', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO shots (
+            shot_id, film_id, shot_index, start_frame, end_frame,
+            start_time, end_time, source_reference, color_reference, qc_status, updated_at
+        ) VALUES (
+            'shot_noir_0', 'film_noir', 0, 0, 120, 0.0, 5.0, 'ref_img_0.png', NULL, 'pending', '2026-01-01T00:00:00Z'
+        );
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO characters (character_id, film_id, name, notes, created_at)
+        VALUES ('char_spade', 'film_noir', 'Sam Spade', 'Detective', '2026-01-01T00:00:00Z');
+        """
+    )
+    conn.commit()
+
+    # Apply migration 2 via apply_migrations
+    newly_applied = apply_migrations(conn)
+    assert newly_applied == [2]
+
+    # Running migrations again must be a no-op
+    repeat_applied = apply_migrations(conn)
+    assert repeat_applied == []
+
+    # Verify zero data loss on existing v1 records
+    film_row = conn.execute("SELECT * FROM films WHERE film_id = 'film_noir';").fetchone()
+    assert film_row is not None
+    assert film_row["title"] == "Maltese Falcon"
+    assert film_row["source_video"] == "media/noir.mp4"
+
+    shot_row = conn.execute("SELECT * FROM shots WHERE shot_id = 'shot_noir_0';").fetchone()
+    assert shot_row is not None
+    assert shot_row["film_id"] == "film_noir"
+    assert shot_row["shot_index"] == 0
+    assert shot_row["qc_status"] == "pending"
+
+    char_row = conn.execute("SELECT * FROM characters WHERE character_id = 'char_spade';").fetchone()
+    assert char_row is not None
+    assert char_row["name"] == "Sam Spade"
+
+    # Verify qc_events table is functional
+    ev = QCEvent(
+        event_id="qc_mig_01",
+        film_id="film_noir",
+        shot_id="shot_noir_0",
+        shot_index=0,
+        qc_status="warn",
+        failure_codes=["CONTRAST_LOW"],
+        metrics={"contrast_ratio": 1.45},
+    )
+    record_qc_event(conn, ev)
+
+    events = list_qc_events(conn, "film_noir")
+    assert len(events) == 1
+    assert events[0].event_id == "qc_mig_01"
+    assert events[0].qc_status == "warn"
+    assert events[0].failure_codes == ["CONTRAST_LOW"]
+    assert events[0].metrics == {"contrast_ratio": 1.45}
+
+    conn.close()
+
+
+def test_qc_events_crud_and_latest(mem_repo: SQLiteColorBibleRepository) -> None:
+    """Verify record_qc_event, list_qc_events, and get_latest_qc_event work with full fidelity."""
+    conn = mem_repo.get_connection()
+
+    # Setup parent film and shots
+    film = Film(film_id="film_qc_test", title="QC Test Film")
+    mem_repo.upsert_film(film)
+    shot0 = ShotRecord(
+        shot_id="shot_qc_0",
+        film_id="film_qc_test",
+        shot_index=0,
+        start_frame=0,
+        end_frame=100,
+        start_time=0.0,
+        end_time=4.0,
+    )
+    shot1 = ShotRecord(
+        shot_id="shot_qc_1",
+        film_id="film_qc_test",
+        shot_index=1,
+        start_frame=101,
+        end_frame=200,
+        start_time=4.0,
+        end_time=8.0,
+    )
+    mem_repo.upsert_shot(shot0)
+    mem_repo.upsert_shot(shot1)
+
+    # 1. Record event on shot 0 (pass)
+    ev0 = QCEvent(
+        event_id="ev_001",
+        film_id="film_qc_test",
+        shot_id="shot_qc_0",
+        shot_index=0,
+        qc_status="pass",
+        failure_codes=[],
+        metrics={"delta_e_mean": 1.2},
+        created_at="2026-11-24T10:00:00Z",
+    )
+    record_qc_event(conn, ev0)
+
+    # 2. Record event on shot 1 (warn)
+    ev1 = QCEvent(
+        event_id="ev_002",
+        film_id="film_qc_test",
+        shot_id="shot_qc_1",
+        shot_index=1,
+        qc_status="warn",
+        failure_codes=["SKIN_SATURATION_HIGH"],
+        metrics={"delta_e_mean": 3.8, "skin_delta": 4.1},
+        created_at="2026-11-24T10:05:00Z",
+    )
+    record_qc_event(conn, ev1)
+
+    # 3. Record newer event on shot 1 (fail)
+    ev2 = QCEvent(
+        event_id="ev_003",
+        film_id="film_qc_test",
+        shot_id="shot_qc_1",
+        shot_index=1,
+        qc_status="fail",
+        failure_codes=["SKIN_SATURATION_HIGH", "COLOR_CAST_DETECTED"],
+        metrics={"delta_e_mean": 6.2, "cast_angle": 142.0},
+        created_at="2026-11-24T10:10:00Z",
+    )
+    record_qc_event(conn, ev2)
+
+    # List all film events (should return newest first)
+    all_events = list_qc_events(conn, "film_qc_test")
+    assert len(all_events) == 3
+    assert [e.event_id for e in all_events] == ["ev_003", "ev_002", "ev_001"]
+
+    # List filtered by shot
+    shot1_events = list_qc_events(conn, "film_qc_test", shot_id="shot_qc_1")
+    assert len(shot1_events) == 2
+    assert [e.event_id for e in shot1_events] == ["ev_003", "ev_002"]
+
+    # List with limit
+    limited = list_qc_events(conn, "film_qc_test", limit=2)
+    assert len(limited) == 2
+    assert [e.event_id for e in limited] == ["ev_003", "ev_002"]
+
+    # Get latest event for shot 0
+    latest_shot0 = get_latest_qc_event(conn, "film_qc_test", "shot_qc_0")
+    assert latest_shot0 is not None
+    assert latest_shot0.event_id == "ev_001"
+    assert latest_shot0.qc_status == "pass"
+
+    # Get latest event for shot 1 (should be ev_003)
+    latest_shot1 = get_latest_qc_event(conn, "film_qc_test", "shot_qc_1")
+    assert latest_shot1 is not None
+    assert latest_shot1.event_id == "ev_003"
+    assert latest_shot1.qc_status == "fail"
+    assert latest_shot1.failure_codes == ["SKIN_SATURATION_HIGH", "COLOR_CAST_DETECTED"]
+    assert latest_shot1.metrics["cast_angle"] == 142.0
+
+    # Get latest event for non-existent shot
+    non_existent = get_latest_qc_event(conn, "film_qc_test", "shot_non_existent")
+    assert non_existent is None
+
+    # Test repository method passthroughs
+    assert len(mem_repo.list_qc_events("film_qc_test")) == 3
+    assert mem_repo.get_latest_qc_event("film_qc_test", "shot_qc_1").event_id == "ev_003"
+
+    # Test idempotent upsert / update
+    ev2_updated = QCEvent(
+        event_id="ev_003",
+        film_id="film_qc_test",
+        shot_id="shot_qc_1",
+        shot_index=1,
+        qc_status="pass",
+        failure_codes=[],
+        metrics={"delta_e_mean": 1.1},
+        created_at="2026-11-24T10:15:00Z",
+    )
+    mem_repo.record_qc_event(ev2_updated)
+    updated_fetch = mem_repo.get_latest_qc_event("film_qc_test", "shot_qc_1")
+    assert updated_fetch is not None
+    assert updated_fetch.qc_status == "pass"
+    assert updated_fetch.failure_codes == []
+
+    # Test QCEvent dataclass serialization & validation
+    event_dict = ev1.to_dict()
+    assert event_dict["event_id"] == "ev_002"
+    assert event_dict["qc_status"] == "warn"
+    assert event_dict["failure_codes"] == ["SKIN_SATURATION_HIGH"]
+
+    restored = QCEvent.from_row(event_dict)
+    assert restored.event_id == "ev_002"
+    assert restored.qc_status == "warn"
+    assert restored.failure_codes == ["SKIN_SATURATION_HIGH"]
+    assert restored.metrics == {"delta_e_mean": 3.8, "skin_delta": 4.1}
+
+    # Invalid qc_status must raise ValueError
+    with pytest.raises(ValueError, match="Invalid qc_status"):
+        QCEvent(
+            event_id="ev_inv",
+            film_id="film_qc_test",
+            qc_status="unknown_status",
+        )
+
+
+def test_qc_events_foreign_key_cascade_and_set_null(mem_repo: SQLiteColorBibleRepository) -> None:
+    """Verify foreign key cascading delete on films and set null on shots."""
+    film = Film(film_id="film_fk", title="FK Film")
+    mem_repo.upsert_film(film)
+    shot = ShotRecord(
+        shot_id="shot_fk",
+        film_id="film_fk",
+        shot_index=0,
+        start_frame=0,
+        end_frame=50,
+        start_time=0.0,
+        end_time=2.0,
+    )
+    mem_repo.upsert_shot(shot)
+
+    ev = QCEvent(
+        event_id="ev_fk_1",
+        film_id="film_fk",
+        shot_id="shot_fk",
+        shot_index=0,
+        qc_status="pass",
+    )
+    mem_repo.record_qc_event(ev)
+
+    # Deleting shot -> event's shot_id should become NULL (ON DELETE SET NULL)
+    assert mem_repo.delete_shot("shot_fk") is True
+    events = mem_repo.list_qc_events("film_fk")
+    assert len(events) == 1
+    assert events[0].shot_id is None
+
+    # Deleting film -> event should be deleted (ON DELETE CASCADE)
+    assert mem_repo.delete_film("film_fk") is True
+    assert len(mem_repo.list_qc_events("film_fk")) == 0
+
+
+def test_color_bible_service_get_qc_summary() -> None:
+    """Verify ColorBibleService.get_qc_summary returns accurate aggregated metrics and event lists."""
+    service = ColorBibleService(db_path=":memory:")
+
+    film_id = "film_summary_test"
+    service.create_film(film_id, "Summary Test Movie")
+
+    # Record 4 events across 3 shots
+    ev0 = QCEvent(
+        event_id="ev_s0",
+        film_id=film_id,
+        shot_id="shot_0",
+        shot_index=0,
+        qc_status="pass",
+        failure_codes=[],
+        metrics={"score": 0.99},
+        created_at="2026-11-24T11:00:00Z",
+    )
+    ev1 = QCEvent(
+        event_id="ev_s1",
+        film_id=film_id,
+        shot_id="shot_1",
+        shot_index=1,
+        qc_status="warn",
+        failure_codes=["TINT_DRIFT"],
+        metrics={"tint": 0.3},
+        created_at="2026-11-24T11:05:00Z",
+    )
+    ev2 = QCEvent(
+        event_id="ev_s2",
+        film_id=film_id,
+        shot_id="shot_2",
+        shot_index=2,
+        qc_status="fail",
+        failure_codes=["TINT_DRIFT", "SKIN_SATURATION"],
+        metrics={"tint": 0.7, "skin": 0.8},
+        created_at="2026-11-24T11:10:00Z",
+    )
+    ev3 = QCEvent(
+        event_id="ev_s3",
+        film_id=film_id,
+        shot_id="shot_2",
+        shot_index=2,
+        qc_status="fail",
+        failure_codes=["SKIN_SATURATION"],
+        metrics={"skin": 0.85},
+        created_at="2026-11-24T11:15:00Z",
+    )
+
+    service.record_qc_event(ev0)
+    service.record_qc_event(ev1)
+    service.record_qc_event(ev2)
+    service.record_qc_event(ev3)
+
+    # Film-level summary
+    film_summary = service.get_qc_summary(film_id)
+    assert film_summary["film_id"] == film_id
+    assert film_summary["shot_id"] is None
+    assert film_summary["total_events"] == 4
+    assert film_summary["status_counts"] == {"pass": 1, "warn": 1, "fail": 2}
+    assert film_summary["failure_codes"] == {"TINT_DRIFT": 2, "SKIN_SATURATION": 2}
+    assert len(film_summary["latest_events"]) == 4
+    # Latest events ordered newest first
+    assert film_summary["latest_events"][0]["event_id"] == "ev_s3"
+    assert film_summary["latest_events"][1]["event_id"] == "ev_s2"
+
+    # Shot-level summary (shot_2 only)
+    shot2_summary = service.get_qc_summary(film_id, shot_id="shot_2")
+    assert shot2_summary["film_id"] == film_id
+    assert shot2_summary["shot_id"] == "shot_2"
+    assert shot2_summary["total_events"] == 2
+    assert shot2_summary["status_counts"] == {"pass": 0, "warn": 0, "fail": 2}
+    assert shot2_summary["failure_codes"] == {"TINT_DRIFT": 1, "SKIN_SATURATION": 2}
+    assert len(shot2_summary["latest_events"]) == 2
+    assert shot2_summary["latest_events"][0]["event_id"] == "ev_s3"
+
+    # Global summary across all films when film_id is None
+    global_summary = service.get_qc_summary(film_id=None)
+    assert global_summary["film_id"] is None
+    assert global_summary["total_events"] == 4
+
+    service.close()
+
+
+def test_list_qc_events_none_film_id(mem_repo: SQLiteColorBibleRepository) -> None:
+    """Verify list_qc_events with film_id=None retrieves events across all films."""
+    film_a = Film(film_id="film_a", title="Movie A")
+    film_b = Film(film_id="film_b", title="Movie B")
+    mem_repo.upsert_film(film_a)
+    mem_repo.upsert_film(film_b)
+
+    shot_a = ShotRecord(shot_id="shot_1", film_id="film_a", shot_index=0, start_frame=0, end_frame=10, start_time=0.0, end_time=1.0)
+    shot_b = ShotRecord(shot_id="shot_2", film_id="film_b", shot_index=0, start_frame=0, end_frame=10, start_time=0.0, end_time=1.0)
+    mem_repo.upsert_shot(shot_a)
+    mem_repo.upsert_shot(shot_b)
+
+    ev_a = QCEvent(event_id="ev_a", film_id="film_a", shot_id="shot_1", qc_status="pass", created_at="2026-11-24T10:00:00Z")
+    ev_b = QCEvent(event_id="ev_b", film_id="film_b", shot_id="shot_2", qc_status="fail", created_at="2026-11-24T10:05:00Z")
+    mem_repo.record_qc_event(ev_a)
+    mem_repo.record_qc_event(ev_b)
+
+    # 1. film_id=None returns both events ordered newest first
+    all_events = mem_repo.list_qc_events(film_id=None)
+    assert len(all_events) == 2
+    assert [e.event_id for e in all_events] == ["ev_b", "ev_a"]
+
+    # 2. film_id=None with shot_id filter
+    shot_events = mem_repo.list_qc_events(film_id=None, shot_id="shot_1")
+    assert len(shot_events) == 1
+    assert shot_events[0].event_id == "ev_a"
+
+    # 3. film_id=None with limit
+    limited_events = mem_repo.list_qc_events(film_id=None, limit=1)
+    assert len(limited_events) == 1
+    assert limited_events[0].event_id == "ev_b"
 
 
 

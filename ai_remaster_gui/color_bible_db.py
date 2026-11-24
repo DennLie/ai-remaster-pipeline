@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from dataclasses import asdict, dataclass, field
@@ -169,8 +170,24 @@ CREATE TABLE IF NOT EXISTS color_references (
 CREATE INDEX IF NOT EXISTS idx_refs_entity ON color_references(film_id, entity_type, entity_id, variant_id);
 """
 
+MIGRATION_2_SQL = """
+CREATE TABLE IF NOT EXISTS qc_events (
+    event_id TEXT PRIMARY KEY,
+    film_id TEXT NOT NULL REFERENCES films(film_id) ON DELETE CASCADE,
+    shot_id TEXT REFERENCES shots(shot_id) ON DELETE SET NULL,
+    shot_index INTEGER,
+    qc_status TEXT CHECK(qc_status IN ('pass', 'warn', 'fail')) NOT NULL,
+    failure_codes_json TEXT NOT NULL DEFAULT '[]',
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qc_events_film_shot ON qc_events(film_id, shot_id);
+CREATE INDEX IF NOT EXISTS idx_qc_events_film_status ON qc_events(film_id, qc_status);
+"""
+
 MIGRATIONS: list[tuple[int, str]] = [
     (1, MIGRATION_1_SQL),
+    (2, MIGRATION_2_SQL),
 ]
 
 
@@ -467,6 +484,192 @@ class ColorReferenceRecord:
         return asdict(self)
 
 
+@dataclass
+class QCEvent:
+    event_id: str
+    film_id: str
+    shot_id: str | None = None
+    shot_index: int | None = None
+    qc_status: str = "pass"
+    failure_codes: list[str] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=_utcnow_iso)
+
+    def __post_init__(self) -> None:
+        if self.qc_status not in ("pass", "warn", "fail"):
+            raise ValueError(
+                f"Invalid qc_status '{self.qc_status}'. Must be 'pass', 'warn', or 'fail'."
+            )
+        if not isinstance(self.failure_codes, list):
+            self.failure_codes = list(self.failure_codes)
+        if not isinstance(self.metrics, dict):
+            self.metrics = dict(self.metrics)
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row | dict[str, Any]) -> QCEvent:
+        if isinstance(row, sqlite3.Row):
+            keys = set(row.keys())
+        elif isinstance(row, dict):
+            keys = set(row.keys())
+        else:
+            keys = set()
+
+        failure_codes: list[str] = []
+        if "failure_codes_json" in keys and row["failure_codes_json"] is not None:
+            raw_fc = row["failure_codes_json"]
+            if isinstance(raw_fc, str):
+                try:
+                    failure_codes = json.loads(raw_fc)
+                except Exception:
+                    failure_codes = []
+            elif isinstance(raw_fc, (list, tuple)):
+                failure_codes = list(raw_fc)
+        elif "failure_codes" in keys and row["failure_codes"] is not None:
+            raw_fc = row["failure_codes"]
+            if isinstance(raw_fc, str):
+                try:
+                    failure_codes = json.loads(raw_fc)
+                except Exception:
+                    failure_codes = []
+            elif isinstance(raw_fc, (list, tuple)):
+                failure_codes = list(raw_fc)
+
+        metrics: dict[str, Any] = {}
+        if "metrics_json" in keys and row["metrics_json"] is not None:
+            raw_m = row["metrics_json"]
+            if isinstance(raw_m, str):
+                try:
+                    metrics = json.loads(raw_m)
+                except Exception:
+                    metrics = {}
+            elif isinstance(raw_m, dict):
+                metrics = dict(raw_m)
+        elif "metrics" in keys and row["metrics"] is not None:
+            raw_m = row["metrics"]
+            if isinstance(raw_m, str):
+                try:
+                    metrics = json.loads(raw_m)
+                except Exception:
+                    metrics = {}
+            elif isinstance(raw_m, dict):
+                metrics = dict(raw_m)
+
+        raw_idx = row["shot_index"] if "shot_index" in keys else None
+        shot_index = int(raw_idx) if raw_idx is not None else None
+
+        return cls(
+            event_id=row["event_id"],
+            film_id=row["film_id"],
+            shot_id=row["shot_id"] if "shot_id" in keys else None,
+            shot_index=shot_index,
+            qc_status=row["qc_status"],
+            failure_codes=failure_codes,
+            metrics=metrics,
+            created_at=row["created_at"],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _row_to_mapping(cursor: sqlite3.Cursor, row: Any) -> Any:
+    if row is None:
+        return None
+    if isinstance(row, (sqlite3.Row, dict)):
+        return row
+    if cursor.description:
+        col_names = [col[0] for col in cursor.description]
+        return dict(zip(col_names, row))
+    return row
+
+
+def record_qc_event(conn: sqlite3.Connection, event: QCEvent) -> None:
+    """Record a QC event in the database."""
+    failure_codes_json = json.dumps(event.failure_codes)
+    metrics_json = json.dumps(event.metrics)
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO qc_events (
+                event_id, film_id, shot_id, shot_index, qc_status,
+                failure_codes_json, metrics_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id) DO UPDATE SET
+                film_id = excluded.film_id,
+                shot_id = excluded.shot_id,
+                shot_index = excluded.shot_index,
+                qc_status = excluded.qc_status,
+                failure_codes_json = excluded.failure_codes_json,
+                metrics_json = excluded.metrics_json,
+                created_at = excluded.created_at;
+            """,
+            (
+                event.event_id,
+                event.film_id,
+                event.shot_id,
+                event.shot_index,
+                event.qc_status,
+                failure_codes_json,
+                metrics_json,
+                event.created_at,
+            ),
+        )
+
+
+def list_qc_events(
+    conn: sqlite3.Connection,
+    film_id: str | None = None,
+    shot_id: str | None = None,
+    limit: int = 100,
+) -> list[QCEvent]:
+    """List QC events optionally filtered by film_id and shot_id, ordered newest first."""
+    cursor = conn.cursor()
+    limit_val = -1 if limit is None or limit < 0 else limit
+    clauses: list[str] = []
+    params: list[Any] = []
+    if film_id is not None:
+        clauses.append("film_id = ?")
+        params.append(film_id)
+    if shot_id is not None:
+        clauses.append("shot_id = ?")
+        params.append(shot_id)
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    cursor.execute(
+        f"""
+        SELECT * FROM qc_events
+        {where_sql}
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?;
+        """,
+        (*params, limit_val),
+    )
+    rows = cursor.fetchall()
+    return [QCEvent.from_row(_row_to_mapping(cursor, r)) for r in rows]
+
+
+def get_latest_qc_event(
+    conn: sqlite3.Connection,
+    film_id: str,
+    shot_id: str,
+) -> QCEvent | None:
+    """Retrieve the latest QC event for a specific film and shot."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT * FROM qc_events
+        WHERE film_id = ? AND shot_id = ?
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1;
+        """,
+        (film_id, shot_id),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return QCEvent.from_row(_row_to_mapping(cursor, row))
+
+
 # --- Repository Interface ---
 
 
@@ -571,6 +774,20 @@ class ColorBibleRepository(Protocol):
         approved_at: str | None = None,
     ) -> bool: ...
     def delete_reference(self, ref_id: str) -> bool: ...
+
+    # QC Events
+    def record_qc_event(self, event: QCEvent) -> None: ...
+    def list_qc_events(
+        self,
+        film_id: str | None = None,
+        shot_id: str | None = None,
+        limit: int = 100,
+    ) -> list[QCEvent]: ...
+    def get_latest_qc_event(
+        self,
+        film_id: str,
+        shot_id: str,
+    ) -> QCEvent | None: ...
 
 
 # --- SQLite Repository Implementation ---
@@ -1283,3 +1500,23 @@ class SQLiteColorBibleRepository:
                 "DELETE FROM color_references WHERE ref_id = ?;", (ref_id,)
             )
         return cur.rowcount > 0
+
+    # --- QC Events ---
+
+    def record_qc_event(self, event: QCEvent) -> None:
+        record_qc_event(self._conn, event)
+
+    def list_qc_events(
+        self,
+        film_id: str | None = None,
+        shot_id: str | None = None,
+        limit: int = 100,
+    ) -> list[QCEvent]:
+        return list_qc_events(self._conn, film_id=film_id, shot_id=shot_id, limit=limit)
+
+    def get_latest_qc_event(
+        self,
+        film_id: str,
+        shot_id: str,
+    ) -> QCEvent | None:
+        return get_latest_qc_event(self._conn, film_id, shot_id=shot_id)

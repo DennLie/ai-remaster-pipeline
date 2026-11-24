@@ -49,6 +49,7 @@ EXPECTED_GET_ROUTES = {
     "/api/color-bible/state",
     "/api/color-bible/shot-assignments",
     "/api/color-bible/snapshot-hash",
+    "/api/color-bible/qc-summary",
     "/media",
 }
 
@@ -781,6 +782,52 @@ class SAM2TrackShotRouteTests(unittest.TestCase):
 
             self.assertFalse(handler.responses["json"]["ok"])
             self.assertIn("path traversal", handler.responses["json"]["error"].lower())
+
+    def test_color_bible_qc_summary_route(self) -> None:
+        # 1. Missing film_id returns 400
+        handler_missing = _Handler("/api/color-bible/qc-summary")
+        handler_missing.do_GET()
+        self.assertEqual(handler_missing.responses.get("error"), 400)
+
+        # 2. Success with film_id
+        mock_summary = {
+            "film_id": "film_001",
+            "shot_id": None,
+            "total_events": 5,
+            "status_counts": {"pass": 4, "warn": 1, "fail": 0},
+            "latest_events": [],
+            "failure_codes": {},
+        }
+        with mock.patch("ai_remaster_gui.color_bible_service.ColorBibleService.get_qc_summary", return_value=mock_summary) as mock_qc:
+            handler_film = _Handler("/api/color-bible/qc-summary?film_id=film_001")
+            handler_film.do_GET()
+            mock_qc.assert_called_once_with("film_001", shot_id=None)
+            self.assertEqual(handler_film.responses["json"]["status"], "ok")
+            self.assertEqual(handler_film.responses["json"]["summary"], mock_summary)
+
+        # 3. Success with film_id and shot_id
+        with mock.patch("ai_remaster_gui.color_bible_service.ColorBibleService.get_qc_summary") as mock_qc:
+            mock_qc.return_value = {**mock_summary, "shot_id": "shot_002"}
+            handler_shot = _Handler("/api/color-bible/qc-summary?film_id=film_001&shot_id=shot_002")
+            handler_shot.do_GET()
+            mock_qc.assert_called_once_with("film_001", shot_id="shot_002")
+            self.assertEqual(handler_shot.responses["json"]["status"], "ok")
+            self.assertEqual(handler_shot.responses["json"]["summary"]["shot_id"], "shot_002")
+
+        # 3b. Success with film_id, shot_id and limit
+        with mock.patch("ai_remaster_gui.color_bible_service.ColorBibleService.get_qc_summary") as mock_qc:
+            mock_qc.return_value = {**mock_summary, "shot_id": "shot_002"}
+            handler_limit = _Handler("/api/color-bible/qc-summary?film_id=film_001&shot_id=shot_002&limit=50")
+            handler_limit.do_GET()
+            mock_qc.assert_called_once_with("film_001", shot_id="shot_002", limit=50)
+            self.assertEqual(handler_limit.responses["json"]["status"], "ok")
+
+        # 4. Service exception handled cleanly
+        with mock.patch("ai_remaster_gui.color_bible_service.ColorBibleService.get_qc_summary", side_effect=RuntimeError("db failed")):
+            handler_err = _Handler("/api/color-bible/qc-summary?film_id=film_001")
+            handler_err.do_GET()
+            self.assertFalse(handler_err.responses["json"]["ok"])
+            self.assertIn("db failed", handler_err.responses["json"]["error"])
 
 
 if __name__ == "__main__":

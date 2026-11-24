@@ -552,6 +552,40 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 state.APP.log.append(f"Color Bible snapshot hash failed: {exc}")
                 self.send_json({"ok": False, "error": str(exc)})
+        elif parsed.path == "/api/color-bible/qc-summary":
+            query = parse_qs(parsed.query)
+            film_id = query.get("film_id", [""])[0].strip()
+            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
+                film_id = str(state.APP.settings.get("global", {}).get("color_bible_film_id", "")).strip()
+            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
+                source = state.APP.settings.get("global", {}).get("source", "")
+                if source:
+                    film_id = Path(source).stem
+            if not film_id:
+                self.send_error(400, "film_id is required.")
+                return
+
+            def qc_summary_action() -> dict:
+                from .color_bible_db import resolve_color_bible_db
+                from .color_bible_service import ColorBibleService
+
+                shot_id = query.get("shot_id", [None])[0]
+                if shot_id is not None:
+                    shot_id = shot_id.strip() or None
+
+                qc_kwargs: dict[str, Any] = {"shot_id": shot_id}
+                limit_str = query.get("limit", [None])[0]
+                if limit_str is not None:
+                    try:
+                        qc_kwargs["limit"] = int(limit_str)
+                    except ValueError:
+                        pass
+
+                with ColorBibleService(resolve_color_bible_db()) as service:
+                    summary = service.get_qc_summary(film_id, **qc_kwargs)
+                    return {"status": "ok", "summary": summary}
+
+            self._send_result("Color Bible QC summary", qc_summary_action)
         elif parsed.path == "/media":
             query = parse_qs(parsed.query)
             path = resolve_served(unquote(query.get("path", [""])[0]), served_source_paths())
