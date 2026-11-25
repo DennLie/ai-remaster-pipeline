@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from comfy_api import wait_for_comfy
+from comfy_api import free_comfy_models, wait_for_comfy
 from dependency_manager import ensure_audio_models
 from common import (
     ROOT,
@@ -491,17 +491,21 @@ def run(args: argparse.Namespace) -> int:
     work_dir = ROOT / ".cache" / "audio" / safe_stem(source.name)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    music_stem = build_music_stem(args, ffmpeg, source, duration, work_dir, captioner) if args.music else None
-    sfx_stem = build_sfx_stem(args, ffmpeg, source, duration, work_dir, captioner) if args.sfx else None
+    try:
+        music_stem = build_music_stem(args, ffmpeg, source, duration, work_dir, captioner) if args.music else None
+        sfx_stem = build_sfx_stem(args, ffmpeg, source, duration, work_dir, captioner) if args.sfx else None
 
-    print("Mixing audio stems", flush=True)
-    mixed = mix_stems(ffmpeg, music_stem, sfx_stem, float(args.music_gain_db), float(args.sfx_gain_db), work_dir / "mixed.wav")
+        print("Mixing audio stems", flush=True)
+        mixed = mix_stems(ffmpeg, music_stem, sfx_stem, float(args.music_gain_db), float(args.sfx_gain_db), work_dir / "mixed.wav")
 
-    print("Muxing soundtrack onto the video (copying the video stream)", flush=True)
-    mux_audio(ffmpeg, source, mixed, output)
-    write_signature(output, sig)
-    print(f"Wrote soundtrack video: {output}", flush=True)
-    return 0
+        print("Muxing soundtrack onto the video (copying the video stream)", flush=True)
+        mux_audio(ffmpeg, source, mixed, output)
+        write_signature(output, sig)
+        print(f"Wrote soundtrack video: {output}", flush=True)
+        return 0
+    finally:
+        if not args.dry_run and not getattr(args, "keep_comfy_loaded", False):
+            free_comfy_models(args.comfy_url)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -540,6 +544,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ffmpeg", default="")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--keep-comfy-loaded", action="store_true", help="Skip unloading ComfyUI models after finishing.")
     return parser
 
 

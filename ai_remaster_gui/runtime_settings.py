@@ -153,6 +153,14 @@ def base_settings() -> dict[str, dict[str, str]]:
         "cleanup": "false",
         "commercial_model_guard": "true",
         "non_commercial_benchmark_override": "false",
+        "auto_free_vram": "true",
+        "qwen_2511_audited": "false",
+        "ic_lora_audited": "false",
+        "gemma_encoder_audited": "false",
+        "weight_vgg19_audited": "false",
+        "company_revenue_under_10m_usd": "false",
+        "color_bible_db": "manifests/color_bible.db",
+        "color_bible_film_id": "",
         "stabilize": "false",
         "dust": "false",
         "detail": "false",
@@ -311,9 +319,9 @@ def normalize_settings(defaults: dict[str, dict[str, str]], include_newest_sourc
     # selector so saved settings cannot silently reactivate it.
     defaults["outpaint"].pop("outpaint_lora", None)
     defaults["outpaint"]["seed_qwen_guides"] = "false"
-    defaults["colour"].setdefault("method", "deepexemplar")
+    defaults["colour"].setdefault("method", "osi_masked_lab")
     defaults["colour"].setdefault("processing_height", "source")
-    defaults["recomp"].setdefault("colorization_method", "deepexemplar")
+    defaults["recomp"].setdefault("colorization_method", "osi_masked_lab")
     # Older builds stored recomposition color controls as small 0-1-ish floats.
     # The UI now exposes Kelvin and percentages, so migrate old values once on load.
     try:

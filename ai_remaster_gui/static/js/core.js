@@ -196,6 +196,9 @@ function updateSystemStatus() {
     memoryBadge(vram),
   ];
   if (cuda.warning) badges.push(statusBadge('FlashVSR', 'Unsupported', 'warn', cuda.warning));
+  badges.push(
+    `<button type="button" class="compact-btn" id="freeVramBtn" onclick="freeVramNow()" ${state && state.running ? 'disabled' : ''} title="Unload ComfyUI models, ARP in-process CUDA caches, and idle Ollama models">Free VRAM</button>`
+  );
   el.innerHTML = badges.join('');
   updateStickyOffsets();
 }

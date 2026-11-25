@@ -55,27 +55,76 @@ def wait_for_comfy(comfy_url: str, timeout_seconds: float = 180.0, poll_seconds:
     raise RuntimeError(f"ComfyUI did not become ready at {comfy_url} within {timeout_seconds:.0f}s. Last error: {last_error}")
 
 
-def free_comfy_models(comfy_url: str, settle_seconds: float = 2.0) -> None:
-    """Unload every model a long-lived ComfyUI still holds from earlier phases.
+def interrupt_comfy(comfy_url: str, timeout: float = 10.0) -> bool:
+    """Abort the active ComfyUI prompt execution, returning True on HTTP success."""
+    if not comfy_url:
+        return False
+    request = urllib.request.Request(
+        f"{comfy_url.rstrip('/')}/interrupt", data=b"{}", method='POST', headers={'Content-Type': 'application/json'},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout):
+            return True
+    except (urllib.error.URLError, TimeoutError, socket.timeout, OSError):
+        return False
 
-    ComfyUI does not always evict an idle model from another phase (e.g. the CQ
-    Enhancer's LTX copy) when a new prompt loads, so a full-length outpaint chunk
-    ends up with no VRAM for its weights and spills into shared memory, about 10x
-    slower. The /free flags are consumed by the idle prompt worker; the short wait
-    keeps the next queued prompt from overtaking them.
+
+def free_comfy_models(comfy_url: str, settle_seconds: float = 1.0, verify_timeout: float = 6.0) -> bool:
+    """Unload every model a long-lived ComfyUI holds and verify allocator VRAM dropped.
+
+    ComfyUI does not always evict an idle model from another phase when a new
+    prompt loads. Sending /free and polling /system_stats ensures previous stage
+    models (e.g. Qwen 2511 or LTX) actually clear before the next phase starts.
     """
+    if not comfy_url:
+        return False
+    base = comfy_url.rstrip('/')
     payload = json.dumps({'unload_models': True, 'free_memory': True}).encode('utf-8')
     request = urllib.request.Request(
-        f"{comfy_url.rstrip('/')}/free", data=payload, method='POST', headers={'Content-Type': 'application/json'},
+        f"{base}/free", data=payload, method='POST', headers={'Content-Type': 'application/json'},
     )
     try:
         # /free answers with an empty body, so http_json's JSON decode doesn't apply.
         with urllib.request.urlopen(request, timeout=30):
             pass
-    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+    except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
         print(f"Could not ask ComfyUI to unload idle models ({exc}); continuing.", flush=True)
-        return
-    time.sleep(settle_seconds)
+        return False
+
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
+
+    def _torch_vram() -> int | None:
+        try:
+            stats = http_json('GET', f"{base}/system_stats", timeout=2)
+            devices = stats.get('devices') if isinstance(stats, dict) else None
+            if not isinstance(devices, list) or not devices:
+                return None
+            return sum(int(d.get('torch_vram_total') or 0) for d in devices if isinstance(d, dict))
+        except Exception:
+            return None
+
+    deadline = time.monotonic() + max(0.0, float(verify_timeout))
+    threshold = 512 * 1024 * 1024
+    retried = False
+    while time.monotonic() < deadline:
+        used = _torch_vram()
+        if used is None or used <= threshold:
+            break
+        if not retried and time.monotonic() + (verify_timeout * 0.5) >= deadline:
+            try:
+                q = http_json('GET', f"{base}/queue", timeout=2)
+                if not (q.get('queue_running') or []) and not (q.get('queue_pending') or []):
+                    retried = True
+                    retry_req = urllib.request.Request(
+                        f"{base}/free", data=payload, method='POST', headers={'Content-Type': 'application/json'},
+                    )
+                    with urllib.request.urlopen(retry_req, timeout=30):
+                        pass
+            except Exception:
+                pass
+        time.sleep(0.4)
+    return True
 
 
 def object_info(comfy_url: str) -> dict[str, Any]:

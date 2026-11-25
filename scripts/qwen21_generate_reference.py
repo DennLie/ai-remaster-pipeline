@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 
-from comfy_api import ensure_node_types, extract_output_files, queue_prompt, wait_for_comfy, wait_for_prompt
+from comfy_api import ensure_node_types, extract_output_files, free_comfy_models, queue_prompt, wait_for_comfy, wait_for_prompt
 from common import ROOT, copy_to_comfy_input, newest_output, resolve_path
 from dependency_manager import QWEN_IMAGE_21_TEXT_ENCODER, ensure_qwen_image_21_models
 from openai_generate_reference import manifest_rows_to_generate, nearby_reference_images, row_source, row_target
@@ -259,11 +259,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--keep-comfy-loaded", action="store_true", help="Skip unloading ComfyUI models after finishing.")
     parser.add_argument("--film-id", default=None, type=str, help="Optional film ID for Color Bible integration.")
     parser.add_argument(
         "--reference-runner",
         choices=["auto", "guided_only", "ddcolor_only"],
-        default="auto",
+        default="guided_only",
         help="Reference runner mode compatibility argument.",
     )
     parser.add_argument(
@@ -288,15 +289,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    if not args.dry_run:
-        comfy_dir = resolve_path(args.comfy_dir)
-        ensure_qwen_image_21_models(comfy_dir, turbo=args.quality == "turbo")
-        print(f"Waiting for ComfyUI at {args.comfy_url}...", flush=True)
-        wait_for_comfy(args.comfy_url, timeout_seconds=180, poll_seconds=args.poll_seconds)
-        required = {**REQUIRED_NODES, **(DESCRIBE_REQUIRED_NODES if args.describe else {})}
-        ensure_node_types(args.comfy_url, required, "Qwen-Image-2.1 reference generation", comfy_dir)
-    generate_manifest(args)
-    return 0
+    used_comfy = False
+    try:
+        if not args.dry_run:
+            comfy_dir = resolve_path(args.comfy_dir)
+            ensure_qwen_image_21_models(comfy_dir, turbo=args.quality == "turbo")
+            print(f"Waiting for ComfyUI at {args.comfy_url}...", flush=True)
+            wait_for_comfy(args.comfy_url, timeout_seconds=180, poll_seconds=args.poll_seconds)
+            required = {**REQUIRED_NODES, **(DESCRIBE_REQUIRED_NODES if args.describe else {})}
+            ensure_node_types(args.comfy_url, required, "Qwen-Image-2.1 reference generation", comfy_dir)
+            used_comfy = True
+        generate_manifest(args)
+        return 0
+    finally:
+        if (
+            used_comfy
+            and getattr(args, "row_index", None) is None
+            and not getattr(args, "keep_comfy_loaded", False)
+        ):
+            free_comfy_models(args.comfy_url)
 
 
 if __name__ == "__main__":

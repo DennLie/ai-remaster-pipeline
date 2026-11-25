@@ -144,11 +144,17 @@ class CommercialModelPolicyTests(unittest.TestCase):
 
     def test_whole_pipeline_preflight(self):
         self.guard()
+        # Default commercial-safe pipeline allows colour (osi_masked_lab) while blocking un-audited cleanup/references
         problems = pipeline_issues(self.settings, ["cleanup", "stabilize", "references", "colour"])
-        self.assertEqual(len(problems), 3)
+        self.assertEqual(len(problems), 2)
         self.assertIn("cleanup", problems[0])
         self.assertIn("references", problems[1])
-        self.assertIn("colour", problems[2])
+
+        # Selecting an un-audited colour method triggers the colour block as well
+        self.settings["colour"]["method"] = "deepexemplar"
+        problems_with_deep = pipeline_issues(self.settings, ["cleanup", "stabilize", "references", "colour"])
+        self.assertEqual(len(problems_with_deep), 3)
+        self.assertIn("colour", problems_with_deep[2])
 
     def test_allowed_osi_models(self):
         for cid, expected_lic in (

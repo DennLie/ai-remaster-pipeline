@@ -53,6 +53,8 @@ function drawShotStage({ key, heading, runLabel, outputLimit, afterRender }) {
         <h2>${st.title}</h2>
         <p>${st.description}</p>
         ${progressHtml(sp.percent, sp.label)}
+        ${(key === 'references' || key === 'colour') ? activeColorBibleBannerHtml() : ''}
+        ${key === 'colour' ? colourQcSummaryHtml() : ''}
         ${key === 'colour' ? colorizationMethodWarning(s) : ''}
         ${key === 'shots' ? shotDetectionInputStatus(s) : ''}
         ${visibleFields.map(f => fieldHtml(st, f)).join('')}
@@ -265,19 +267,34 @@ function scrubThumbHtml(elementId, frame, fallbackPath) {
 
 function shotStageVisibleFields(st, s = {}) {
   if (st.key === 'shots') return st.fields.filter(field => field[0] !== 'outpainted_video');
-  if (st.key === 'references') return st.fields.filter(field => field[0] !== 'manifest');
+  if (st.key === 'references') {
+    const method = s.method || 'qwen';
+    const runner = s.reference_runner || 'guided_only';
+    const showDdcolor = method === 'ddcolor' || runner !== 'guided_only';
+    const ddcolorFields = new Set(['ddcolor_model', 'ddcolor_model_path']);
+    const qwenOnlyFields = new Set(['compute', 'prompt', 'prompt_suffix']);
+    return st.fields.filter(field => {
+      const k = field[0];
+      if (k === 'manifest') return false;
+      if (ddcolorFields.has(k) && !showDdcolor) return false;
+      if (method === 'ddcolor' && qwenOnlyFields.has(k)) return false;
+      return true;
+    });
+  }
   if (st.key === 'colour') {
     const common = new Set(['compute', 'manifest', 'method', 'processing_height']);
     const cloud = new Set(['openai_image_model', 'openai_previous_frames', 'openai_image_size', 'openai_image_quality', 'openai_prompt']);
     const deep = new Set(['frame_propagate', 'use_half_resolution', 'use_torch_compile', 'use_sage_attention']);
     const legacyColorMNet = new Set(['use_torch_compile', 'colormnet_memory_mode', 'colormnet_feature_encoder', 'colormnet_text_guidance', 'colormnet_text_guidance_weight']);
-    const method = s.method || 'deepexemplar';
+    const osiMaskedLab = new Set(['masks_dir', 'color_bible_db', 'film_id', 'osi_flow_scale', 'osi_anchor_strength', 'guided_radius', 'guided_eps', 'osi_run_qc', 'osi_workers']);
+    const method = s.method || 'osi_masked_lab';
+    if (method === 'osi_masked_lab') return st.fields.filter(field => common.has(field[0]) || osiMaskedLab.has(field[0]));
     if (method === 'openai') return st.fields.filter(field => common.has(field[0]) || cloud.has(field[0]));
     if (method === 'cmnet2') return st.fields.filter(field => common.has(field[0]));
     if (method === 'ltx') return st.fields.filter(field => (common.has(field[0]) && field[0] !== 'processing_height') || field[0].startsWith('ltx_'));
     if (method === 'colormnet') return st.fields.filter(field => common.has(field[0]) || legacyColorMNet.has(field[0]));
     if (method === 'deepexemplar') return st.fields.filter(field => common.has(field[0]) || deep.has(field[0]));
-    return st.fields.filter(field => !cloud.has(field[0]) && !field[0].startsWith('ltx_'));
+    return st.fields.filter(field => !cloud.has(field[0]) && !field[0].startsWith('ltx_') && !osiMaskedLab.has(field[0]));
   }
   return st.fields;
 }
@@ -385,17 +402,65 @@ function shotDetectionInputStatus(s) {
   `;
 }
 
+function activeColorBibleBannerHtml() {
+  const ctx = (state && state.color_bible_context) || {};
+  const g = settings('global');
+  const filmId = ctx.film_id || g.color_bible_film_id || '';
+  const dbPath = ctx.db_path || g.color_bible_db || 'manifests/color_bible.db';
+  return `
+    <div class="source-info" style="margin-bottom:8px;">
+      <div>
+        <span>Active Color Bible</span>
+        <strong>${filmId ? `${esc(filmId)} (${esc(dbPath)})` : 'None selected — pick or sync a film in Color Bible'}</strong>
+      </div>
+      <div class="actions" style="margin:0;">
+        <button type="button" class="compact-btn" onclick="openColorBibleForShot('${esc(filmId)}', null)">Open Color Bible</button>
+      </div>
+    </div>
+  `;
+}
+
+function colourQcSummaryHtml() {
+  const rows = (state && state.shot_views && state.shot_views.colour) || [];
+  let passCount = 0;
+  let warnCount = 0;
+  let failCount = 0;
+  for (const r of rows) {
+    const st = String(r.qc_status || '').toLowerCase();
+    if (st === 'pass') passCount++;
+    else if (st === 'warn') warnCount++;
+    else if (st === 'fail') failCount++;
+  }
+  const hasFailures = failCount + warnCount > 0;
+  return `
+    <div class="source-info" style="margin-bottom:8px;">
+      <div>
+        <span>Color Consistency QC</span>
+        <strong>${rows.length ? `${passCount} pass · ${warnCount} warn · ${failCount} fail` : 'No shots loaded'}</strong>
+      </div>
+      <div class="actions" style="margin:0;gap:6px;">
+        <button type="button" class="compact-btn" onclick="runColorQc()" ${state.running || !rows.length ? 'disabled' : ''}>Run Color QC</button>
+        <button type="button" class="compact-btn warn" onclick="rerenderFailedShots()" ${state.running || !hasFailures ? 'disabled' : ''}>Re-Render Failed Shots</button>
+      </div>
+    </div>
+  `;
+}
+
 function colorizationMethodWarning(s) {
-  if (s.method === 'openai') {
+  const method = s.method || 'osi_masked_lab';
+  if (method === 'osi_masked_lab') {
+    return '<div class="inline-note">OSI Masked LAB propagates shot reference chromaticity bidirectionally using Apache-2.0 DIS optical flow, strict L* luminance preservation, and optional SAM 2.1 + Color Bible anchors. Runs locally without ComfyUI.</div>';
+  }
+  if (method === 'openai') {
     return '<div class="inline-warning">OpenAI Cloud makes one paid image-edit request per video frame. Completed frames are cached for safe resume. The existing colour is retained as evidence, unlike the compulsory grayscale input used by Deep Exemplar and ColorMNet.</div>';
   }
-  if (s.method === 'ltx') {
+  if (method === 'ltx') {
     return '<div class="inline-warning">LTX Colorizer redraws each shot with Lightricks\' LTX-2.3 Colorization IC-LoRA (LTX-2 Community License), guided by the shot\'s colour reference at its frame. Unlike Deep Exemplar and ColorMNet it can change brightness, so a white garment can turn red: raise <b>Luminance from colour layer</b> in Recomposition to keep that. Roughly 1-2 minutes per 5-second chunk on a 24 GB GPU.</div>';
   }
-  if (s.method === 'cmnet2') {
+  if (method === 'cmnet2') {
     return '<div class="inline-warning">CMNET2 preloads every approved reference frame for each shot into permanent memory. It inherits ColorMNet\'s non-commercial CC BY-NC-SA 4.0 terms.</div>';
   }
-  if (!['colormnet', 'both'].includes(s.method)) return '';
+  if (!['colormnet', 'both'].includes(method)) return '';
   return '<div class="inline-warning">ColorMNet uses Reference 1 only. Its custom node reports a CC BY-NC-SA 4.0 license; use it only for non-commercial work unless you have separate rights.</div>';
 }
 
@@ -569,8 +634,16 @@ function colourSegmentCard(context) {
     ...expectedVideos,
   ].filter(Boolean);
   const colourVideo = candidateVideos.find(path => outputExists('colour', path)) || '';
-  const method = settings('colour').method || 'deepexemplar';
+  const method = settings('colour').method || 'osi_masked_lab';
   const status = enabled ? (colorReady ? `Ready for ${colorizationLabel(method)}` : 'Missing color reference') : 'Disabled in manifest';
+  const hasMasks = Boolean(row.has_masks);
+  const qcStatus = String(row.qc_status || '').trim().toLowerCase();
+  const qcBadge = qcStatus
+    ? `<span class="approval-badge ${esc(qcStatus)}">QC: ${esc(qcStatus.toUpperCase())}${row.qc_cdc ? ` · CDC ${esc(row.qc_cdc)}` : ''}${row.qc_delta_e ? ` · ΔE ${esc(row.qc_delta_e)}` : ''}</span>`
+    : '';
+  const maskBadge = hasMasks
+    ? `<span class="approval-badge approved">Masks ready</span>`
+    : `<span class="approval-badge pending">Unmasked</span>`;
 
   return `
     <article class="shot-card" data-shot-card-mode="colour" data-shot-card-index="${idx}">
@@ -584,8 +657,13 @@ function colourSegmentCard(context) {
         ${colourVideo ? `<video src="${mediaClip(colourVideo, start, end, 'colour_' + idx)}" controls preload="metadata"></video>` : missingImage('Video not present')}
       </div>
       <div>
-        <label>Segment</label>
+        <label>Segment &amp; Masks</label>
         <p class="shot-time">${esc(colorizationLabel(method))} uses this reference for the selected shot range.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+          ${maskBadge}
+          ${qcBadge}
+          <button type="button" class="compact-btn" onclick="trackShotMasksSam2(${idx}, '${esc(row.shot_id || '')}')">Track Shot Masks (SAM 2.1)</button>
+        </div>
       </div>
       ${method === 'ltx' ? ltxShotControlsHtml(context.manifest, row) : ''}
     </article>
@@ -634,6 +712,7 @@ function ltxShotControlsHtml(manifest, row) {
 }
 
 function colorizationLabel(method) {
+  if (method === 'osi_masked_lab') return 'OSI Masked LAB';
   if (method === 'openai') return 'OpenAI Cloud';
   if (method === 'cmnet2') return 'CMNET2';
   if (method === 'ltx') return 'LTX Colorizer';

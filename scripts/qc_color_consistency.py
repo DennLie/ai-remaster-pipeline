@@ -20,6 +20,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from ai_remaster_gui.color_bible_context import (
+    canonical_shot_id,
+    find_shot_mask_archive_candidates,
+    shot_id_candidates,
+)
 from ai_remaster_gui.color_bible_db import (
     Film,
     QCEvent,
@@ -55,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Directory containing rendered frames or video file path.",
+    )
+    parser.add_argument(
+        "--colorized-video",
+        type=Path,
+        default=None,
+        help="Optional full colorized video file from which per-shot frames are extracted via FFmpeg.",
     )
     parser.add_argument(
         "--masks-dir",
@@ -99,36 +110,132 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _extract_shot_frames_from_video(
+    video_path: Path,
+    start_frame: int,
+    end_frame: int,
+    stride: int = 1,
+) -> list[Any] | None:
+    """Decode shot frames ``[start_frame, end_frame)`` cleanly using FFmpeg (with CV2 fallback)."""
+    import shutil
+    import subprocess
+    import cv2
+    import numpy as np
+
+    if not video_path.is_file():
+        return None
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return None
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    cap.release()
+    if width <= 0 or height <= 0:
+        return None
+
+    start_idx = max(0, int(start_frame))
+    end_idx = max(start_idx + 1, int(end_frame))
+    step = max(1, int(stride))
+    frames: list[np.ndarray] = []
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin:
+        vf = f"trim=start_frame={start_idx}:end_frame={end_idx},setpts=PTS-STARTPTS"
+        if step > 1:
+            vf += f",select=not(mod(n\\,{step}))"
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(video_path),
+            "-vf",
+            vf,
+            "-vsync",
+            "0",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-",
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        frame_bytes = width * height * 3
+        if proc.returncode == 0 and len(proc.stdout) >= frame_bytes:
+            raw = np.frombuffer(proc.stdout, dtype=np.uint8)
+            count = len(raw) // frame_bytes
+            for i in range(count):
+                arr = raw[i * frame_bytes : (i + 1) * frame_bytes].reshape((height, width, 3))
+                frames.append(arr.copy())
+
+    if not frames:
+        cap = cv2.VideoCapture(str(video_path))
+        try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+            for idx in range(start_idx, end_idx):
+                ok, bgr = cap.read()
+                if not ok or bgr is None:
+                    break
+                if (idx - start_idx) % step == 0:
+                    frames.append(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+        finally:
+            cap.release()
+
+    return frames or None
+
+
 def resolve_frames_source(
     shot_id: str,
     frames_dir: Path | None,
     row: dict[str, str] | None = None,
     manifest_dir: Path | None = None,
+    shot_index: int | None = None,
+    film_id: str = "",
+    manifest_stem: str = "",
+    colorized_video: Path | None = None,
 ) -> Path | None:
-    """Resolve the frames source path for a shot."""
-    # 1. Check candidate subfolder or video file in frames_dir
+    """Resolve the frames source path for a shot (supporting canonical shot IDs & chunk caches)."""
+    candidate_ids: list[str] = [shot_id]
+    if shot_index is not None:
+        for cand in shot_id_candidates(film_id, shot_index):
+            if cand not in candidate_ids:
+                candidate_ids.append(cand)
+
+    # 1. Check candidate subfolder, chunk cache, or video file in frames_dir
     if frames_dir is not None:
         if frames_dir.is_file():
             return frames_dir
 
         if frames_dir.is_dir():
-            # Check shot_id subfolder
-            shot_folder = frames_dir / shot_id
-            if shot_folder.is_dir():
-                return shot_folder
-
-            # Check video files
-            for ext in [".mp4", ".mkv", ".mov", ".avi", ".webm"]:
-                shot_video = frames_dir / f"{shot_id}{ext}"
-                if shot_video.is_file():
-                    return shot_video
-
-            # Check if frames_dir itself contains image files directly
+            for cid in candidate_ids:
+                shot_folder = frames_dir / cid
+                if shot_folder.is_dir():
+                    return shot_folder
+                for ext in (".mp4", ".mkv", ".mov", ".avi", ".webm"):
+                    shot_video = frames_dir / f"{cid}{ext}"
+                    if shot_video.is_file():
+                        return shot_video
+            if shot_index is not None:
+                chunk_matches = sorted(frames_dir.glob(f"segment_{shot_index:04d}_*.mkv"))
+                if chunk_matches:
+                    return chunk_matches[0]
             img_files = list(frames_dir.glob("*.png")) + list(frames_dir.glob("*.jpg"))
             if img_files:
                 return frames_dir
 
-    # 2. Check row fields if available
+    # 2. Check cached OSI / colorization chunk directory for the manifest
+    if manifest_stem and shot_index is not None:
+        chunk_root = REPO_ROOT / "intermediate" / "outpainted_colorized"
+        if chunk_root.is_dir():
+            for d in chunk_root.glob(f"{manifest_stem}*_chunks"):
+                if d.is_dir():
+                    matches = sorted(d.glob(f"segment_{shot_index:04d}_*.mkv"))
+                    if matches:
+                        return matches[0]
+
+    # 3. Check row fields if available
     if row is not None:
         candidate_keys = [
             "rendered_path",
@@ -136,36 +243,42 @@ def resolve_frames_source(
             "frames_path",
             "prepared_path",
             "raw_path",
-            "source_reference",
             "path",
         ]
         for key in candidate_keys:
             val = row.get(key, "").strip()
             if not val:
                 continue
-
             p = Path(val)
             if p.is_file() or p.is_dir():
                 return p
-
-            # Try relative to repo root
             p_repo = REPO_ROOT / val
             if p_repo.is_file() or p_repo.is_dir():
                 return p_repo
-
-            # Try relative to manifest directory
             if manifest_dir is not None:
                 p_man = manifest_dir / val
                 if p_man.is_file() or p_man.is_dir():
                     return p_man
 
+    if colorized_video is not None and colorized_video.is_file():
+        return colorized_video
+
     return None
 
 
-def resolve_mask_archive(shot_id: str, masks_dir: Path | None) -> Path | None:
-    """Resolve .masks.npz archive for a shot."""
+def resolve_mask_archive(
+    shot_id: str,
+    masks_dir: Path | None,
+    shot_index: int | None = None,
+    film_id: str = "",
+) -> Path | None:
+    """Resolve .masks.npz archive for a shot using canonical and legacy shot ID candidates."""
     if masks_dir is None or not masks_dir.is_dir():
         return None
+    if shot_index is not None:
+        found = find_shot_mask_archive_candidates(masks_dir, shot_index, film_id=film_id, shot_id=shot_id)
+        if found is not None:
+            return found
 
     candidates = [
         masks_dir / f"{shot_id}.masks.npz",
@@ -227,32 +340,36 @@ def main(argv: list[str] | None = None) -> int:
             manifest_dir = manifest_path.parent
 
             for idx, row in enumerate(manifest_rows):
-                s_id = (
-                    row.get("shot_id")
-                    or row.get("id")
-                    or f"shot_{idx:03d}"
-                )
-                if args.shot_id and s_id != args.shot_id:
-                    continue
-
                 try:
                     s_idx = int(row.get("shot_index", row.get("index", idx)))
                 except (ValueError, TypeError):
                     s_idx = idx
+                s_id = (
+                    row.get("shot_id")
+                    or row.get("id")
+                    or canonical_shot_id(film_id, s_idx)
+                )
+                if args.shot_id and s_id != args.shot_id and args.shot_id not in shot_id_candidates(film_id, s_idx):
+                    continue
 
                 frames_p = resolve_frames_source(
                     shot_id=s_id,
                     frames_dir=args.frames_dir,
                     row=row,
                     manifest_dir=manifest_dir,
+                    shot_index=s_idx,
+                    film_id=film_id,
+                    manifest_stem=manifest_path.stem,
+                    colorized_video=args.colorized_video,
                 )
-                mask_p = resolve_mask_archive(shot_id=s_id, masks_dir=args.masks_dir)
+                mask_p = resolve_mask_archive(shot_id=s_id, masks_dir=args.masks_dir, shot_index=s_idx, film_id=film_id)
 
                 shots_to_evaluate.append({
                     "shot_id": s_id,
                     "shot_index": s_idx,
                     "frames_path": frames_p,
                     "mask_path": mask_p,
+                    "row": row,
                     "row_index": idx,
                 })
         elif args.frames_dir is not None:
@@ -263,6 +380,18 @@ def main(argv: list[str] | None = None) -> int:
                 "shot_index": 0,
                 "frames_path": args.frames_dir,
                 "mask_path": mask_p,
+                "row": None,
+                "row_index": None,
+            })
+        elif args.colorized_video is not None:
+            s_id = args.shot_id or args.colorized_video.stem
+            mask_p = resolve_mask_archive(shot_id=s_id, masks_dir=args.masks_dir)
+            shots_to_evaluate.append({
+                "shot_id": s_id,
+                "shot_index": 0,
+                "frames_path": args.colorized_video,
+                "mask_path": mask_p,
+                "row": None,
                 "row_index": None,
             })
         else:
@@ -293,12 +422,30 @@ def main(argv: list[str] | None = None) -> int:
                     metrics={"error": "Frames source not found"},
                 )
             else:
+                eval_input: Any = frames_path
+                eval_stride = args.stride
+                row_data = shot_info.get("row") or {}
+                if (
+                    args.colorized_video is not None
+                    and Path(frames_path).resolve() == Path(args.colorized_video).resolve()
+                    and str(row_data.get("start_frame", "")).strip().isdigit()
+                    and str(row_data.get("end_frame", "")).strip().isdigit()
+                ):
+                    extracted = _extract_shot_frames_from_video(
+                        Path(frames_path),
+                        int(row_data["start_frame"]),
+                        int(row_data["end_frame"]),
+                        stride=args.stride,
+                    )
+                    if extracted is not None:
+                        eval_input = extracted
+                        eval_stride = 1
                 qc_res = evaluate_shot_qc(
                     shot_id=shot_id,
-                    frames=frames_path,
+                    frames=eval_input,
                     mask_archive=mask_path,
                     ref_lab_stats_map=ref_map,
-                    stride=args.stride,
+                    stride=eval_stride,
                 )
 
             results.append(qc_res)
@@ -363,6 +510,16 @@ def main(argv: list[str] | None = None) -> int:
                     if qc_res.metrics.get("cdc") is not None
                     else ""
                 )
+                manifest_rows[r_idx]["qc_flow_err"] = (
+                    f"{qc_res.metrics['flow_warp_error']:.3f}"
+                    if qc_res.metrics.get("flow_warp_error") is not None
+                    else ""
+                )
+                manifest_rows[r_idx]["qc_bleed"] = (
+                    f"{qc_res.metrics['bleed_score']:.3f}"
+                    if qc_res.metrics.get("bleed_score") is not None
+                    else ""
+                )
                 manifest_rows[r_idx]["qc_failure_codes"] = (
                     ";".join(qc_res.failure_codes) if qc_res.failure_codes else ""
                 )
@@ -370,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         # Write updated manifest CSV if requested
         if args.update_manifest and args.manifest is not None:
             target_fields = list(fieldnames)
-            for col in ["qc_status", "qc_delta_e", "qc_cdc", "qc_failure_codes"]:
+            for col in ["qc_status", "qc_delta_e", "qc_cdc", "qc_flow_err", "qc_bleed", "qc_failure_codes"]:
                 if col not in target_fields:
                     target_fields.append(col)
             write_manifest_details(args.manifest, source_video, target_fields, manifest_rows)

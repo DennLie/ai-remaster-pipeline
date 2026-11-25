@@ -11,7 +11,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from common import QWEN_IMAGE_EDIT_MODEL, ROOT
+from common import QWEN_IMAGE_EDIT_MODEL, ROOT, resolve_path
 from model_paths import huggingface_cache_dir, resolve_comfy_model_path
 
 
@@ -631,3 +631,58 @@ def ensure_audio_models(comfy_dir: Path, music: bool = True, sfx: bool = True) -
         models += SFX_MODELS
     if models:
         ensure_hf_models(comfy_dir, models, required=False)
+
+
+DDCOLOR_VARIANTS: dict[str, tuple[str, Path]] = {
+    "piddnad/ddcolor_modelscope": ("piddnad/ddcolor_modelscope", ROOT / "models" / "ddcolor" / "ddcolor_modelscope.pth"),
+    "piddnad/ddcolor_paper_tiny": ("piddnad/ddcolor_paper_tiny", ROOT / "models" / "ddcolor" / "ddcolor_paper_tiny.pth"),
+    "piddnad/ddcolor_artistic": ("piddnad/ddcolor_artistic", ROOT / "models" / "ddcolor" / "ddcolor_artistic.pth"),
+    "ddcolor_modelscope": ("piddnad/ddcolor_modelscope", ROOT / "models" / "ddcolor" / "ddcolor_modelscope.pth"),
+    "ddcolor_paper_tiny": ("piddnad/ddcolor_paper_tiny", ROOT / "models" / "ddcolor" / "ddcolor_paper_tiny.pth"),
+    "ddcolor_artistic": ("piddnad/ddcolor_artistic", ROOT / "models" / "ddcolor" / "ddcolor_artistic.pth"),
+}
+
+
+def resolve_ddcolor_target(variant: str = "piddnad/ddcolor_modelscope", model_path: Path | None = None) -> tuple[str, Path]:
+    """Return ``(hf_repo_id, local_checkpoint_path)`` for a DDColor variant."""
+    key = str(variant or "piddnad/ddcolor_modelscope").strip()
+    repo_id, default_target = DDCOLOR_VARIANTS.get(
+        key,
+        ("piddnad/ddcolor_modelscope", ROOT / "models" / "ddcolor" / "ddcolor_modelscope.pth"),
+    )
+    if model_path is not None and str(model_path).strip():
+        return repo_id, resolve_path(model_path)
+    return repo_id, default_target
+
+
+def ensure_ddcolor_model(
+    variant: str = "piddnad/ddcolor_modelscope",
+    model_path: Path | None = None,
+    auto_download: bool = True,
+) -> Path:
+    """Ensure local piddnad/DDColor weights (Apache-2.0) are present, downloading from HF if allowed."""
+    import shutil
+
+    repo_id, target = resolve_ddcolor_target(variant=variant, model_path=model_path)
+    if target.is_file():
+        return target
+    if not auto_download:
+        raise FileNotFoundError(
+            f"DDColor model weights not found at: {target}. "
+            "Pass --auto-download to fetch official Apache-2.0 piddnad/DDColor weights from HuggingFace."
+        )
+    ensure_huggingface_hub()
+    from huggingface_hub import hf_hub_download
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading official DDColor weights ({repo_id}) -> {target}", flush=True)
+    weights_src = Path(hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin"))
+    partial = target.with_suffix(target.suffix + ".partial")
+    shutil.copy2(weights_src, partial)
+    partial.replace(target)
+    try:
+        cfg_src = Path(hf_hub_download(repo_id=repo_id, filename="config.json"))
+        shutil.copy2(cfg_src, target.with_suffix(".config.json"))
+    except Exception:
+        pass
+    return target

@@ -371,6 +371,7 @@ class ShotVideoTracker:
         self._empty_background_objects: set[int] = set()
         self._is_closed: bool = False
 
+        self._owns_predictor = predictor is None
         if predictor is not None:
             self.predictor = predictor
             self.device = device
@@ -693,7 +694,7 @@ class ShotVideoTracker:
 
     def _cleanup_shot(self) -> None:
         """Internal cleanup helper for per-shot lifecycle."""
-        if self.inference_state is not None:
+        if getattr(self, "inference_state", None) is not None:
             try:
                 if hasattr(self.predictor, "reset_state"):
                     self.predictor.reset_state(self.inference_state)
@@ -701,15 +702,17 @@ class ShotVideoTracker:
                 pass
             self.inference_state = None
 
-        if self._temp_dir is not None:
+        if getattr(self, "_temp_dir", None) is not None:
             try:
                 self._temp_dir.cleanup()
             except Exception:
                 pass
             self._temp_dir = None
 
-        self._registered_objects.clear()
-        self._empty_background_objects.clear()
+        if hasattr(self, "_registered_objects"):
+            self._registered_objects.clear()
+        if hasattr(self, "_empty_background_objects"):
+            self._empty_background_objects.clear()
 
         gc.collect()
         try:
@@ -720,8 +723,27 @@ class ShotVideoTracker:
             pass
 
     def close(self) -> None:
-        """Close tracker, free inference state, and purge GPU cache."""
+        """Close tracker, free inference state and owned predictor, and purge GPU cache."""
         self._cleanup_shot()
+        if getattr(self, "_owns_predictor", False) and self.predictor is not None:
+            predictor = self.predictor
+            self.predictor = None
+            try:
+                if hasattr(predictor, "to"):
+                    predictor.to("cpu")
+                elif hasattr(getattr(predictor, "model", None), "to"):
+                    predictor.model.to("cpu")
+            except Exception:
+                pass
+            del predictor
+            gc.collect()
+            torch_mod = sys.modules.get("torch")
+            if torch_mod is not None:
+                try:
+                    if torch_mod.cuda.is_available():
+                        torch_mod.cuda.empty_cache()
+                except Exception:
+                    pass
         self._is_closed = True
 
     def __enter__(self) -> ShotVideoTracker:

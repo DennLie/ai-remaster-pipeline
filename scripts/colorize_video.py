@@ -20,7 +20,7 @@ import artifact_ids as aid
 import ltx_colorize
 import openai_generate_reference as openai_images
 from reference_sets import EXTRA_REFERENCES_FIELD, REFERENCE_KEYS, additional_references, reference_items
-from comfy_api import ensure_node_types, extract_output_files, queue_prompt, wait_for_comfy, wait_for_prompt
+from comfy_api import ensure_node_types, extract_output_files, free_comfy_models, queue_prompt, wait_for_comfy, wait_for_prompt
 from common import (
     ROOT,
     copy_to_comfy_input,
@@ -371,6 +371,8 @@ def method_settings_signature(args: argparse.Namespace) -> dict[str, Any]:
                 "masks_dir": getattr(args, "masks_dir", ""),
                 "guided_radius": getattr(args, "guided_radius", 5),
                 "guided_eps": getattr(args, "guided_eps", 1e-3),
+                "flow_scale": getattr(args, "flow_scale", 0.5),
+                "anchor_strength": getattr(args, "anchor_strength", 0.75),
             }
         )
     else:
@@ -545,11 +547,14 @@ def segment_signature(
     width: int,
     height: int,
     fps: float,
+    *,
+    mask_fingerprint: dict[str, Any] | None = None,
+    color_bible_version: str | None = None,
 ) -> dict[str, Any]:
     if isinstance(references, Path):
         references = [{"path": references, "selected_frame": optional_int(row.get("selected_frame"))}]
-    return {
-        "version": 10,
+    sig: dict[str, Any] = {
+        "version": 11,
         "tool": "colorize_video.py",
         "kind": f"{args.method} segment",
         "reference_input_copy": REFERENCE_INPUT_COPY_STRATEGY,
@@ -574,6 +579,13 @@ def segment_signature(
         "fps": fps,
         "settings": method_settings_signature(args),
     }
+    if mask_fingerprint is not None:
+        sig["mask_fingerprint"] = mask_fingerprint
+    if color_bible_version is not None:
+        sig["color_bible_version"] = color_bible_version
+    if row.get("color_bible_anchors"):
+        sig["color_bible_anchors"] = row.get("color_bible_anchors")
+    return sig
 
 
 def segment_resumable(chunk: Path, chunk_sig: dict[str, Any], width: int, height: int, expected_frames: int) -> bool:
@@ -1121,7 +1133,7 @@ def run_cmnet2_colorization(
     return 0
 
 
-def find_shot_mask_archive(masks_dir: Path, row: dict[str, str], index: int) -> Path | None:
+def find_shot_mask_archive(masks_dir: Path, row: dict[str, str], index: int, film_id: str = "") -> Path | None:
     # 1. Direct row specification
     for key in ("masks", "mask_archive", "shot_mask", "shot_masks"):
         if row.get(key):
@@ -1129,36 +1141,29 @@ def find_shot_mask_archive(masks_dir: Path, row: dict[str, str], index: int) -> 
             if p.is_file():
                 return p
 
-    # 2. Candidate stems
-    shot_id = row.get("shot_id") or row.get("shot") or row.get("id") or ""
-    candidates: list[str] = []
-    if shot_id:
-        candidates.extend([
-            f"{shot_id}.masks.npz",
-            f"{shot_id}.npz",
-            shot_id if shot_id.endswith(".npz") else "",
-        ])
-    candidates.extend([
-        f"shot_{index:04d}.masks.npz",
-        f"shot_{index:04d}.npz",
-        f"shot_{index}.masks.npz",
-        f"shot_{index}.npz",
-        f"{index:04d}.masks.npz",
-        f"{index:04d}.npz",
-        f"{index}.masks.npz",
-        f"{index}.npz",
-    ])
-
+    shot_id = str(row.get("shot_id") or row.get("shot") or row.get("id") or "").strip()
     search_dirs = [masks_dir, ROOT / "intermediate" / "shot_masks"]
+    try:
+        from ai_remaster_gui.color_bible_context import find_shot_mask_archive_candidates, shot_id_candidates
+    except ImportError:
+        find_shot_mask_archive_candidates = None
+        shot_id_candidates = None
+
     for d in search_dirs:
         if not d.exists():
             continue
-        for cand in candidates:
-            if not cand:
-                continue
-            cand_path = d / cand
-            if cand_path.is_file():
-                return cand_path
+        if find_shot_mask_archive_candidates is not None:
+            found = find_shot_mask_archive_candidates(d, index, film_id=film_id, shot_id=shot_id)
+            if found is not None:
+                return found
+        extra_stems = shot_id_candidates(film_id, index) if shot_id_candidates is not None else [f"shot_{index:04d}", f"shot_{index:03d}", f"shot_{index}", f"{index:04d}", f"{index}"]
+        if shot_id and shot_id not in extra_stems:
+            extra_stems.insert(0, shot_id)
+        for stem in extra_stems:
+            for suffix in (".masks.npz", ".npz", "_masks.npz"):
+                cand_path = d / f"{stem}{suffix}"
+                if cand_path.is_file():
+                    return cand_path
     return None
 
 
@@ -1168,29 +1173,61 @@ def extract_shot_grayscale_frames(
     frame_count: int,
     width: int,
     height: int,
+    ffmpeg_exe: str | None = None,
 ) -> list[Any]:
+    import subprocess
     import cv2
     import numpy as np
 
-    cap = cv2.VideoCapture(str(processing_video))
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open processing video for frame extraction: {processing_video}")
+    start_idx = max(0, int(start_frame))
+    end_idx = start_idx + max(1, int(frame_count))
     frames: list[np.ndarray] = []
-    try:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(start_frame)))
-        for _ in range(frame_count):
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                break
-            if frame.ndim == 3:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = frame
-            if gray.shape != (height, width):
-                gray = cv2.resize(gray, (width, height), interpolation=cv2.INTER_AREA)
-            frames.append(gray)
-    finally:
-        cap.release()
+
+    ffmpeg_bin = ffmpeg_exe or shutil.which("ffmpeg")
+    if ffmpeg_bin:
+        vf = f"trim=start_frame={start_idx}:end_frame={end_idx},setpts=PTS-STARTPTS,scale={width}:{height}:flags=area,format=gray"
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(processing_video),
+            "-vf",
+            vf,
+            "-frames:v",
+            str(frame_count),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-",
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        frame_bytes = width * height
+        if proc.returncode == 0 and len(proc.stdout) >= frame_bytes:
+            raw = np.frombuffer(proc.stdout, dtype=np.uint8)
+            count = min(frame_count, len(raw) // frame_bytes)
+            for idx in range(count):
+                slice_arr = raw[idx * frame_bytes : (idx + 1) * frame_bytes].reshape((height, width))
+                frames.append(slice_arr.copy())
+
+    if not frames:
+        cap = cv2.VideoCapture(str(processing_video))
+        if not cap.isOpened():
+            raise RuntimeError(f"Could not open processing video for frame extraction: {processing_video}")
+        try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, start_idx)
+            for _ in range(frame_count):
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    break
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+                if gray.shape != (height, width):
+                    gray = cv2.resize(gray, (width, height), interpolation=cv2.INTER_AREA)
+                frames.append(gray)
+        finally:
+            cap.release()
 
     if len(frames) < frame_count:
         if frames:
@@ -1371,6 +1408,21 @@ def run_osi_masked_lab_colorization(
                 print(f"Warning: could not initialize ColorBibleService: {exc}", flush=True)
                 service = None
 
+    only_shots: set[int] = set()
+    raw_only_shots = str(getattr(args, "only_shots", "") or "").strip()
+    if raw_only_shots:
+        for tok in raw_only_shots.split(","):
+            tok = tok.strip()
+            if tok.isdigit():
+                only_shots.add(int(tok))
+
+    cb_snapshot_hash: str | None = None
+    if service is not None and film_id:
+        try:
+            cb_snapshot_hash = service.get_snapshot_hash(film_id)
+        except Exception:
+            cb_snapshot_hash = None
+
     chunks: list[Path] = []
     for index, row in enumerate(rows):
         item = plan[index]
@@ -1378,6 +1430,7 @@ def run_osi_masked_lab_colorization(
         end_frame = item["end"]
         frame_count = max(1, end_frame - start_frame)
         references = row_references(row)
+        mask_path = find_shot_mask_archive(masks_dir, row, index, film_id=film_id or "")
 
         chunk = cache_dir / f"segment_{index:04d}_{start_frame:06d}_{end_frame:06d}.mkv"
         chunk_sig = segment_signature(
@@ -1392,16 +1445,24 @@ def run_osi_masked_lab_colorization(
             width,
             height,
             fps,
+            mask_fingerprint=file_fingerprint(mask_path) if mask_path is not None and mask_path.is_file() else None,
+            color_bible_version=cb_snapshot_hash,
         )
 
-        if not args.force and segment_resumable(chunk, chunk_sig, width, height, frame_count):
+        if only_shots and index not in only_shots and chunk.is_file():
+            print(f"Reuse untouched segment {index + 1}/{len(rows)}: {chunk}", flush=True)
+            chunks.append(chunk)
+            continue
+
+        force_this_shot = bool(args.force) or (bool(only_shots) and index in only_shots)
+        if not force_this_shot and segment_resumable(chunk, chunk_sig, width, height, frame_count):
             print(f"Reuse colorized segment {index + 1}/{len(rows)}: {chunk}", flush=True)
             chunks.append(chunk)
             continue
 
-        # Extract grayscale frames for this shot
+        # Extract grayscale frames for this shot via frame-exact FFmpeg trim
         frames_gray = extract_shot_grayscale_frames(
-            processing_video, start_frame, frame_count, width, height
+            processing_video, start_frame, frame_count, width, height, ffmpeg_exe=ffmpeg
         )
 
         # Gather approved reference keyframe(s)
@@ -1430,7 +1491,6 @@ def run_osi_masked_lab_colorization(
 
         # Load shot mask archive if available
         mask_archive = None
-        mask_path = find_shot_mask_archive(masks_dir, row, index)
         if mask_path is not None and load_shot_masks_npz is not None:
             try:
                 mask_archive = load_shot_masks_npz(mask_path)
@@ -1543,6 +1603,8 @@ def run_osi_masked_lab_colorization(
             color_bible_anchors=anchors,
             radius=getattr(args, "guided_radius", 5),
             eps=getattr(args, "guided_eps", 1e-3),
+            flow_scale=float(getattr(args, "flow_scale", 0.5) or 0.5),
+            anchor_strength=float(getattr(args, "anchor_strength", 0.75) or 0.75),
         )
 
         write_frames_to_video(ffmpeg, output_frames, chunk, fps, width, height)
@@ -1607,6 +1669,35 @@ def run_osi_masked_lab_colorization(
             pass
 
     print(f"Wrote OSI Masked LAB colorized video: {output}", flush=True)
+
+    if getattr(args, "run_qc", False) and not args.dry_run:
+        try:
+            try:
+                from scripts import qc_color_consistency
+            except ImportError:
+                import qc_color_consistency  # type: ignore[no-redef]
+
+            qc_argv = [
+                "--manifest",
+                str(manifest),
+                "--colorized-video",
+                str(output),
+                "--masks-dir",
+                str(masks_dir),
+                "--stride",
+                "4",
+                "--update-manifest",
+                "--record-db",
+            ]
+            if film_id:
+                qc_argv.extend(["--film-id", film_id])
+            if color_bible_db_path:
+                qc_argv.extend(["--color-bible-db", str(color_bible_db_path)])
+            qc_code = qc_color_consistency.main(qc_argv)
+            print(f"Post-render Color QC finished (exit code {qc_code}).", flush=True)
+        except Exception as exc:
+            print(f"Warning: post-render Color QC failed: {exc}", flush=True)
+
     return 0
 
 
@@ -1618,8 +1709,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output")
     parser.add_argument("--method", choices=["deepexemplar", "colormnet", "cmnet2", "openai", "ltx", "osi_masked_lab", "both"], default="deepexemplar")
     parser.add_argument("--masks-dir", default=str(ROOT / "intermediate" / "shot_masks"), help="Directory containing per-shot .masks.npz archives.")
-    parser.add_argument("--guided-radius", type=int, default=5, help="Guided filter window radius for OSI Masked LAB colorization.")
+    parser.add_argument("--guided-radius", type=int, default=8, help="Guided filter window radius for OSI Masked LAB colorization.")
     parser.add_argument("--guided-eps", type=float, default=1e-3, help="Guided filter regularization epsilon for OSI Masked LAB colorization.")
+    parser.add_argument("--flow-scale", type=float, default=0.5, help="Optical flow computation downscale factor (0.25-1.0) for OSI Masked LAB.")
+    parser.add_argument("--anchor-strength", type=float, default=0.75, help="Blend factor (0.0-1.0) for Color Bible median chroma shift inside masks.")
+    parser.add_argument("--workers", type=int, default=1, help="Parallel worker hint for multi-shot colorization.")
+    parser.add_argument("--only-shots", default="", help="Comma-separated zero-based shot indices to re-render while reusing cached segments for other shots.")
+    parser.add_argument("--run-qc", action="store_true", help="Run automated Color Consistency QC after OSI Masked LAB rendering.")
     parser.add_argument("--compliance-output-dir", default="output", help="Directory where compliance_report.json is recorded.")
     parser.add_argument("--color-bible-db", default=str(ROOT / "manifests" / "color_bible.db"), help="Path to Color Bible SQLite database.")
     parser.add_argument("--film-id", default=None, type=str, help="Film ID for Color Bible entity matching.")
@@ -1663,6 +1759,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--intermediate-profile", choices=["low", "medium", "high", "lossless"], default="high")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--keep-comfy-loaded", action="store_true", help="Skip unloading ComfyUI models after finishing.")
     return parser
 
 
@@ -1796,46 +1893,50 @@ def run(args: argparse.Namespace) -> int:
     plan, transitions = shot_plan(rows, total_frames, fps)
     cache_dir = ROOT / ".cache" / "colorized_chunks" / method_suffix(args.method) / safe_stem(source_video.name)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    for index, row in enumerate(rows):
-        item = plan[index]
-        start_frame = item["start"]
-        end_frame = item["end"]
-        frame_count = max(1, end_frame - start_frame)
-        references = row_references(row)
-        active_references = references[:1]
-        if len(references) > 1:
-            display_method = "ColorMNet" if args.method == "colormnet" else "Deep Exemplar"
-            print(
-                f"{display_method} supports one reference per shot; using reference 1 of {len(references)} "
-                f"for shot {index + 1}. Choose CMNET2 or OpenAI Cloud to use every reference.",
-                flush=True,
-            )
-        source_reference_indices = [
-            max(start_frame, min(end_frame - 1, int(reference["selected_frame"] or start_frame)))
-            for reference in active_references
-        ]
-        ref_names = [copy_reference_to_comfy_input(item["path"], comfy_dir, width, height) for item in active_references]
-        chunk = cache_dir / f"segment_{index:04d}_{start_frame:06d}_{end_frame:06d}.mkv"
-        chunk_sig = segment_signature(args, source_video, row, active_references, start_frame, end_frame, item["base_start"], item["base_end"], width, height, fps)
-        if not args.force and segment_resumable(chunk, chunk_sig, width, height, frame_count):
-            print(f"Reuse colorized segment {index + 1}/{len(rows)}: {chunk}", flush=True)
+    try:
+        for index, row in enumerate(rows):
+            item = plan[index]
+            start_frame = item["start"]
+            end_frame = item["end"]
+            frame_count = max(1, end_frame - start_frame)
+            references = row_references(row)
+            active_references = references[:1]
+            if len(references) > 1:
+                display_method = "ColorMNet" if args.method == "colormnet" else "Deep Exemplar"
+                print(
+                    f"{display_method} supports one reference per shot; using reference 1 of {len(references)} "
+                    f"for shot {index + 1}. Choose CMNET2 or OpenAI Cloud to use every reference.",
+                    flush=True,
+                )
+            source_reference_indices = [
+                max(start_frame, min(end_frame - 1, int(reference["selected_frame"] or start_frame)))
+                for reference in active_references
+            ]
+            ref_names = [copy_reference_to_comfy_input(item["path"], comfy_dir, width, height) for item in active_references]
+            chunk = cache_dir / f"segment_{index:04d}_{start_frame:06d}_{end_frame:06d}.mkv"
+            chunk_sig = segment_signature(args, source_video, row, active_references, start_frame, end_frame, item["base_start"], item["base_end"], width, height, fps)
+            if not args.force and segment_resumable(chunk, chunk_sig, width, height, frame_count):
+                print(f"Reuse colorized segment {index + 1}/{len(rows)}: {chunk}", flush=True)
+                chunks.append(chunk)
+                continue
+            prefix = f"arp_colorize/{method_suffix(args.method)}_{safe_stem(source_video.name)}_segment_{index:04d}_{start_frame:06d}_{end_frame:06d}"
+            keyframe_note = ", ".join(str(value) for value in source_reference_indices)
+            print(f"Colorize segment {index + 1}/{len(rows)} with {args.method}: frames {start_frame}-{end_frame} using {len(active_references)} reference(s) at source frames {keyframe_note}", flush=True)
+            prompt = build_prompt(video_name, ref_names, start_frame, frame_count, width, height, fps, args, prefix)
+            prompt_id = queue_prompt(args.comfy_url, prompt)
+            history = wait_for_prompt(args.comfy_url, prompt_id, args.poll_seconds)
+            produced = newest_output(extract_output_files(history, comfy_output_root))
+            normalize_clip(ffmpeg, produced, chunk, fps, frame_count)
+            write_signature(chunk, chunk_sig)
             chunks.append(chunk)
-            continue
-        prefix = f"arp_colorize/{method_suffix(args.method)}_{safe_stem(source_video.name)}_segment_{index:04d}_{start_frame:06d}_{end_frame:06d}"
-        keyframe_note = ", ".join(str(value) for value in source_reference_indices)
-        print(f"Colorize segment {index + 1}/{len(rows)} with {args.method}: frames {start_frame}-{end_frame} using {len(active_references)} reference(s) at source frames {keyframe_note}", flush=True)
-        prompt = build_prompt(video_name, ref_names, start_frame, frame_count, width, height, fps, args, prefix)
-        prompt_id = queue_prompt(args.comfy_url, prompt)
-        history = wait_for_prompt(args.comfy_url, prompt_id, args.poll_seconds)
-        produced = newest_output(extract_output_files(history, comfy_output_root))
-        normalize_clip(ffmpeg, produced, chunk, fps, frame_count)
-        write_signature(chunk, chunk_sig)
-        chunks.append(chunk)
 
-    stitch_colorized(ffmpeg, chunks, transitions, output, fps, safe_stem(source_video.name))
-    write_signature(output, sig)
-    print(f"Wrote colorized video: {output}", flush=True)
-    return 0
+        stitch_colorized(ffmpeg, chunks, transitions, output, fps, safe_stem(source_video.name))
+        write_signature(output, sig)
+        print(f"Wrote colorized video: {output}", flush=True)
+        return 0
+    finally:
+        if not getattr(args, "keep_comfy_loaded", False):
+            free_comfy_models(args.comfy_url)
 
 
 if __name__ == "__main__":

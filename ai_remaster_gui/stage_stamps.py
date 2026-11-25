@@ -31,7 +31,19 @@ STAMP_DIR = ROOT / ".cache" / "stage_stamps"
 # renders, and times the GUI and the scripts each recompute from the frame columns. The GUI and
 # outpaint_video.py write these slightly differently (.mp4 vs .mkv raw chunk, last-digit
 # rounding), so every run and every page poll would otherwise make the manifest look changed.
-DERIVED_COLUMNS = {"prepared_path", "raw_path", "start_seconds", "end_seconds", "end"}
+DERIVED_COLUMNS = {
+    "prepared_path",
+    "raw_path",
+    "start_seconds",
+    "end_seconds",
+    "end",
+    "qc_status",
+    "qc_cdc",
+    "qc_flow_err",
+    "qc_delta_e",
+    "qc_bleed",
+    "qc_failure_codes",
+}
 # Program files on the command line are code, not inputs.
 CODE_SUFFIXES = {".py", ".pyw", ".exe", ".bat", ".cmd"}
 SCANNED_SUFFIXES = {".csv", ".json"}

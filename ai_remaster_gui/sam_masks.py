@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import gc
 import io
+import sys
 import threading
 from pathlib import Path
 
@@ -10,6 +12,8 @@ from PIL import Image
 
 _LOCK = threading.Lock()
 _PREDICTOR = None
+_IDLE_TIMER: threading.Timer | None = None
+_IDLE_UNLOAD_SECONDS = 120.0
 _MODEL_ID = "facebook/sam2.1-hiera-large"
 
 
@@ -52,15 +56,60 @@ def sam2_mask_for_image(image_path: Path, points: list[dict], width: int, height
     buffer = io.BytesIO()
     Image.fromarray(mask).save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    _schedule_idle_unload()
     return {
         "mask": f"data:image/png;base64,{encoded}",
         "provider": f"SAM 2.1 Hiera Large ({_MODEL_ID})",
     }
 
 
-def _sam2_predictor():
-    global _PREDICTOR
+def _schedule_idle_unload() -> None:
+    global _IDLE_TIMER
     with _LOCK:
+        if _IDLE_TIMER is not None:
+            _IDLE_TIMER.cancel()
+        timer = threading.Timer(_IDLE_UNLOAD_SECONDS, unload_sam2_predictor)
+        timer.daemon = True
+        timer.start()
+        _IDLE_TIMER = timer
+
+
+def unload_sam2_predictor() -> bool:
+    """Release the cached SAM 2.1 image predictor and reclaim its CUDA memory."""
+    global _PREDICTOR, _IDLE_TIMER
+    with _LOCK:
+        if _IDLE_TIMER is not None:
+            _IDLE_TIMER.cancel()
+            _IDLE_TIMER = None
+        predictor = _PREDICTOR
+        if predictor is None:
+            return False
+        _PREDICTOR = None
+
+    try:
+        model = getattr(predictor, "model", None)
+        if model is not None and hasattr(model, "to"):
+            model.to("cpu")
+    except Exception:
+        pass
+    del predictor
+    gc.collect()
+    torch_mod = sys.modules.get("torch")
+    if torch_mod is not None:
+        try:
+            if torch_mod.cuda.is_available():
+                torch_mod.cuda.empty_cache()
+        except Exception:
+            pass
+    return True
+
+
+def _sam2_predictor():
+    global _PREDICTOR, _IDLE_TIMER
+    with _LOCK:
+        if _IDLE_TIMER is not None:
+            _IDLE_TIMER.cancel()
+            _IDLE_TIMER = None
         if _PREDICTOR is not None:
             return _PREDICTOR
         try:

@@ -441,6 +441,7 @@ def run_ollama_caption(url: str, model: str, *, image_path: Path, question: str,
         "prompt": question,
         "images": [base64.b64encode(Path(image_path).read_bytes()).decode("ascii")],
         "stream": False,
+        "keep_alive": 0,
         "options": {"temperature": 0.2, "num_predict": 80},
     }).encode("utf-8")
     request = urllib.request.Request(

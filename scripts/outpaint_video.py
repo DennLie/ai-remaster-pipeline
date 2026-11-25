@@ -3666,11 +3666,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--keep-comfy-loaded", action="store_true", help="Keep ComfyUI models resident in VRAM after outpainting exits.")
     return parser
 
 
-def main() -> int:
-    args = build_parser().parse_args()
+def _run_main(args: argparse.Namespace) -> int:
     if uses_h3(args) and not args.h3_license_confirmed:
         raise SystemExit(H3_LICENSE_REQUIRED)
     if uses_masked_pass(args):
@@ -4111,6 +4111,15 @@ def main() -> int:
     run_command(finalize_command, args.dry_run)
     print(f"Wrote outpainted video: {output}", flush=True)
     return 0
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    try:
+        return _run_main(args)
+    finally:
+        if not getattr(args, "keep_comfy_loaded", False) and not getattr(args, "dry_run", False):
+            free_comfy_models(args.comfy_url)
 
 
 if __name__ == "__main__":

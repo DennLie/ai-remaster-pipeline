@@ -496,9 +496,17 @@ function selectOptionLabel(key, option) {
   if (key === 'repair_device' && option === 'auto') return 'Auto (prefer GPU)';
   if (key === 'repair_device' && option === 'cuda') return 'NVIDIA GPU (CUDA)';
   if (key === 'repair_device' && option === 'cpu') return 'CPU';
+  if (key === 'method' && option === 'ddcolor') return 'DDColor (local Apache-2.0)';
   if (key === 'method' && option === 'qwen') return 'Qwen 2511 (local)';
   if (key === 'method' && option === 'qwen21') return 'Qwen-Image-2.1 (local, non-commercial)';
   if (key === 'method' && option === 'openai') return 'OpenAI API (cloud)';
+  if (key === 'reference_runner' && option === 'guided_only') return 'Guided only (use selected Method)';
+  if (key === 'reference_runner' && option === 'auto') return 'Auto (DDColor draft if no Color Bible entities)';
+  if (key === 'reference_runner' && option === 'ddcolor_only') return 'DDColor only (force Apache-2.0 drafts)';
+  if (key === 'ddcolor_model' && option === 'piddnad/ddcolor_modelscope') return 'DDColor ModelScope (ConvNeXt-L, recommended)';
+  if (key === 'ddcolor_model' && option === 'piddnad/ddcolor_paper_tiny') return 'DDColor Paper Tiny (ConvNeXt-T, fast)';
+  if (key === 'ddcolor_model' && option === 'piddnad/ddcolor_artistic') return 'DDColor Artistic (ConvNeXt-L, vivid)';
+  if ((key === 'method' || key === 'colorization_method') && option === 'osi_masked_lab') return 'OSI Masked LAB (local, commercial-safe)';
   if ((key === 'method' || key === 'colorization_method') && option === 'cmnet2') return 'CMNET2 (multi-reference)';
   if ((key === 'method' || key === 'colorization_method') && option === 'ltx') return 'LTX Colorizer (redraws brightness)';
   if ((key === 'method' || key === 'colorization_method') && option === 'colormnet') return 'ColorMNet (single reference)';

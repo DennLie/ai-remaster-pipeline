@@ -2252,11 +2252,125 @@ async function clearAllCache() {
   lastRenderSignature = renderSignature();
 }
 
-function openColorBibleForShot(filmId, shotIndex) {
-  if (filmId && typeof cbState !== 'undefined') {
-    cbState.activeFilmId = filmId;
+async function openColorBibleForShot(filmId, shotIndex) {
+  let activeFilm = String(filmId || '').trim();
+  if (!activeFilm && state && state.color_bible_context) {
+    activeFilm = String(state.color_bible_context.film_id || '').trim();
+  }
+  if (typeof cbState !== 'undefined') {
+    if (activeFilm) cbState.activeFilmId = activeFilm;
+    cbState.focusShotIndex = (shotIndex !== undefined && shotIndex !== null) ? Number(shotIndex) : null;
+  }
+  if (activeFilm) {
+    try {
+      await postJson('/api/color-bible/select-film', { film_id: activeFilm });
+    } catch (_) {}
   }
   active = 'color_bible';
   drawTabs();
-  draw();
+  if (typeof loadColorBibleData === 'function') {
+    await loadColorBibleData(activeFilm, true);
+  } else {
+    draw();
+  }
+}
+
+async function trackShotMasksSam2(shotIndex, shotId) {
+  try {
+    const manifest = (state.shot_views && (state.shot_views.colour_manifest || state.shot_views.references_manifest))
+      || (state.settings && state.settings.colour && state.settings.colour.manifest) || '';
+    const res = await postJson('/api/sam2-track-shot', {
+      async: true,
+      shot_index: shotIndex,
+      shot_id: shotId || '',
+      manifest,
+    });
+    if (!res.ok) return alert(res.error || 'SAM 2.1 mask tracking failed to start.');
+    if (res.output_npz_path) {
+      alert(`SAM 2.1 mask archive saved: ${res.output_npz_path}`);
+    }
+    state = await api(stateUrl());
+    draw(false);
+  } catch (err) {
+    alert('SAM 2.1 tracking failed: ' + (err.message || err));
+  }
+}
+
+async function runColorQc() {
+  try {
+    const manifest = (state.shot_views && state.shot_views.colour_manifest)
+      || (state.settings && state.settings.colour && state.settings.colour.manifest) || '';
+    const res = await postJson('/api/color-bible/run-qc', { manifest });
+    if (!res.ok) return alert(res.error || 'Could not start Color QC.');
+    state = await api(stateUrl());
+    draw(false);
+  } catch (err) {
+    alert('Color QC failed: ' + (err.message || err));
+  }
+}
+
+async function rerenderFailedShots() {
+  try {
+    const manifest = (state.shot_views && state.shot_views.colour_manifest)
+      || (state.settings && state.settings.colour && state.settings.colour.manifest) || '';
+    const rows = (state.shot_views && state.shot_views.colour) || [];
+    const failedIndices = rows
+      .filter(r => ['fail', 'warn'].includes(String(r.qc_status || '').toLowerCase()))
+      .map(r => r.index);
+    const res = await postJson('/api/colour-rerender-failed', {
+      manifest,
+      shot_indices: failedIndices,
+    });
+    if (!res.ok) return alert(res.error || 'Could not re-render failed shots.');
+    state = await api(stateUrl());
+    draw(false);
+  } catch (err) {
+    alert('Re-render failed shots error: ' + (err.message || err));
+  }
+}
+
+async function saveCommercialPolicySettings() {
+  const guardChecked = Boolean(document.getElementById('setCommercialGuard')?.checked);
+  const autoFreeChecked = document.getElementById('setAutoFreeVram') ? Boolean(document.getElementById('setAutoFreeVram').checked) : true;
+  const res = await postJson('/api/settings', {
+    stage: 'global',
+    values: {
+      commercial_model_guard: String(guardChecked),
+      non_commercial_benchmark_override: String(!guardChecked),
+      auto_free_vram: String(autoFreeChecked),
+      company_revenue_under_10m_usd: String(Boolean(document.getElementById('setRevenueUnder10m')?.checked)),
+      qwen_2511_audited: String(Boolean(document.getElementById('setQwen2511Audited')?.checked)),
+      ic_lora_audited: String(Boolean(document.getElementById('setIcLoraAudited')?.checked)),
+      gemma_encoder_audited: String(Boolean(document.getElementById('setGemmaAudited')?.checked)),
+      weight_vgg19_audited: String(Boolean(document.getElementById('setVgg19Audited')?.checked)),
+      color_bible_db: String(document.getElementById('setColorBibleDb')?.value || 'manifests/color_bible.db').trim(),
+    },
+  });
+  if (!res.ok) return alert(res.error || 'Could not save policy settings.');
+  state = await api(stateUrl());
+  drawSettings();
+}
+
+async function freeVramNow() {
+  const btn = document.getElementById('freeVramBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await postJson('/api/free-vram', { view: typeof active !== 'undefined' ? active : '' });
+    if (!res.ok) {
+      alert(res.error || 'Could not free VRAM.');
+      return;
+    }
+    if (res.state) {
+      state = res.state;
+      if (typeof updateSystemStatus === 'function') updateSystemStatus();
+      if (typeof drawLogs === 'function') drawLogs();
+    } else {
+      state = await api(stateUrl());
+      if (typeof updateSystemStatus === 'function') updateSystemStatus();
+    }
+  } catch (err) {
+    alert('Free VRAM failed: ' + (err.message || err));
+  } finally {
+    if (btn) btn.disabled = Boolean(state && state.running);
+  }
 }

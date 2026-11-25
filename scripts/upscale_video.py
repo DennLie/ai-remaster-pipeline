@@ -14,7 +14,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable
 
-from comfy_api import ensure_node_types, extract_output_files, object_info, queue_prompt_with_progress, wait_for_comfy
+from comfy_api import ensure_node_types, extract_output_files, free_comfy_models, object_info, queue_prompt_with_progress, wait_for_comfy
 from common import ROOT, copy_to_comfy_input, ffprobe_for, file_fingerprint, find_ffmpeg, load_local_config, newest_output as newest_comfy_output, replace_unless_identical, replace_with_retry, resolve_path, root_relative, safe_stem, resumable_output, split_matches_source, video_info, write_signature, write_split_sidecar
 from dependency_manager import (
     LTX25_CQ_ENHANCER_LORA,
@@ -434,6 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--keep-comfy-loaded", action="store_true", help="Skip unloading ComfyUI models after finishing.")
     return parser
 
 
@@ -2534,19 +2535,23 @@ def run(args: argparse.Namespace) -> int:
                 # "retime" retires finisher chunks split from the one-frame-late pre-downscale.
                 {"width": int(processing_info["width"]), "height": int(processing_info["height"]), "retime": "frame_number"},
             )
-        if backend == "ltx25":
-            chunked_ltx25_run(
-                backend_args, processing_source, ai_output, output_width, output_height, processing_info,
-                processing_fingerprint, range_fingerprint,
-            )
-        elif backend == "lanczos":
-            lanczos_upscale_run(find_ffmpeg(args.ffmpeg), processing_source, ai_output, output_width, output_height, source)
-        else:
-            chunked_standard_upscale_run(
-                backend_args, processing_source, ai_output, output_width, output_height,
-                processing_info, processing_fingerprint, backend, audio_source=source,
-                range_fingerprint=range_fingerprint,
-            )
+        try:
+            if backend == "ltx25":
+                chunked_ltx25_run(
+                    backend_args, processing_source, ai_output, output_width, output_height, processing_info,
+                    processing_fingerprint, range_fingerprint,
+                )
+            elif backend == "lanczos":
+                lanczos_upscale_run(find_ffmpeg(args.ffmpeg), processing_source, ai_output, output_width, output_height, source)
+            else:
+                chunked_standard_upscale_run(
+                    backend_args, processing_source, ai_output, output_width, output_height,
+                    processing_info, processing_fingerprint, backend, audio_source=source,
+                    range_fingerprint=range_fingerprint,
+                )
+        finally:
+            if backend != "lanczos" and not getattr(args, "keep_comfy_loaded", False):
+                free_comfy_models(args.comfy_url)
         write_signature(ai_output, sig)
     else:
         print(f"Reuse full-strength {method} render: {ai_output}", flush=True)

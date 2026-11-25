@@ -391,12 +391,19 @@ class ColorBibleIntegrationTests(unittest.TestCase):
         finally:
             state.APP = prev_app
 
+    def test_ddcolor_command_uses_default_guided_only_runner(self) -> None:
+        from ai_remaster_gui.models import STAGES
+        ref_stage = next(s for s in STAGES if s.key == "references")
+        field_map = {f[0]: f for f in ref_stage.fields}
+        self.assertEqual(field_map["reference_runner"][3], "guided_only")
+
     def test_references_stage_model_has_phase3_fields(self) -> None:
         from ai_remaster_gui.models import STAGES
         ref_stage = next(s for s in STAGES if s.key == "references")
         field_keys = [f[0] for f in ref_stage.fields]
         self.assertIn("reference_runner", field_keys)
-        self.assertIn("guided_backend", field_keys)
+        self.assertIn("ddcolor_model", field_keys)
+        self.assertIn("ddcolor_model_path", field_keys)
         self.assertIn("color_bible_db", field_keys)
         self.assertIn("film_id", field_keys)
         self.assertIn("confidence_threshold", field_keys)

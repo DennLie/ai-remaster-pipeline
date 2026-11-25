@@ -221,7 +221,8 @@ from .cache import cache_state, delete_cache_category, delete_cache_file, human_
 from . import stage_stamps
 from .cleanup_diagnostics import cleanup_diagnostics_for
 from .runtime_settings import APP_VERSION, canonical_intermediate_profile, default_qwen_workflow, default_settings, load_settings, qwen_masked_workflow_for, qwen_workflow_for
-from .system_status import flashvsr_hardware_warning, system_status
+from .system_status import flashvsr_hardware_warning, invalidate_system_status_cache, system_status
+from . import vram_manager
 from .media import (
     aspect_preview,
     aspect_preview_at,
@@ -951,6 +952,7 @@ class PipelineApp:
             return False, "Enable Light Deflicker on Overview first."
         if self.quitting:
             return False, "ARP is shutting down."
+        self._prepare_vram_for_launch("deflicker", needs_comfy=False, uses_runpod=False)
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -1045,7 +1047,10 @@ class PipelineApp:
                 if key in stage_plan.VIDEO_STAGES:
                     ready=comparison_output_ready(self,key)
                 else:
-                    ready=self.stage_is_current(key)
+                    try:
+                        ready=self.stage_is_current(key, respect_run_flags=False)
+                    except TypeError:
+                        ready=self.stage_is_current(key)
                 if not ready:return f'Run {key} first for the current pipeline bindings; old artifacts are not substituted.'
             return ''
         titles = {stage.key: stage.title for stage in STAGES}
@@ -2314,8 +2319,16 @@ class PipelineApp:
         for stage in self.active_stages():
             expected = [resolve(path) for path in self.expected_outputs(stage.key) if path]
             existing = [path for path in expected if safe_is_file(path, on_error=self.log_inaccessible_artifact)]
-            if stage_plan.pipeline_configured(self.settings) and not (comparison_output_ready(self,stage.key) if stage.key in stage_plan.VIDEO_STAGES else self.stage_is_current(stage.key)):
-                existing=[]
+            if stage_plan.pipeline_configured(self.settings):
+                if stage.key in stage_plan.VIDEO_STAGES:
+                    is_ready = comparison_output_ready(self, stage.key)
+                else:
+                    try:
+                        is_ready = self.stage_is_current(stage.key, respect_run_flags=False)
+                    except TypeError:
+                        is_ready = self.stage_is_current(stage.key)
+                if not is_ready:
+                    existing = []
             if stage.key in (stage_plan.VIDEO_STAGES if stage_plan.video_configured(self.settings) else PREPROCESSING_STAGES) and not comparison_output_ready(self, stage.key):
                 existing = []
             ready = bool(expected) and len(existing) == len(expected)
@@ -2808,25 +2821,38 @@ class PipelineApp:
             }
         if view == "dust":
             payload["dust_edits"] = self.dust_edit_state(settings_snapshot)
+        if view in {"shots", "references", "colour", "color_bible"}:
+            from .color_bible_context import resolve_color_bible_context
+            cb_ctx = resolve_color_bible_context(settings_snapshot, ROOT, stage="colour" if view == "colour" else "references")
+            payload["color_bible_context"] = {
+                "film_id": cb_ctx["film_id"],
+                "db_path": cb_ctx["db_rel"],
+                "exists": cb_ctx["exists"],
+            }
         if view == "color_bible":
-            cb_state = {"film_id": "", "film_count": 0, "films": []}
+            from .color_bible_context import resolve_color_bible_context
+            cb_ctx = resolve_color_bible_context(settings_snapshot, ROOT, stage="references")
+            cb_state = {"film_id": cb_ctx["film_id"], "db_path": cb_ctx["db_rel"], "film_count": 0, "films": []}
             try:
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as cb_service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as cb_service:
                     films = cb_service.list_films()
-                    f_id = settings_snapshot.get("global", {}).get("color_bible_film_id", "")
+                    f_id = cb_ctx["film_id"]
                     if not f_id and source_text:
-                        f_id = Path(source_text).stem
+                        candidate_id = Path(source_text).stem
+                        if any(f.film_id == candidate_id for f in films):
+                            f_id = candidate_id
                     if not f_id and films:
                         f_id = films[0].film_id
                     cb_state = {
                         "film_id": f_id,
+                        "db_path": cb_ctx["db_rel"],
                         "film_count": len(films),
                         "films": [f.to_dict() for f in films],
                         "snapshot_hash": cb_service.get_snapshot_hash(f_id) if f_id else None,
                     }
             except Exception as exc:
-                cb_state = {"error": str(exc), "film_id": "", "film_count": 0, "films": []}
+                cb_state = {"error": str(exc), "film_id": cb_ctx["film_id"], "db_path": cb_ctx["db_rel"], "film_count": 0, "films": []}
             payload["color_bible"] = cb_state
         if view in {"shots", "references", "colour", "upscale"}:
             payload["shot_views"] = shot_views(settings_snapshot, view)
@@ -2947,11 +2973,11 @@ class PipelineApp:
         elif stage in {"denoise", "deflicker", 'enhancement', 'stabilize', 'dust'}:
             self.hydrate_stage_inputs(stage)
         elif stage == "colour" and "method" in values:
-            if values.get("method") in {"deepexemplar", "colormnet", "cmnet2", "ltx", "openai"}:
+            if values.get("method") in {"osi_masked_lab", "deepexemplar", "colormnet", "cmnet2", "ltx", "openai"}:
                 self.settings.setdefault("recomp", {})["colorization_method"] = str(values["method"])
             self.hydrate_stage_inputs("colour")
         elif stage == "recomp" and "colorization_method" in values:
-            preferred = colorized_output_for_manifest(self.settings.get("colour", {}).get("manifest", ""), str(values.get("colorization_method", "deepexemplar")))
+            preferred = colorized_output_for_manifest(self.settings.get("colour", {}).get("manifest", ""), str(values.get("colorization_method", "osi_masked_lab")))
             if preferred:
                 self.settings.setdefault("recomp", {})["colorized_video"] = preferred
         if stage == "upscale":
@@ -3447,7 +3473,7 @@ class PipelineApp:
         expected_colorized_text = self.expected_outputs("colour")[0] if self.expected_outputs("colour") else ""
         preferred_colorized_text = colorized_output_for_manifest(
             self.settings.get("colour", {}).get("manifest", ""),
-            self.settings.get("recomp", {}).get("colorization_method", self.settings.get("colour", {}).get("method", "deepexemplar")),
+            self.settings.get("recomp", {}).get("colorization_method", self.settings.get("colour", {}).get("method", "osi_masked_lab")),
         )
         if preferred_colorized_text and safe_exists(preferred_colorized_text, on_error=self.log_inaccessible_artifact):
             expected_colorized_text = preferred_colorized_text
@@ -3502,7 +3528,7 @@ class PipelineApp:
             manifest=row['bindings'].get('manifest','')
             if stage_key=='shots':return [manifest] if manifest else []
             if stage_key=='references':return color_reference_outputs(manifest)
-            if stage_key=='colour':return colorized_outputs_for_manifest(manifest,self.settings.get('colour',{}).get('method','deepexemplar'))
+            if stage_key=='colour':return colorized_outputs_for_manifest(manifest,self.settings.get('colour',{}).get('method','osi_masked_lab'))
             return [row['output']] if row['output'] else []
         values = self.settings.get(stage_key, {})
         if stage_key == 'dust':
@@ -3550,7 +3576,7 @@ class PipelineApp:
         if stage_key == "references":
             return color_reference_outputs(values.get("manifest", ""))
         if stage_key == "colour":
-            return colorized_outputs_for_manifest(values.get("manifest", ""), values.get("method", "deepexemplar"))
+            return colorized_outputs_for_manifest(values.get("manifest", ""), values.get("method", "osi_masked_lab"))
         if stage_key == "recomp":
             output = recomposition_output_for(
                 values.get("outpainted_video", "") or values.get("source", ""), values.get("encoder", "h264")
@@ -3609,14 +3635,15 @@ class PipelineApp:
             cmd, outputs, redact_command_for_log(cmd), stage_stamps.stage_ignored_columns(stage_key),
         )
 
-    def stage_is_current(self, stage_key: str) -> bool:
+    def stage_is_current(self, stage_key: str, *, respect_run_flags: bool = True) -> bool:
         """True when every output exists and the stage last finished with exactly today's inputs.
 
-        Run Whole Remaster skips such a stage. Regenerate and Dry run always run."""
+        Run Whole Remaster skips such a stage. Regenerate and Dry run always run when
+        ``respect_run_flags`` is True; upstream readiness probes pass ``respect_run_flags=False``."""
         values = self.settings.get(stage_key, {})
         if stage_plan.pipeline_configured(self.settings) and stage_key=='dust':
             return comparison_output_ready(self,'dust')
-        if is_true(values, "force") or is_true(values, "dry_run"):
+        if respect_run_flags and (is_true(values, "force") or is_true(values, "dry_run")):
             return False
         if stage_key in {"audio", "upscale"} and not stage_plan.pipeline_configured(self.settings):
             self.hydrate_stage_inputs(stage_key)  # run_stage does the same before building these
@@ -3899,19 +3926,42 @@ class PipelineApp:
         return cmd
 
     def _references_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
-        runner = str(values.get("reference_runner") or "auto").strip()
-        guided_backend = str(values.get("guided_backend") or "qwen2511").strip()
-        color_bible_db = str(values.get("color_bible_db") or self.settings.get("global", {}).get("color_bible_db") or "").strip()
-        film_id = str(values.get("film_id") or self.settings.get("global", {}).get("color_bible_film_id") or self.settings.get("global", {}).get("film_id") or "").strip()
-        confidence = str(values.get("confidence_threshold") or "0.8").strip()
+        from .color_bible_context import resolve_color_bible_context
 
-        if values.get("method") == "ddcolor":
+        method = str(values.get("method") or "qwen").strip()
+        runner = str(values.get("reference_runner") or "guided_only").strip()
+        guided_backend = (
+            "qwen21"
+            if method == "qwen21"
+            else ("openai" if method == "openai" else str(values.get("guided_backend") or "qwen2511").strip())
+        )
+        cb_ctx = resolve_color_bible_context(
+            self.settings,
+            ROOT,
+            stage="references",
+            explicit_db=str(values.get("color_bible_db") or ""),
+            explicit_film_id=str(values.get("film_id") or values.get("color_bible_film_id") or ""),
+        )
+        explicit_db = bool(str(values.get("color_bible_db") or self.settings.get("global", {}).get("color_bible_db") or "").strip())
+        color_bible_db = cb_ctx["db_raw"] if (explicit_db or cb_ctx["exists"] or cb_ctx["film_id"]) else ""
+        film_id = cb_ctx["film_id"]
+        confidence = str(values.get("confidence_threshold") or "0.8").strip()
+        ddcolor_model = str(values.get("ddcolor_model") or "piddnad/ddcolor_modelscope").strip()
+        ddcolor_model_path = str(values.get("ddcolor_model_path") or "").strip()
+
+        if method == "ddcolor":
             cmd = [sys.executable, "-u", str(SCRIPTS / "ddcolor_reference.py")]
             cmd.extend(["--manifest", values.get("manifest", "")])
             if values.get("output_root"):
                 cmd.extend(["--output-root", values["output_root"]])
             compliance_dir = ROOT / "output"
             cmd.extend(["--compliance-output-dir", str(compliance_dir)])
+            if ddcolor_model:
+                cmd.extend(["--model-variant", ddcolor_model])
+            if ddcolor_model_path:
+                cmd.extend(["--model-path", ddcolor_model_path])
+            else:
+                cmd.append("--auto-download")
             if values.get("seed") and str(values["seed"]).strip():
                 cmd.extend(["--seed", str(values["seed"]).strip()])
             elif values.get("reference_seed") and str(values["reference_seed"]).strip() not in ("-1", ""):
@@ -3926,7 +3976,7 @@ class PipelineApp:
             if confidence:
                 cmd.extend(["--confidence-threshold", confidence])
             return cmd
-        elif values.get("method", "qwen") == "openai":
+        elif method == "openai":
             cmd = [sys.executable, "-u", str(SCRIPTS / "openai_generate_reference.py")]
             add = cmd.extend
             add(["--manifest", values.get("manifest", ""), "--api-key", values.get("openai_api_key", "")])
@@ -3936,7 +3986,7 @@ class PipelineApp:
             add(["--no-normalize-to-source-size"])
             if previous_reference_count(values):
                 add(["--reference-count", str(previous_reference_count(values))])
-        elif values.get("method") == "qwen21":
+        elif method == "qwen21":
             cmd = [sys.executable, "-u", str(SCRIPTS / "qwen21_generate_reference.py")]
             add = cmd.extend
             add(["--manifest", values.get("manifest", ""), "--prompt", values.get("prompt", ""), "--prompt-suffix", values.get("prompt_suffix", "")])
@@ -3967,6 +4017,10 @@ class PipelineApp:
                 add(["--prompt-node-id", values["prompt_node_id"]])
             add(["--reference-runner", runner])
             add(["--guided-backend", guided_backend])
+            if ddcolor_model:
+                add(["--ddcolor-model", ddcolor_model])
+            if ddcolor_model_path:
+                add(["--ddcolor-model-path", ddcolor_model_path])
             if film_id:
                 cmd.extend(["--film-id", film_id])
             if color_bible_db:
@@ -3978,10 +4032,12 @@ class PipelineApp:
         return cmd
 
     def _colour_command(self, config: dict[str, str], values: dict[str, str]) -> list[str]:
+        from .color_bible_context import resolve_color_bible_context
+
         cmd = [sys.executable, "-u", str(SCRIPTS / "colorize_video.py")]
         add = cmd.extend
         add(["--manifest", values.get("manifest", "")])
-        method = values.get("method", "deepexemplar")
+        method = values.get("method", "osi_masked_lab") or "osi_masked_lab"
         add(["--method", method])
         output = colorized_output_for_manifest(values.get("manifest", ""), method)
         if output:
@@ -4010,17 +4066,36 @@ class PipelineApp:
             add(["--comfy-dir", comfy_dir_for(config)])
             return cmd
         if method == "osi_masked_lab":
-            if values.get("masks_dir"):
-                add(["--masks-dir", values["masks_dir"]])
+            cb_ctx = resolve_color_bible_context(
+                self.settings,
+                ROOT,
+                stage="colour",
+                explicit_db=str(values.get("color_bible_db") or ""),
+                explicit_film_id=str(values.get("film_id") or values.get("color_bible_film_id") or ""),
+            )
+            masks_dir = str(values.get("masks_dir") or "").strip()
+            if not masks_dir and (ROOT / "intermediate" / "shot_masks").exists():
+                masks_dir = "intermediate/shot_masks"
+            if masks_dir:
+                add(["--masks-dir", masks_dir])
+            if values.get("osi_flow_scale"):
+                add(["--flow-scale", str(values["osi_flow_scale"])])
+            if values.get("osi_anchor_strength"):
+                add(["--anchor-strength", str(values["osi_anchor_strength"])])
             if values.get("guided_radius"):
-                add(["--guided-radius", values["guided_radius"]])
+                add(["--guided-radius", str(values["guided_radius"])])
             if values.get("guided_eps"):
-                add(["--guided-eps", values["guided_eps"]])
+                add(["--guided-eps", str(values["guided_eps"])])
+            if values.get("osi_workers"):
+                add(["--workers", str(values["osi_workers"])])
+            if is_true(values, "osi_run_qc", "true"):
+                add(["--run-qc"])
             add(["--compliance-output-dir", str(ROOT / "output")])
-            if values.get("color_bible_db") or self.settings.get("global", {}).get("color_bible_db"):
-                add(["--color-bible-db", str(values.get("color_bible_db") or self.settings["global"]["color_bible_db"])])
-            if values.get("film_id") or self.settings.get("global", {}).get("color_bible_film_id") or self.settings.get("global", {}).get("film_id"):
-                add(["--film-id", str(values.get("film_id") or self.settings.get("global", {}).get("color_bible_film_id") or self.settings.get("global", {}).get("film_id"))])
+            explicit_db = bool(str(values.get("color_bible_db") or self.settings.get("global", {}).get("color_bible_db") or "").strip())
+            if explicit_db or cb_ctx["exists"] or cb_ctx["film_id"]:
+                add(["--color-bible-db", cb_ctx["db_raw"]])
+            if cb_ctx["film_id"]:
+                add(["--film-id", cb_ctx["film_id"]])
             return cmd
         add(["--comfy-dir", comfy_dir_for(config)])
         add(["--comfy-url", comfy_url_for(config)])
@@ -4120,6 +4195,72 @@ class PipelineApp:
         if not source or not output:
             return []
         return self.upscale_command(values, source, output)
+
+    def _auto_free_vram_enabled(self) -> bool:
+        return is_true(self.settings.get("global", {}), "auto_free_vram", "true")
+
+    def _stage_uses_comfy(self, stage_key: str) -> bool:
+        if not stage_key:
+            return False
+        values = self.settings.get(stage_key, {})
+        if stage_uses_runpod(stage_key, values):
+            return False
+        return (
+            stage_key in {"outpaint", "audio", "upscale"}
+            or (stage_key == "colour" and values.get("method", "osi_masked_lab") not in {"openai", "cmnet2", "osi_masked_lab"})
+            or (stage_key == "references" and values.get("method", "qwen") not in {"openai", "ddcolor"})
+        )
+
+    def _prepare_vram_for_launch(self, stage_key: str, *, needs_comfy: bool, uses_runpod: bool) -> None:
+        inproc_res = vram_manager.unload_inprocess_models()
+        evicted = list(inproc_res.get("unloaded") or [])
+        if evicted:
+            self.log.append(f"Released in-process GPU cache ({', '.join(evicted)}) before starting {stage_key}.")
+            invalidate_system_status_cache()
+        if (
+            self._auto_free_vram_enabled()
+            and not needs_comfy
+            and not uses_runpod
+            and stage_key in {"cleanup", "enhancement", "deflicker", "denoise", "detail", "references", "colour", "stabilize", "shots", "background"}
+        ):
+            res = vram_manager.free_comfy_vram(
+                comfy_url_for(current_config()),
+                verify_timeout=4.0,
+            )
+            freed_mb = float(res.get("freed_bytes", 0) or 0) / (1024 * 1024)
+            if freed_mb >= 64:
+                self.log.append(f"Freed {freed_mb:.0f} MiB ComfyUI VRAM before {stage_key}.")
+            if res.get("reachable"):
+                invalidate_system_status_cache()
+
+    def free_vram(self, *, interrupt_comfy: bool = False, include_ollama: bool = True) -> dict[str, Any]:
+        """Release idle ComfyUI, Ollama, and in-process ARP GPU memory caches."""
+        result = vram_manager.release_all_vram(
+            comfy_url=comfy_url_for(current_config()),
+            interrupt_comfy=interrupt_comfy,
+            verify_timeout=6.0,
+            include_ollama=include_ollama,
+        )
+        invalidate_system_status_cache()
+        parts: list[str] = []
+        comfy_res = result.get("comfy", {})
+        comfy_freed_mb = float(comfy_res.get("freed_bytes", 0) or 0) / (1024 * 1024)
+        if comfy_freed_mb >= 1.0:
+            parts.append(f"ComfyUI {comfy_freed_mb:.0f} MiB")
+        elif comfy_res.get("reachable"):
+            parts.append("ComfyUI /free sent")
+        inproc = (result.get("inprocess") or {}).get("unloaded") or []
+        if inproc:
+            parts.append(f"in-process ({', '.join(inproc)})")
+        ollama_unloaded = result.get("ollama") or []
+        if ollama_unloaded:
+            parts.append(f"Ollama ({', '.join(ollama_unloaded)})")
+        with self.lock:
+            if parts:
+                self.log.append("Freed GPU VRAM: " + ", ".join(parts) + ".")
+            else:
+                self.log.append("VRAM release requested; no active cached GPU models reported.")
+        return result
 
     def run_stage(self, stage_key: str) -> tuple[bool, str]:
         if self.quitting:
@@ -4248,7 +4389,7 @@ class PipelineApp:
             return False, "Qwen-Image-2.1 Reference Generation runs locally only. Set Qwen compute to local."
         if (
             stage_key == "colour"
-            and values.get("method", "deepexemplar") == "openai"
+            and values.get("method", "osi_masked_lab") == "openai"
             and not self.settings.get("references", {}).get("openai_api_key", "").strip()
         ):
             return False, "Add your OpenAI API key in Settings before running OpenAI Cloud Colorization."
@@ -4269,7 +4410,7 @@ class PipelineApp:
         uses_runpod = stage_uses_runpod(stage_key, values)
         needs_comfy = not uses_runpod and (
             stage_key in {"outpaint", "audio"}
-            or (stage_key == "colour" and values.get("method", "deepexemplar") not in {"openai", "cmnet2"})
+            or (stage_key == "colour" and values.get("method", "osi_masked_lab") not in {"openai", "cmnet2", "osi_masked_lab"})
             or (stage_key == "cleanup" and is_true(values, "dearchive", "true"))
             or (stage_key == "references" and values.get("method", "qwen") not in {"openai", "ddcolor"})
             or stage_key == "upscale"
@@ -4285,6 +4426,7 @@ class PipelineApp:
         except Exception as exc:
             launch_stamp = ""
             self.log.append(f"Could not record {stage.title} inputs; Run Whole Remaster will run it again: {exc}")
+        self._prepare_vram_for_launch(stage_key, needs_comfy=needs_comfy, uses_runpod=uses_runpod)
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -4328,6 +4470,7 @@ class PipelineApp:
         ok, message = ensure_comfy_available_for_stage("Outpainting")
         if not ok:
             return False, message
+        self._prepare_vram_for_launch("outpaint", needs_comfy=True, uses_runpod=False)
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -4368,6 +4511,11 @@ class PipelineApp:
                 cmd, output = reference_regeneration_command(manifest_text, index, reference_index)
         except Exception as exc:
             return False, str(exc)
+        self._prepare_vram_for_launch(
+            "references",
+            needs_comfy=provider not in ("openai", "ddcolor"),
+            uses_runpod=stage_uses_runpod("references", self.settings.get("references", {})),
+        )
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -4390,7 +4538,12 @@ class PipelineApp:
                 self.run_started_at = 0.0
                 self.log.append(f"Could not start reference regeneration: {exc}")
                 return False, f"Could not start reference regeneration: {exc}"
-            threading.Thread(target=self._collect_output, args=("references",), daemon=True).start()
+            threading.Thread(
+                target=self._collect_output,
+                args=("references",),
+                kwargs={"auto_free_vram_on_exit": False},
+                daemon=True,
+            ).start()
         return True, f"Started {provider} reference regeneration for shot {index + 1}."
 
     def run_reference_edit_preview(self, manifest_text: str, index: int, instruction: str, mask_data: str = "", sampled_color: str = "", reference_index: int = 0) -> tuple[bool, str, str]:
@@ -4406,6 +4559,7 @@ class PipelineApp:
             cmd, output = reference_edit_preview_command(manifest_text, index, instruction, mask_data, sampled_color, reference_index)
         except Exception as exc:
             return False, str(exc), ""
+        self._prepare_vram_for_launch("references", needs_comfy=True, uses_runpod=False)
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running.", output
@@ -4428,7 +4582,12 @@ class PipelineApp:
                 self.run_started_at = 0.0
                 self.log.append(f"Could not start reference edit preview: {exc}")
                 return False, f"Could not start reference edit preview: {exc}", output
-            threading.Thread(target=self._collect_output, args=("references",), daemon=True).start()
+            threading.Thread(
+                target=self._collect_output,
+                args=("references",),
+                kwargs={"auto_free_vram_on_exit": False},
+                daemon=True,
+            ).start()
         return True, f"Started reference edit preview for shot {index + 1}.", output
 
     def run_outpaint_end_guide_generation(self, index: int, prompt: str) -> tuple[bool, str]:
@@ -4445,6 +4604,7 @@ class PipelineApp:
         except Exception as exc:
             return False, str(exc)
         output = resolve(output_rel)
+        vram_manager.unload_inprocess_models()
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -4484,6 +4644,7 @@ class PipelineApp:
         except Exception as exc:
             return False, str(exc)
         output = resolve(output_rel)
+        vram_manager.unload_inprocess_models()
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -4523,6 +4684,7 @@ class PipelineApp:
         except Exception as exc:
             return False, str(exc)
         output = resolve(output_rel)
+        vram_manager.unload_inprocess_models()
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -4861,6 +5023,7 @@ class PipelineApp:
             cmd = self.upscale_command(values, rel(clip), output)
         except Exception as exc:
             return False, f"Could not prepare upscale preview: {exc}"
+        self._prepare_vram_for_launch("upscale", needs_comfy=True, uses_runpod=False)
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running."
@@ -4920,6 +5083,7 @@ class PipelineApp:
             ok, message = ensure_comfy_available_for_stage("Guide Frame Editing")
             if not ok:
                 return False, message, ""
+        self._prepare_vram_for_launch("outpaint", needs_comfy=engine in COMFY_GUIDE_EDIT_ENGINES, uses_runpod=False)
         with self.lock:
             if self.process and self.process.poll() is None:
                 return False, "A command is already running.", output
@@ -5083,7 +5247,12 @@ class PipelineApp:
     def ensure_pipeline_source(self) -> None:
         ensure_source_section_clip(self.settings, progress=self.console_progress)
 
-    def _collect_output(self, stage_key: str, launch_stamp: str = "") -> None:
+    def _collect_output(
+        self,
+        stage_key: str,
+        launch_stamp: str = "",
+        auto_free_vram_on_exit: bool = True,
+    ) -> None:
         assert self.process and self.process.stdout
         stop_progress, reporter = self._start_console_progress_reporter()
         try:
@@ -5101,8 +5270,25 @@ class PipelineApp:
                     self.log.append(f"Could not record {stage_key} inputs; Run Whole Remaster will run it again: {exc}")
         if code == 0:
             self._record_stage_compliance(stage_key)
+        freed_message = ""
+        if (
+            auto_free_vram_on_exit
+            and self._auto_free_vram_enabled()
+            and not self.quitting
+            and self._stage_uses_comfy(stage_key)
+        ):
+            res = vram_manager.free_comfy_vram(
+                comfy_url_for(current_config()),
+                verify_timeout=5.0,
+            )
+            invalidate_system_status_cache()
+            freed_mb = float(res.get("freed_bytes", 0) or 0) / (1024 * 1024)
+            if freed_mb >= 64:
+                freed_message = f"Unloaded ComfyUI models after {stage_key} (freed {freed_mb:.0f} MiB VRAM)."
         with self.lock:
             self.log.append(f"Process finished with exit code {code}.")
+            if freed_message:
+                self.log.append(freed_message)
             release_keep_awake()
             self.running_stage = ""
             self.running_stage_key = ""
@@ -5110,9 +5296,91 @@ class PipelineApp:
             self.running_reference_index = None
             self.run_started_at = 0.0
             if code == 0 and stage_key != "upscale_preview":
+                stage_cfg = self.settings.get(stage_key, {})
+                if not is_true(stage_cfg, "dry_run") and is_true(stage_cfg, "force"):
+                    stage_cfg["force"] = "false"
+                    self.save()
                 self.hydrate_stage_inputs(stage_key)
             elif code == 0 and stage_key == "upscale_preview":
                 self.log.append("Upscale preview ready.")
+
+    def start_background_command(self, label: str, cmd: list[str], stage_key: str = "") -> tuple[bool, str]:
+        """Run an auxiliary CLI task in the background using the standard process lock and log stream."""
+        if self.quitting:
+            return False, "ARP is shutting down."
+        self._prepare_vram_for_launch(
+            stage_key or "background",
+            needs_comfy=self._stage_uses_comfy(stage_key),
+            uses_runpod=bool(stage_key) and stage_uses_runpod(stage_key, self.settings.get(stage_key, {})),
+        )
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                return False, "A command is already running."
+            self.running_stage = label
+            self.running_stage_key = stage_key
+            self.run_started_at = time.time()
+            self.log.append("> " + redact_command_for_log(cmd))
+            self.process = subprocess.Popen(cmd, **self.child_process_kwargs())
+            keep_awake(label)
+            threading.Thread(target=self._collect_output, args=(stage_key, ""), daemon=True).start()
+        return True, f"Started {label}"
+
+    def run_color_qc(
+        self,
+        film_id: str = "",
+        manifest: str = "",
+        colorized_video: str = "",
+        stride: int = 4,
+    ) -> tuple[bool, str]:
+        """Run Color Consistency QC across rendered shots and record metrics into manifest & DB."""
+        from .color_bible_context import resolve_color_bible_context
+
+        manifest_text = str(manifest or self.settings.get("colour", {}).get("manifest") or "").strip()
+        if not manifest_text:
+            return False, "No shot manifest configured for Color QC."
+        cb_ctx = resolve_color_bible_context(self.settings, ROOT, stage="colour", explicit_film_id=film_id)
+        method = str(self.settings.get("colour", {}).get("method") or "osi_masked_lab").strip()
+        video_text = str(colorized_video or colorized_output_for_manifest(manifest_text, method) or "").strip()
+        masks_dir = str(self.settings.get("colour", {}).get("masks_dir") or "intermediate/shot_masks").strip()
+        cmd = [
+            sys.executable,
+            "-u",
+            str(SCRIPTS / "qc_color_consistency.py"),
+            "--manifest",
+            manifest_text,
+            "--masks-dir",
+            masks_dir,
+            "--stride",
+            str(max(1, int(stride))),
+            "--update-manifest",
+            "--record-db",
+        ]
+        if video_text:
+            cmd.extend(["--colorized-video", video_text])
+        if cb_ctx["film_id"]:
+            cmd.extend(["--film-id", cb_ctx["film_id"]])
+        cmd.extend(["--color-bible-db", cb_ctx["db_raw"]])
+        return self.start_background_command("Color Consistency QC", cmd, stage_key="")
+
+    def rerender_failed_colour_shots(
+        self,
+        shot_indices: list[int] | None = None,
+        manifest: str = "",
+    ) -> tuple[bool, str]:
+        """Re-render selected or failed/warned shots using OSI Masked LAB --only-shots."""
+        values = dict(self.settings.get("colour", {}))
+        if manifest:
+            values["manifest"] = manifest
+        if not values.get("manifest"):
+            return False, "No manifest configured for Colorization."
+        if str(values.get("method") or "osi_masked_lab") != "osi_masked_lab":
+            return False, "Per-shot QC re-render requires Method = OSI Masked LAB."
+        indices = [int(i) for i in (shot_indices or [])]
+        if not indices:
+            return False, "No failed or warned shots found to re-render."
+        cmd = self._colour_command(current_config(), values)
+        cmd.extend(["--only-shots", ",".join(str(i) for i in sorted(set(indices))), "--force"])
+        return self.start_background_command(f"Re-render {len(indices)} shot(s)", cmd, stage_key="colour")
 
     def _record_stage_compliance(self, stage_key: str) -> None:
         try:
@@ -5192,6 +5460,24 @@ class PipelineApp:
                     threading.Thread(target=stop_cloud_worker, daemon=True).start()
                 release_keep_awake()
                 self.log.append("Stop requested.")
+                if not self.quitting and self._auto_free_vram_enabled():
+                    comfy_url = comfy_url_for(current_config())
+                    def release_gpu_on_stop() -> None:
+                        res = vram_manager.release_all_vram(
+                            comfy_url=comfy_url,
+                            interrupt_comfy=True,
+                            verify_timeout=6.0,
+                            include_ollama=True,
+                        )
+                        invalidate_system_status_cache()
+                        freed_mb = float((res.get("comfy") or {}).get("freed_bytes", 0) or 0) / (1024 * 1024)
+                        inproc = (res.get("inprocess") or {}).get("unloaded") or []
+                        if freed_mb >= 64 or inproc:
+                            with self.lock:
+                                self.log.append(
+                                    f"Released GPU VRAM on stop (ComfyUI: {freed_mb:.0f} MiB, in-process: {len(inproc)})."
+                                )
+                    threading.Thread(target=release_gpu_on_stop, daemon=True).start()
 
     def stop_for_quit(self) -> None:
         # Quitting: refuse new stages (so a Run All queue can't relaunch) and kill the
@@ -5598,8 +5884,8 @@ def complete_pipeline_plan(settings):
             target=resolve(base)
             return rel(target.with_name(target.stem+'_pipeline_'+token+target.suffix))
         if key=='colour':
-            method=values.get('method','deepexemplar')
-            if method=='both':method=settings.get('recomp',{}).get('colorization_method','deepexemplar')
+            method=values.get('method','osi_masked_lab')
+            if method=='both':method=settings.get('recomp',{}).get('colorization_method','osi_masked_lab')
             return colorized_output_for_manifest(bindings.get('manifest',''),method)
         if key=='recomp':return recomposition_output_for(bindings.get('outpainted_video') or bindings.get('source',''),values.get('encoder','h264'))
         if key=='audio':return soundtrack_output_for(source,values)

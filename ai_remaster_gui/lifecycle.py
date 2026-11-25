@@ -25,6 +25,14 @@ XFORMERS_MAX_CUDA_CAPABILITY = (9, 0)
 def comfy_requires_pytorch_attention() -> bool:
     """Return whether ARP's pinned xFormers build cannot run on this GPU."""
     try:
+        from .system_status import nvidia_smi_cuda_probe
+
+        probe = nvidia_smi_cuda_probe()
+        if probe is not None and probe.get("capability") is not None:
+            return tuple(int(part) for part in probe["capability"]) > XFORMERS_MAX_CUDA_CAPABILITY
+    except Exception:
+        pass
+    try:
         import torch  # type: ignore
 
         if not torch.cuda.is_available():

@@ -126,25 +126,20 @@ def shot_rows(
     settings = getattr(state.APP, "settings", {}) if state.APP and hasattr(state.APP, "settings") else {}
     global_cfg = settings.get("global", {}) if isinstance(settings.get("global"), dict) else {}
     ref_cfg = settings.get("references", {}) if isinstance(settings.get("references"), dict) else {}
-    film_id = (
-        global_cfg.get("color_bible_film_id")
-        or ref_cfg.get("color_bible_film_id")
-        or settings.get("color_bible_film_id")
-    )
-    if film_id:
-        film_id = str(film_id).strip()
-    db_path = (
-        global_cfg.get("color_bible_db")
-        or ref_cfg.get("color_bible_db")
-        or settings.get("color_bible_db")
-    )
+    from .color_bible_context import canonical_shot_id, find_shot_mask_archive_candidates, resolve_color_bible_context
+
+    cb_ctx = resolve_color_bible_context(settings, ROOT, stage="references")
+    film_id = cb_ctx["film_id"]
+    db_path = cb_ctx["db_path"]
+    masks_dir_text = str((settings.get("colour", {}) if isinstance(settings.get("colour"), dict) else {}).get("masks_dir") or "intermediate/shot_masks").strip()
+    masks_dir_path = resolve(masks_dir_text) if masks_dir_text else (ROOT / "intermediate" / "shot_masks")
     raw_conf = ref_cfg.get("confidence_threshold") or global_cfg.get("confidence_threshold") or "0.8"
     try:
         conf_threshold = float(raw_conf)
     except (ValueError, TypeError):
         conf_threshold = 0.8
 
-    if film_id:
+    if film_id and db_path.exists():
         try:
             from .color_bible_service import ColorBibleService
             color_bible_service = ColorBibleService(db_path=db_path)
@@ -225,10 +220,19 @@ def shot_rows(
             except Exception:
                 pass
 
+        shot_id = str(row.get("shot_id") or canonical_shot_id(film_id, index)).strip()
+        mask_archive = find_shot_mask_archive_candidates(masks_dir_path, index, film_id=film_id, shot_id=shot_id)
         item = {
                 "index": index,
+                "shot_id": shot_id,
+                "has_masks": bool(mask_archive and mask_archive.exists()),
+                "mask_archive": rel(mask_archive) if mask_archive else "",
                 "enabled": row.get("enabled", "true"),
                 "qc_status": qc_status,
+                "qc_cdc": str(row.get("qc_cdc") or "").strip(),
+                "qc_flow_err": str(row.get("qc_flow_err") or "").strip(),
+                "qc_delta_e": str(row.get("qc_delta_e") or "").strip(),
+                "qc_bleed": str(row.get("qc_bleed") or "").strip(),
                 "needs_review": needs_review,
                 "review_reasons": review_reasons,
                 "color_bible_entities": color_bible_entities,
@@ -896,7 +900,7 @@ def reference_row_io(manifest_text: str, index: int, reference_index: int = 0) -
     return manifest, effective_row, source, output
 
 def reference_regeneration_command(manifest_text: str, index: int, reference_index: int = 0) -> tuple[list[str], str]:
-    _manifest, row, source, output = reference_row_io(manifest_text, index, reference_index)
+    manifest, row, source, output = reference_row_io(manifest_text, index, reference_index)
     values = state.APP.settings.get("references", {})
     config = current_config()
     workflow = qwen_workflow_for(values, config)
@@ -906,6 +910,12 @@ def reference_regeneration_command(manifest_text: str, index: int, reference_ind
         sys.executable,
         "-u",
         str(SCRIPTS / "generate_single_reference.py"),
+        "--manifest",
+        rel(manifest),
+        "--row-index",
+        str(index),
+        "--reference-index",
+        str(reference_index),
         "--source-image",
         source,
         "--output",
@@ -1030,18 +1040,23 @@ def previous_reference_count(values: dict[str, str]) -> int:
 
 def color_bible_cli_args(values: dict[str, str] | None = None) -> list[str]:
     """Return CLI args for Color Bible parameters when configured in settings."""
+    from .color_bible_context import resolve_color_bible_context
+
     settings = getattr(state.APP, "settings", {}) if state.APP and hasattr(state.APP, "settings") else {}
     ref_values = values if values is not None else (settings.get("references", {}) if isinstance(settings.get("references"), dict) else {})
     global_values = settings.get("global", {}) if isinstance(settings.get("global"), dict) else {}
-    film_id = (
-        ref_values.get("color_bible_film_id")
-        or global_values.get("color_bible_film_id")
-        or ref_values.get("film_id")
-        or global_values.get("film_id")
+    cb_ctx = resolve_color_bible_context(
+        settings,
+        ROOT,
+        stage="references",
+        explicit_db=str(ref_values.get("color_bible_db") or ""),
+        explicit_film_id=str(ref_values.get("film_id") or ref_values.get("color_bible_film_id") or ""),
     )
-    runner = ref_values.get("reference_runner") or global_values.get("reference_runner")
+    film_id = cb_ctx["film_id"]
+    runner = ref_values.get("reference_runner") or global_values.get("reference_runner") or "guided_only"
     conf = ref_values.get("confidence_threshold") or global_values.get("confidence_threshold")
-    db_path = ref_values.get("color_bible_db") or global_values.get("color_bible_db")
+    explicit_db = bool(str(ref_values.get("color_bible_db") or global_values.get("color_bible_db") or "").strip())
+    db_path = cb_ctx["db_raw"] if (explicit_db or cb_ctx["exists"] or film_id) else ""
 
     args: list[str] = []
     if film_id and str(film_id).strip():
@@ -1106,19 +1121,34 @@ def qwen21_reference_regeneration_command(manifest_text: str, index: int, refere
     return cmd, output
 
 def ddcolor_reference_regeneration_command(manifest_text: str, index: int, reference_index: int = 0) -> tuple[list[str], str]:
-    _manifest, _row, source, output = reference_row_io(manifest_text, index, reference_index)
+    manifest, _row, source, output = reference_row_io(manifest_text, index, reference_index)
     values = state.APP.settings.get("references", {})
     cmd = [
         sys.executable,
         "-u",
         str(SCRIPTS / "ddcolor_reference.py"),
+        "--manifest",
+        rel(manifest),
+        "--row-index",
+        str(index),
+        "--reference-index",
+        str(reference_index),
         "--input-image",
         source,
         "--output",
         output,
         "--compliance-output-dir",
         str(ROOT / "output"),
+        "--force",
     ]
+    ddcolor_model = str(values.get("ddcolor_model") or "piddnad/ddcolor_modelscope").strip()
+    ddcolor_model_path = str(values.get("ddcolor_model_path") or "").strip()
+    if ddcolor_model:
+        cmd.extend(["--model-variant", ddcolor_model])
+    if ddcolor_model_path:
+        cmd.extend(["--model-path", ddcolor_model_path])
+    else:
+        cmd.append("--auto-download")
     seed_args = reference_seed_args(values)
     if seed_args:
         cmd.extend(seed_args)

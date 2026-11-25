@@ -8,6 +8,7 @@ function drawSettings() {
     <section class="card">
       <h2>Settings</h2>
       ${comfySettingsHtml()}
+      ${commercialPolicySettingsHtml()}
       ${intermediateSettingsHtml(cloud)}
       ${cloudSettingsHtml(cloud)}
       ${qwenSettingsHtml(refs)}
@@ -15,6 +16,29 @@ function drawSettings() {
       ${pipelineDefaultsHtml(outpaint, recomp)}
       ${logFileSettingsHtml()}
     </section>
+  `;
+}
+
+function commercialPolicySettingsHtml() {
+  const g = settings('global');
+  const checked = (key, fallback = 'false') => String(g[key] ?? fallback) === 'true' ? 'checked' : '';
+  return `
+    <h3>Commercial Policy &amp; Model Audits</h3>
+    <p class="field-help">Attest license audits for gated models (Qwen-2511, LTX IC-LoRA, Gemma-4, VGG19) and set the default Color Bible database.</p>
+    <div class="check-group">
+      <label class="checkbox-label"><input type="checkbox" id="setAutoFreeVram" ${checked('auto_free_vram', 'true')}> Auto-free ComfyUI &amp; in-process VRAM after stages</label>
+      <label class="checkbox-label"><input type="checkbox" id="setCommercialGuard" ${checked('commercial_model_guard', 'true')}> Enforce Commercial Model Guard</label>
+      <label class="checkbox-label"><input type="checkbox" id="setRevenueUnder10m" ${checked('company_revenue_under_10m_usd', 'false')}> Company revenue &lt; $10M USD/yr (LTX Community eligibility)</label>
+      <label class="checkbox-label"><input type="checkbox" id="setQwen2511Audited" ${checked('qwen_2511_audited', 'false')}> Qwen Image Edit 2511 (Apache-2.0) audited</label>
+      <label class="checkbox-label"><input type="checkbox" id="setIcLoraAudited" ${checked('ic_lora_audited', 'false')}> LTX IC-LoRA audited</label>
+      <label class="checkbox-label"><input type="checkbox" id="setGemmaAudited" ${checked('gemma_encoder_audited', 'false')}> Gemma encoder audited</label>
+      <label class="checkbox-label"><input type="checkbox" id="setVgg19Audited" ${checked('weight_vgg19_audited', 'false')}> VGG19 weights audited (Deep Exemplar)</label>
+    </div>
+    <label>Default Color Bible DB path</label>
+    <input id="setColorBibleDb" value="${esc(g.color_bible_db || 'manifests/color_bible.db')}" placeholder="manifests/color_bible.db">
+    <div class="actions">
+      <button type="button" class="primary" onclick="saveCommercialPolicySettings()">Save Policy &amp; Audit Settings</button>
+    </div>
   `;
 }
 

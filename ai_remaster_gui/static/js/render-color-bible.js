@@ -420,10 +420,17 @@ function renderReferencesCard(data) {
         <form class="cb-form-card" onsubmit="cbSubmitReference(event)">
           <h3>Register Keyframe Reference for ${esc(selectedLabel)}</h3>
           <label>Keyframe Image Path*:
-            <input type="text" id="cbRefKeyframePath" required placeholder="e.g. manifests/references/shot_0012_ref0.png or full disk path" />
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input type="text" id="cbRefKeyframePath" required placeholder="e.g. manifests/references/shot_0012_ref0.png or full disk path" style="flex:1;" />
+              <button type="button" class="small" onclick="cbBrowsePath('cbRefKeyframePath', 'image')">Browse…</button>
+            </div>
           </label>
+          ${cbShotReferencePickerHtml()}
           <label>Optional Binary Mask Path:
-            <input type="text" id="cbRefMaskUri" placeholder="e.g. manifests/references/shot_0012_mask.png" />
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input type="text" id="cbRefMaskUri" placeholder="e.g. manifests/references/shot_0012_mask.png" style="flex:1;" />
+              <button type="button" class="small" onclick="cbBrowsePath('cbRefMaskUri', 'image')">Browse…</button>
+            </div>
           </label>
           <div class="cb-inline-fields">
             <label>Provenance:
@@ -521,16 +528,16 @@ function renderReferenceItem(ref, data) {
                 </thead>
                 <tbody>
                   ${['L', 'a', 'b'].map(axis => {
-                    const row = labStats[axis] || {};
+                    const row = labStats[axis];
                     const axisLabel = axis === 'L' ? 'L* (Luma)' : axis === 'a' ? 'a* (Green–Red)' : 'b* (Blue–Yellow)';
                     return `
                       <tr>
                         <td><strong>${axisLabel}</strong></td>
-                        <td>${formatNum(row.p10)}</td>
-                        <td>${formatNum(row.p25)}</td>
-                        <td><strong>${formatNum(row.p50)}</strong></td>
-                        <td>${formatNum(row.p75)}</td>
-                        <td>${formatNum(row.p90)}</td>
+                        <td>${formatNum(labPercentileValue(row, 0, 'p10'))}</td>
+                        <td>${formatNum(labPercentileValue(row, 1, 'p25'))}</td>
+                        <td><strong>${formatNum(labPercentileValue(row, 2, 'p50'))}</strong></td>
+                        <td>${formatNum(labPercentileValue(row, 3, 'p75'))}</td>
+                        <td>${formatNum(labPercentileValue(row, 4, 'p90'))}</td>
                       </tr>
                     `;
                   }).join('')}
@@ -607,15 +614,67 @@ function cbDismissError() {
   drawColorBible();
 }
 
-function cbChangeFilm(filmId) {
+async function cbChangeFilm(filmId) {
   cbState.activeFilmId = filmId;
   cbState.selectedEntityId = null;
   cbState.selectedVariantId = null;
-  loadColorBibleData(filmId, true);
+  if (filmId) {
+    try {
+      await api('/api/color-bible/select-film', {
+        method: 'POST',
+        body: JSON.stringify({ film_id: filmId })
+      });
+      state = await api(stateUrl());
+    } catch (_) {}
+  }
+  await loadColorBibleData(filmId, true);
 }
 
 function cbRefresh() {
   loadColorBibleData(cbState.activeFilmId, true);
+}
+
+function labPercentileValue(row, index, key) {
+  if (Array.isArray(row)) return row[index];
+  if (row && typeof row === 'object') return row[key];
+  return undefined;
+}
+
+function cbShotReferencePickerHtml() {
+  const shotRows = (typeof state !== 'undefined' && state.shot_views && (state.shot_views.references || state.shot_views.colour || state.shot_views.shots)) || [];
+  const options = [];
+  for (const r of shotRows) {
+    const imgPath = r.color_reference || r.source_reference || '';
+    if (imgPath) {
+      const idx = Number(r.index ?? 0);
+      const selected = (cbState.focusShotIndex !== null && cbState.focusShotIndex !== undefined && idx === Number(cbState.focusShotIndex)) ? 'selected' : '';
+      options.push(`<option value="${esc(imgPath)}" ${selected}>Shot ${idx + 1} (${esc(imgPath)})</option>`);
+    }
+  }
+  if (!options.length) return '';
+  return `
+    <label>Or pick from manifest shot still:
+      <select onchange="if (this.value) { const inp = document.getElementById('cbRefKeyframePath'); if (inp) inp.value = this.value; }">
+        <option value="">-- Choose shot reference --</option>
+        ${options.join('')}
+      </select>
+    </label>
+  `;
+}
+
+async function cbBrowsePath(inputId, kind) {
+  try {
+    const res = await api('/api/browse', {
+      method: 'POST',
+      body: JSON.stringify({ field: inputId, kind: kind || 'file', title: 'Select reference image' })
+    });
+    if (res && res.ok && res.path) {
+      const inp = document.getElementById(inputId);
+      if (inp) inp.value = res.path;
+    }
+  } catch (err) {
+    alert('Browse failed: ' + (err.message || err));
+  }
 }
 
 async function cbPromptNewFilm() {
@@ -628,6 +687,7 @@ async function cbPromptNewFilm() {
       body: JSON.stringify({ film_id: filmId.trim(), title: title.trim() })
     });
     if (!res.ok) throw new Error(res.error || 'Failed to initialize new film');
+    try { state = await api(stateUrl()); } catch (_) {}
     await loadColorBibleData(filmId.trim(), true);
   } catch (err) {
     alert('Error: ' + (err.message || err));
@@ -650,6 +710,7 @@ async function cbSyncManifest() {
       body: JSON.stringify({ film_id: filmId, manifest: manifest.trim() })
     });
     if (!res.ok) throw new Error(res.error || 'Manifest sync failed');
+    try { state = await api(stateUrl()); } catch (_) {}
     alert(`Successfully synced ${res.shots_synced} shots into Color Bible!`);
     await loadColorBibleData(filmId, true);
   } catch (err) {

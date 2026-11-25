@@ -40,9 +40,13 @@ def main() -> int:
     output = resolve_path(args.output)
     if not source.is_file():
         raise FileNotFoundError(f"Reference source image not found: {source}")
-    manifest = write_temp_manifest(source, output)
-    args.manifest = manifest
-    args.limit = 1
+    if args.manifest is not None and getattr(args, 'row_index', None) is not None:
+        args.limit = None
+    else:
+        manifest = write_temp_manifest(source, output)
+        args.manifest = manifest
+        args.limit = 1
+    args.keep_comfy_loaded = True
     return qwen.main_with_args(args) if hasattr(qwen, 'main_with_args') else _run_with_args(args)
 
 

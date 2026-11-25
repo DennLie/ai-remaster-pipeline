@@ -29,15 +29,21 @@ BUNDLE_EXTS = IMAGE_EXTS | {".csv", ".txt", ".json"}
 # file cannot drop arbitrary archives elsewhere in the install.
 FRAME_MASK_BUNDLE_DIR = "manifests/outpaint_masks/"
 DUST_MASK_BUNDLE_DIR = "manifests/dust_masks/"
+SHOT_MASK_BUNDLE_DIR = "intermediate/shot_masks/"
+COLOR_BIBLE_DB_PREFIX = "manifests/"
 
 
 def bundle_name_allowed(name: str) -> bool:
     name = name.replace("\\", "/")
     if not name or name.startswith("/") or ".." in Path(name).parts:
         return False
+    lower = name.lower()
     suffix = Path(name).suffix.lower()
-    return suffix in BUNDLE_EXTS or (
-        suffix == ".zip" and name.startswith((FRAME_MASK_BUNDLE_DIR, DUST_MASK_BUNDLE_DIR))
+    return (
+        suffix in BUNDLE_EXTS
+        or (suffix == ".zip" and name.startswith((FRAME_MASK_BUNDLE_DIR, DUST_MASK_BUNDLE_DIR)))
+        or (lower.endswith(".masks.npz") and name.startswith(SHOT_MASK_BUNDLE_DIR))
+        or (suffix in {".db", ".sqlite", ".sqlite3"} and name.startswith(COLOR_BIBLE_DB_PREFIX))
     )
 
 
@@ -184,6 +190,48 @@ def project_asset_paths(settings: dict[str, dict[str, str]]) -> list[Path]:
         if asset not in seen:
             seen.add(asset)
             assets.append(asset)
+    for asset in color_bible_asset_paths(settings):
+        if asset not in seen:
+            seen.add(asset)
+            assets.append(asset)
+    return assets
+
+
+def color_bible_asset_paths(settings: dict[str, dict[str, str]]) -> list[Path]:
+    """Collect active Color Bible SQLite DB and associated SAM 2.1 shot mask archives."""
+    from .color_bible_context import resolve_color_bible_context, shot_id_candidates
+
+    assets: list[Path] = []
+    seen: set[Path] = set()
+    cb_ctx = resolve_color_bible_context(settings, ROOT, stage="references")
+    db_path = cb_ctx["db_path"]
+    if project_asset_is_bundleable(db_path):
+        seen.add(db_path)
+        assets.append(db_path)
+
+    film_id = cb_ctx["film_id"]
+    masks_dir_text = str(settings.get("colour", {}).get("masks_dir") or "intermediate/shot_masks").strip()
+    masks_dir = resolve(masks_dir_text) if masks_dir_text else (ROOT / "intermediate" / "shot_masks")
+    if masks_dir.is_dir():
+        matched_archives: list[Path] = []
+        if film_id:
+            matched_archives.extend(sorted(masks_dir.glob(f"{film_id}_*.masks.npz")))
+        manifest_text = settings.get("colour", {}).get("manifest") or settings.get("references", {}).get("manifest") or ""
+        if manifest_text:
+            manifest_path = resolve(manifest_text)
+            if manifest_path.is_file():
+                try:
+                    for idx, _row in enumerate(read_manifest(manifest_path)):
+                        for cand in shot_id_candidates(film_id, idx):
+                            cand_file = masks_dir / f"{cand}.masks.npz"
+                            if cand_file.is_file():
+                                matched_archives.append(cand_file)
+                except Exception:
+                    pass
+        for archive in matched_archives:
+            if archive not in seen and project_asset_is_bundleable(archive):
+                seen.add(archive)
+                assets.append(archive)
     return assets
 
 

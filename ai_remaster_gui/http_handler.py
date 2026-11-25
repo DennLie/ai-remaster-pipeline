@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from . import state
+from .color_bible_context import canonical_shot_id, resolve_color_bible_context
 from .frame_inspector import inspection as inspect_frame
 from .frame_differences import cleanup_frame_differences
 from .denoise_review import inspect_denoise, denoise_frame_differences
@@ -436,16 +437,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(exc)})
         elif parsed.path == "/api/color-bible/state":
             query = parse_qs(parsed.query)
-            film_id = query.get("film_id", [""])[0].strip()
-            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
-                film_id = str(state.APP.settings.get("global", {}).get("color_bible_film_id", "")).strip()
-            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
-                source = state.APP.settings.get("global", {}).get("source", "")
+            req_film = query.get("film_id", [""])[0].strip()
+            req_db = query.get("color_bible_db", [""])[0].strip()
+            app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+            cb_ctx = resolve_color_bible_context(
+                app_settings,
+                state.ROOT if hasattr(state, "ROOT") else Path.cwd(),
+                stage="references",
+                explicit_db=req_db,
+                explicit_film_id=req_film,
+            )
+            film_id = cb_ctx["film_id"]
+            if not film_id and app_settings:
+                source = app_settings.get("global", {}).get("source", "")
                 if source:
                     film_id = Path(source).stem
             try:
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     repo = service.repo
                     films = repo.list_films()
                     if not film_id and films:
@@ -463,6 +472,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({
                         "ok": True,
                         "film_id": film_id,
+                        "db_path": cb_ctx["db_rel"],
                         "films": [f.to_dict() for f in films],
                         "characters": characters,
                         "appearance_variants": appearance_variants,
@@ -479,9 +489,15 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/color-bible/shot-assignments":
             query = parse_qs(parsed.query)
             try:
-                film_id = query.get("film_id", [""])[0].strip()
-                if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
-                    film_id = str(state.APP.settings.get("global", {}).get("color_bible_film_id", "")).strip()
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(
+                    app_settings,
+                    state.ROOT if hasattr(state, "ROOT") else Path.cwd(),
+                    stage="references",
+                    explicit_db=query.get("color_bible_db", [""])[0].strip(),
+                    explicit_film_id=query.get("film_id", [""])[0].strip(),
+                )
+                film_id = cb_ctx["film_id"]
                 raw_index = query.get("shot_index", [""])[0]
                 if not str(raw_index).strip().lstrip("+-").isdigit():
                     raise ValueError(f"Invalid shot_index: {raw_index!r}")
@@ -491,7 +507,7 @@ class Handler(BaseHTTPRequestHandler):
                 conf_threshold = float(raw_conf) if raw_conf else 0.8
 
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     assignments = service.get_shot_palette_assignments(film_id, shot_index)
                     shot_record = service.get_shot_by_index(film_id, shot_index)
                     qc_status = shot_record.qc_status if shot_record else ""
@@ -539,11 +555,19 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/color-bible/snapshot-hash":
             query = parse_qs(parsed.query)
             try:
-                film_id = query.get("film_id", [""])[0].strip()
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(
+                    app_settings,
+                    state.ROOT if hasattr(state, "ROOT") else Path.cwd(),
+                    stage="references",
+                    explicit_db=query.get("color_bible_db", [""])[0].strip(),
+                    explicit_film_id=query.get("film_id", [""])[0].strip(),
+                )
+                film_id = cb_ctx["film_id"]
                 if not film_id:
                     raise ValueError("film_id is required.")
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     snapshot_hash = service.get_snapshot_hash(film_id)
                     self.send_json({
                         "ok": True,
@@ -554,11 +578,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(exc)})
         elif parsed.path == "/api/color-bible/qc-summary":
             query = parse_qs(parsed.query)
-            film_id = query.get("film_id", [""])[0].strip()
-            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
-                film_id = str(state.APP.settings.get("global", {}).get("color_bible_film_id", "")).strip()
-            if not film_id and state.APP is not None and hasattr(state.APP, "settings"):
-                source = state.APP.settings.get("global", {}).get("source", "")
+            app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+            cb_ctx = resolve_color_bible_context(
+                app_settings,
+                state.ROOT if hasattr(state, "ROOT") else Path.cwd(),
+                stage="colour",
+                explicit_db=query.get("color_bible_db", [""])[0].strip(),
+                explicit_film_id=query.get("film_id", [""])[0].strip(),
+            )
+            film_id = cb_ctx["film_id"]
+            if not film_id and app_settings:
+                source = app_settings.get("global", {}).get("source", "")
                 if source:
                     film_id = Path(source).stem
             if not film_id:
@@ -566,7 +596,6 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             def qc_summary_action() -> dict:
-                from .color_bible_db import resolve_color_bible_db
                 from .color_bible_service import ColorBibleService
 
                 shot_id = query.get("shot_id", [None])[0]
@@ -581,7 +610,7 @@ class Handler(BaseHTTPRequestHandler):
                     except ValueError:
                         pass
 
-                with ColorBibleService(resolve_color_bible_db()) as service:
+                with ColorBibleService(cb_ctx["db_path"]) as service:
                     summary = service.get_qc_summary(film_id, **qc_kwargs)
                     return {"status": "ok", "summary": summary}
 
@@ -1008,40 +1037,74 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             def sync_manifest_action():
-                film_id = str(data.get("film_id", "")).strip()
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(
+                    app_settings, ROOT, stage="references",
+                    explicit_db=str(data.get("color_bible_db", "")),
+                    explicit_film_id=str(data.get("film_id", "")),
+                )
+                film_id = cb_ctx["film_id"]
                 title = str(data.get("title", "")).strip() or None
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     result = service.sync_manifest(film_id, resolved_manifest, title=title)
-                    return {"shots_synced": result.get("shots_synced", 0)}
+                if film_id and state.APP is not None and hasattr(state.APP, "update_settings"):
+                    state.APP.update_settings("global", {"color_bible_film_id": film_id, "color_bible_db": cb_ctx["db_raw"]})
+                return {"shots_synced": result.get("shots_synced", 0), "film_id": film_id}
 
             self._send_result("Color Bible sync manifest", sync_manifest_action)
+        elif parsed.path == "/api/color-bible/select-film":
+            def select_film_action():
+                from .paths import ROOT
+                film_id = str(data.get("film_id", "")).strip()
+                explicit_db = str(data.get("color_bible_db", "")).strip()
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=explicit_db, explicit_film_id=film_id)
+                updates = {"color_bible_film_id": film_id}
+                if explicit_db:
+                    updates["color_bible_db"] = cb_ctx["db_raw"]
+                if state.APP is not None and hasattr(state.APP, "update_settings"):
+                    state.APP.update_settings("global", updates)
+                return {"film_id": film_id, "db_path": cb_ctx["db_rel"]}
+
+            self._send_result("Color Bible select film", select_film_action)
         elif parsed.path == "/api/color-bible/film":
             def create_film_action():
-                film_id = str(data.get("film_id", "")).strip()
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=str(data.get("film_id", "")))
+                film_id = cb_ctx["film_id"]
                 title = str(data.get("title", "")).strip() or None
                 source_video = str(data.get("source_video", "")).strip() or None
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     film = service.create_film(film_id=film_id, title=title, source_video=source_video)
-                    return {"film": film.to_dict()}
+                if film.film_id and state.APP is not None and hasattr(state.APP, "update_settings"):
+                    state.APP.update_settings("global", {"color_bible_film_id": film.film_id, "color_bible_db": cb_ctx["db_raw"]})
+                return {"film": film.to_dict()}
 
             self._send_result("Color Bible film", create_film_action)
         elif parsed.path == "/api/color-bible/character":
             def create_char_action():
-                film_id = str(data.get("film_id", "")).strip()
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=str(data.get("film_id", "")))
                 name = str(data.get("name", "")).strip()
                 notes = str(data.get("notes", "")).strip()
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
-                    char = service.create_character(film_id=film_id, name=name, notes=notes)
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
+                    char = service.create_character(film_id=cb_ctx["film_id"], name=name, notes=notes)
                     return {"character": char.to_dict()}
 
             self._send_result("Color Bible character", create_char_action)
         elif parsed.path == "/api/color-bible/variant":
             def create_var_action():
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")))
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     var = service.create_appearance_variant(
                         character_id=str(data.get("character_id", "")).strip(),
                         costume_id=str(data.get("costume_id", "")).strip(),
@@ -1055,10 +1118,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_result("Color Bible variant", create_var_action)
         elif parsed.path == "/api/color-bible/object":
             def create_obj_action():
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=str(data.get("film_id", "")))
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     obj = service.create_object(
-                        film_id=str(data.get("film_id", "")).strip(),
+                        film_id=cb_ctx["film_id"],
                         kind=str(data.get("kind", "")).strip(),
                         name=str(data.get("name", "")).strip(),
                         palette=data.get("palette"),
@@ -1069,10 +1135,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_result("Color Bible object", create_obj_action)
         elif parsed.path == "/api/color-bible/location":
             def create_loc_action():
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=str(data.get("film_id", "")))
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     loc = service.create_location(
-                        film_id=str(data.get("film_id", "")).strip(),
+                        film_id=cb_ctx["film_id"],
                         set_name=str(data.get("set_name", "")).strip(),
                         lighting_context=str(data.get("lighting_context", "")).strip(),
                         palette=data.get("palette"),
@@ -1083,9 +1152,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_result("Color Bible location", create_loc_action)
         elif parsed.path == "/api/color-bible/assign-ranges":
             def assign_ranges_action():
-                film_id = str(data.get("film_id", "")).strip()
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=str(data.get("film_id", "")))
+                film_id = cb_ctx["film_id"]
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     if data.get("action") == "delete" or "delete_assignment_id" in data:
                         asgn_id = str(data.get("delete_assignment_id") or data.get("assignment_id", "")).strip()
                         if asgn_id:
@@ -1129,7 +1201,10 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
             def register_ref_action():
-                film_id = str(data.get("film_id", "")).strip()
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=str(data.get("film_id", "")))
+                film_id = cb_ctx["film_id"]
                 entity_type = str(data.get("entity_type", "")).strip()
                 entity_id = str(data.get("entity_id", "")).strip()
                 variant_id = str(data.get("variant_id", "")).strip() or None
@@ -1137,7 +1212,7 @@ class Handler(BaseHTTPRequestHandler):
                 source_shot_id = str(data.get("source_shot_id", "")).strip() or None
                 auto_approve = bool(data.get("auto_approve", False))
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     ref = service.register_reference_image(
                         film_id=film_id,
                         entity_type=entity_type,
@@ -1154,11 +1229,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_result("Color Bible reference", register_ref_action)
         elif parsed.path == "/api/color-bible/reference-approval":
             def ref_approval_action():
+                from .paths import ROOT
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")))
                 ref_id = str(data.get("ref_id", "")).strip()
                 action = str(data.get("action", "")).strip().lower()
                 approved_by = str(data.get("approved_by", "colorist")).strip()
                 from .color_bible_service import ColorBibleService
-                with ColorBibleService() as service:
+                with ColorBibleService(db_path=cb_ctx["db_path"]) as service:
                     if action == "approve":
                         ref = service.approve_reference(ref_id, approved_by=approved_by)
                     elif action == "reject":
@@ -1168,6 +1246,42 @@ class Handler(BaseHTTPRequestHandler):
                     return {"reference": ref.to_dict()}
 
             self._send_result("Color Bible reference approval", ref_approval_action)
+        elif parsed.path == "/api/free-vram":
+            force = bool(data.get("force", False))
+            if state.APP.process and state.APP.process.poll() is None and not force:
+                self.send_json({
+                    "ok": False,
+                    "error": "A stage is currently running. Stop it first before freeing VRAM.",
+                })
+                return
+            result = state.APP.free_vram(
+                interrupt_comfy=bool(data.get("interrupt_comfy", force)),
+                include_ollama=bool(data.get("include_ollama", True)),
+            )
+            view_name = str(data.get("view") or "")
+            self.send_json({"ok": True, **result, "state": state.APP.state(view_name)})
+        elif parsed.path == "/api/color-bible/run-qc":
+            ok, msg = state.APP.run_color_qc(
+                film_id=str(data.get("film_id") or ""),
+                manifest=str(data.get("manifest") or ""),
+                colorized_video=str(data.get("colorized_video") or ""),
+                stride=int(data.get("stride") or 4),
+            )
+            self.send_json({"ok": ok, "message": msg, **({"error": msg} if not ok else {})})
+        elif parsed.path == "/api/colour-rerender-failed":
+            from .paths import resolve
+            raw_indices = data.get("shot_indices")
+            indices = [int(i) for i in raw_indices] if isinstance(raw_indices, list) else []
+            manifest_str = str(data.get("manifest") or state.APP.settings.get("colour", {}).get("manifest") or "").strip()
+            if not indices and manifest_str:
+                from .manifests import read_manifest
+                man_path = resolve_served(manifest_str, served_source_paths()) or resolve(manifest_str)
+                if man_path.is_file():
+                    for idx, row in enumerate(read_manifest(man_path)):
+                        if str(row.get("qc_status") or "").strip().lower() in {"fail", "warn"}:
+                            indices.append(idx)
+            ok, msg = state.APP.rerender_failed_colour_shots(shot_indices=indices, manifest=manifest_str)
+            self.send_json({"ok": ok, "message": msg, **({"error": msg} if not ok else {})})
         elif parsed.path == "/api/sam2-track-shot":
             def sam2_track_shot_action() -> dict:
                 from .commercial_policy import evaluate_component, CommercialPolicyError
@@ -1181,13 +1295,28 @@ class Handler(BaseHTTPRequestHandler):
                 if not decision.allowed:
                     raise CommercialPolicyError(f"Commercial Model Guard blocked sam2: {decision.reason}")
 
+                cb_ctx = resolve_color_bible_context(settings, ROOT, stage="colour")
+                shot_index = data.get("shot_index")
                 shot_id = str(data.get("shot_id") or "").strip()
+                if not shot_id and shot_index is not None:
+                    shot_id = canonical_shot_id(cb_ctx["film_id"], int(shot_index))
                 frames = data.get("frames")
                 prompts = data.get("prompts", {})
                 if not isinstance(prompts, dict):
                     raise ValueError("prompts must be a dictionary.")
 
                 resolved_frames = frames
+                if (resolved_frames is None or resolved_frames == "") and shot_index is not None:
+                    manifest_str = str(data.get("manifest") or settings.get("colour", {}).get("manifest") or "").strip()
+                    if manifest_str:
+                        from .manifests import manifest_source_video
+                        man_path = resolve(manifest_str)
+                        src_vid_str = manifest_source_video(man_path) or settings.get("global", {}).get("source", "")
+                        if src_vid_str:
+                            resolved_vid = resolve(src_vid_str)
+                            if any(is_within(resolved_vid, r) for r in served_roots(served_source_paths())):
+                                resolved_frames = resolved_vid
+
                 if isinstance(frames, str) and frames.strip():
                     frame_path = resolve(frames.strip())
                     if not any(is_within(frame_path, r) for r in served_roots(served_source_paths())):

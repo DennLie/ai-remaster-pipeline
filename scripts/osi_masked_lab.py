@@ -136,25 +136,13 @@ def calculate_step_flow(
     curr_gray: np.ndarray,
     prev_gray: np.ndarray,
     preset: int = cv2.DISOPTICAL_FLOW_PRESET_FAST,
+    flow_scale: float = 1.0,
+    dis_instance: Any | None = None,
 ) -> np.ndarray:
     """Compute dense optical flow from curr_gray to prev_gray using OpenCV DIS.
 
-    The displacement vectors (dx, dy) indicate where pixels in curr_gray originated
-    in prev_gray: prev_coord = curr_coord + flow.
-
-    Parameters
-    ----------
-    curr_gray : np.ndarray
-        Current 2D grayscale frame of shape (H, W), uint8.
-    prev_gray : np.ndarray
-        Previous 2D grayscale frame of shape (H, W), uint8.
-    preset : int, optional
-        OpenCV DIS optical flow preset, by default cv2.DISOPTICAL_FLOW_PRESET_FAST.
-
-    Returns
-    -------
-    np.ndarray
-        Dense optical flow array of shape (H, W, 2) and float32 dtype.
+    Supports optional downscaled flow computation via ``flow_scale`` and reusing
+    a pre-initialized ``dis_instance`` across frames.
     """
     g_curr = _to_uint8_gray(curr_gray)
     g_prev = _to_uint8_gray(prev_gray)
@@ -162,7 +150,21 @@ def calculate_step_flow(
     if g_curr.shape != g_prev.shape:
         raise ValueError(f"Frame shapes do not match: curr {g_curr.shape} vs prev {g_prev.shape}")
 
-    dis = cv2.DISOpticalFlow_create(preset)
+    h, w = g_curr.shape
+    scale = float(flow_scale) if flow_scale else 1.0
+    dis = dis_instance if dis_instance is not None else cv2.DISOpticalFlow_create(preset)
+
+    if 0.05 < scale < 0.99 and min(h, w) >= 32:
+        sw = max(16, int(round(w * scale)))
+        sh = max(16, int(round(h * scale)))
+        sc = cv2.resize(g_curr, (sw, sh), interpolation=cv2.INTER_AREA)
+        sp = cv2.resize(g_prev, (sw, sh), interpolation=cv2.INTER_AREA)
+        low_flow = dis.calc(sc, sp, None).astype(np.float32)
+        flow = cv2.resize(low_flow, (w, h), interpolation=cv2.INTER_LINEAR)
+        flow[..., 0] *= float(w) / float(sw)
+        flow[..., 1] *= float(h) / float(sh)
+        return flow.astype(np.float32)
+
     flow: np.ndarray = dis.calc(g_curr, g_prev, None)
     return flow.astype(np.float32)
 
@@ -317,6 +319,8 @@ def propagate_shot_chroma(
     radius: int = 5,
     eps: float = 1e-3,
     flow_preset: int = cv2.DISOPTICAL_FLOW_PRESET_FAST,
+    flow_scale: float = 1.0,
+    anchor_strength: float = 1.0,
 ) -> list[np.ndarray]:
     """Colorize a full video shot via bidirectional optical flow propagation and guided filtering.
 
@@ -373,15 +377,16 @@ def propagate_shot_chroma(
         k_lab = cv2.cvtColor(k_rgb_f, cv2.COLOR_RGB2Lab)
         key_chroma[k_idx_int] = k_lab[..., 1:3].astype(np.float32)
 
-    # 1. Compute consecutive step optical flows between adjacent frames
-    # flow_forward[t] = flow from frame t to frame t - 1 (warps t-1 chroma into t)
-    # flow_backward[t] = flow from frame t to frame t + 1 (warps t+1 chroma into t)
+    # 1. Compute consecutive step optical flows between adjacent frames (reusing DIS instance)
+    dis_instance = cv2.DISOpticalFlow_create(flow_preset)
     flow_forward: dict[int, np.ndarray] = {}
     for t in range(1, T):
         flow_forward[t] = calculate_step_flow(
             curr_gray=cleaned_frames_gray[t],
             prev_gray=cleaned_frames_gray[t - 1],
             preset=flow_preset,
+            flow_scale=flow_scale,
+            dis_instance=dis_instance,
         )
 
     flow_backward: dict[int, np.ndarray] = {}
@@ -390,6 +395,8 @@ def propagate_shot_chroma(
             curr_gray=cleaned_frames_gray[t],
             prev_gray=cleaned_frames_gray[t + 1],
             preset=flow_preset,
+            flow_scale=flow_scale,
+            dis_instance=dis_instance,
         )
 
     # 2. Refine motion fields inside tracked object masks if mask archive is present
@@ -483,15 +490,31 @@ def propagate_shot_chroma(
             curr_c = warp_chroma_backward(curr_c, flow_backward[t])
             bwd_seq[t] = curr_c.copy()
 
-        # Blend each intermediate frame weighted by temporal distance
+        # Occlusion-aware bidirectional temporal blending
+        occ_fwd: dict[int, np.ndarray] = {}
+        occ_bwd: dict[int, np.ndarray] = {}
+        for t in range(k_a + 1, k_b):
+            fb_f = flow_forward[t] + warp_chroma_backward(flow_backward[t - 1], flow_forward[t])
+            fb_b = flow_backward[t] + warp_chroma_backward(flow_forward[t + 1], flow_backward[t])
+            occ_fwd[t] = np.exp(-np.sum(fb_f ** 2, axis=-1) / 16.0).astype(np.float32)
+            occ_bwd[t] = np.exp(-np.sum(fb_b ** 2, axis=-1) / 16.0).astype(np.float32)
+
         for t in range(k_a, k_b + 1):
-            w_fwd = float(k_b - t) / float(span)
-            w_bwd = float(t - k_a) / float(span)
-            blended = w_fwd * fwd_seq[t] + w_bwd * bwd_seq[t]
+            if t == k_a:
+                chroma_fields[t] = key_chroma[k_a].copy()
+                continue
+            if t == k_b:
+                chroma_fields[t] = key_chroma[k_b].copy()
+                continue
+            w_fwd = (float(k_b - t) / float(span)) * np.maximum(occ_fwd[t], 0.05)
+            w_bwd = (float(t - k_a) / float(span)) * np.maximum(occ_bwd[t], 0.05)
+            denom = np.maximum(w_fwd + w_bwd, 1e-6)[..., None]
+            blended = (w_fwd[..., None] * fwd_seq[t] + w_bwd[..., None] * bwd_seq[t]) / denom
             chroma_fields[t] = blended.astype(np.float32)
 
-    # 4. Texture-preserving object mask chroma transfer and Color Bible anchoring
-    if mask_archive is not None:
+    # 4. Texture-preserving object mask chroma transfer with soft feathering and Color Bible anchoring
+    strength = max(0.0, min(1.0, float(anchor_strength)))
+    if mask_archive is not None and strength > 0.0:
         for t in range(T):
             cur_ch = chroma_fields[t]
             if cur_ch is None:
@@ -517,9 +540,11 @@ def propagate_shot_chroma(
                     med_b = float(np.median(cur_b))
                     shift_a = target_a - med_a
                     shift_b = target_b - med_b
-                    # Shift median to target anchor while preserving all textures/folds
-                    cur_ch[fg, 0] += shift_a
-                    cur_ch[fg, 1] += shift_b
+                    # Feather mask boundary smoothly inside foreground to avoid sharp chroma halos
+                    soft_fg = cv2.GaussianBlur(fg.astype(np.float32), (0, 0), sigmaX=1.5)
+                    soft_fg = np.where(fg, np.clip(soft_fg * 1.15, 0.25, 1.0), soft_fg * 0.25) * strength
+                    cur_ch[..., 0] += soft_fg * shift_a
+                    cur_ch[..., 1] += soft_fg * shift_b
 
             chroma_fields[t] = cur_ch
 

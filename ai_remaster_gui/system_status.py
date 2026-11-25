@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import shutil
 import subprocess
+import sys
 import time
 
 
@@ -10,6 +12,75 @@ _CACHE: dict[str, object] = {"at": 0.0, "data": {}}
 _CACHE_SECONDS = 5.0
 _CPU_TIMES: tuple[int, int] | None = None
 FLASHVSR_MIN_CUDA_CAPABILITY = (7, 5)
+
+
+def invalidate_system_status_cache() -> None:
+    """Clear the cached header status sample so the next poll queries fresh VRAM metrics."""
+    _CACHE["at"] = 0.0
+    _CACHE["data"] = {}
+
+
+def _nvml_cuda_probe() -> dict | None:
+    """Query GPU name and compute capability via NVML ctypes without spawning a process or CUDA context."""
+    initialized = False
+    nvml = None
+    try:
+        nvml = ctypes.WinDLL("nvml.dll") if os.name == "nt" else ctypes.CDLL("libnvidia-ml.so.1")
+        if nvml.nvmlInit_v2() != 0:
+            return None
+        initialized = True
+        handle = ctypes.c_void_p()
+        if nvml.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(handle)) != 0:
+            return None
+        major, minor = ctypes.c_int(), ctypes.c_int()
+        if nvml.nvmlDeviceGetCudaComputeCapability(handle, ctypes.byref(major), ctypes.byref(minor)) != 0:
+            return None
+        name_buf = ctypes.create_string_buffer(128)
+        name = "NVIDIA GPU"
+        if nvml.nvmlDeviceGetName(handle, name_buf, len(name_buf)) == 0:
+            decoded = name_buf.value.decode("utf-8", errors="replace").strip()
+            if decoded:
+                name = decoded
+        return {"name": name, "capability": (int(major.value), int(minor.value))}
+    except Exception:
+        return None
+    finally:
+        if initialized and nvml is not None:
+            try:
+                nvml.nvmlShutdown()
+            except Exception:
+                pass
+
+
+def nvidia_smi_cuda_probe() -> dict | None:
+    """Query GPU name and compute capability without initializing CUDA."""
+    nvml_probe = _nvml_cuda_probe()
+    if nvml_probe is not None:
+        return nvml_probe
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                nvidia_smi,
+                "--query-gpu=name,compute_cap",
+                "--format=csv,noheader",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        line = next((item.strip() for item in result.stdout.splitlines() if item.strip()), "")
+        if not line or "," not in line:
+            return None
+        name_text, cap_text = [part.strip() for part in line.split(",", 1)]
+        cap_parts = [part.strip() for part in cap_text.split(".") if part.strip().isdigit()]
+        capability = (int(cap_parts[0]), int(cap_parts[1])) if len(cap_parts) >= 2 else None
+        return {"name": name_text, "capability": capability}
+    except Exception:
+        return None
 
 
 class _MemoryStatus(ctypes.Structure):
@@ -53,6 +124,29 @@ def system_status() -> dict:
 
 
 def cuda_status() -> dict:
+    probe = nvidia_smi_cuda_probe()
+    if probe is not None:
+        detail = str(probe.get("name") or "NVIDIA GPU")
+        capability = probe.get("capability")
+        warning = ""
+        if capability is not None:
+            detail = f"{detail} - compute capability {format_cuda_capability(capability)}"
+            if capability < FLASHVSR_MIN_CUDA_CAPABILITY:
+                warning = flashvsr_hardware_warning(detail, capability)
+        torch_mod = sys.modules.get("torch")
+        torch_ver = str(getattr(torch_mod, "__version__", "") or "") if torch_mod is not None else ""
+        cuda_ver = str(getattr(getattr(torch_mod, "version", None), "cuda", "") or "") if torch_mod is not None else ""
+        return {
+            "available": True,
+            "label": "CUDA available",
+            "detail": detail,
+            "torch": torch_ver,
+            "cuda": cuda_ver,
+            "capability": format_cuda_capability(capability) if capability else "",
+            "flashvsr_supported": bool(capability) and capability >= FLASHVSR_MIN_CUDA_CAPABILITY,
+            "warning": warning,
+        }
+
     try:
         import torch  # type: ignore
 
@@ -94,15 +188,20 @@ def cuda_status() -> dict:
 
 def flashvsr_hardware_warning(device_detail: str | None = None, capability: tuple[int, int] | None = None) -> str:
     if capability is None:
-        try:
-            import torch  # type: ignore
+        probe = nvidia_smi_cuda_probe()
+        if probe is not None and probe.get("capability") is not None:
+            capability = probe["capability"]
+            device_detail = device_detail or str(probe.get("name") or "")
+        else:
+            try:
+                import torch  # type: ignore
 
-            if not torch.cuda.is_available():
+                if not torch.cuda.is_available():
+                    return ""
+                capability = tuple(int(part) for part in torch.cuda.get_device_capability(0))
+                device_detail = torch.cuda.get_device_name(0)
+            except Exception:
                 return ""
-            capability = tuple(int(part) for part in torch.cuda.get_device_capability(0))
-            device_detail = torch.cuda.get_device_name(0)
-        except Exception:
-            return ""
     if capability >= FLASHVSR_MIN_CUDA_CAPABILITY:
         return ""
     device = f"{device_detail or 'This GPU'} reports compute capability {format_cuda_capability(capability)}"
@@ -204,11 +303,33 @@ def vram_status() -> dict:
                 payload["detail"] = f"{payload['detail']} - {name} - {util_text}% GPU utilization"
                 payload["gpu_utilization"] = int(util_text)
                 payload["gpu_name"] = name
+                _attach_vram_attribution(payload)
                 return payload
         except Exception as exc:
             return {"label": "VRAM unknown", "used": None, "total": None, "percent": None, "detail": str(exc)}
 
     return torch_vram_status()
+
+
+def _attach_vram_attribution(payload: dict) -> None:
+    try:
+        from .config import current_config
+        from .vram_manager import active_inprocess_models, comfy_torch_vram_bytes
+
+        comfy_url = str(current_config().get("comfy_url") or "").strip()
+        comfy_bytes = comfy_torch_vram_bytes(comfy_url, timeout=0.4) if comfy_url else None
+        inprocess = active_inprocess_models()
+        parts: list[str] = []
+        if comfy_bytes is not None:
+            payload["comfy_vram_used"] = comfy_bytes
+            parts.append(f"ComfyUI {format_compact_gb(comfy_bytes)}")
+        if inprocess:
+            payload["arp_inprocess_models"] = inprocess
+            parts.append("ARP cached: " + ", ".join(inprocess))
+        if parts:
+            payload["detail"] = f"{payload['detail']} ({'; '.join(parts)})"
+    except Exception:
+        pass
 
 
 def torch_vram_status() -> dict:

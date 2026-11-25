@@ -73,7 +73,7 @@ class QwenSemanticMatchingIntegrationTests(unittest.TestCase):
 
         # Defaults
         default_args = parser.parse_args(["--manifest", "shots.csv", "--workflow", "workflow.json"])
-        self.assertEqual(default_args.reference_runner, "auto")
+        self.assertEqual(default_args.reference_runner, "guided_only")
         self.assertEqual(default_args.guided_backend, "qwen2511")
         self.assertIsNone(default_args.film_id)
         self.assertIsNone(default_args.color_bible_db)

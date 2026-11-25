@@ -6,12 +6,14 @@ MultiChannelDefectMask contract.
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
+import weakref
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,7 @@ except ImportError:
     )
 
 MANAGED_NEURAL_DIR = ROOT / "tools/neural_defects"
+_ADAPTER_INSTANCES: "weakref.WeakSet[Any]" = weakref.WeakSet()
 
 
 def find_venv_python() -> Path:
@@ -88,6 +91,31 @@ class FilmArtefactSegmenterAdapter(BaseDefectDetector):
         self.manifest_path = ROOT / "tools/checkpoints/manifests/film_artefact_segmenter.json"
         self._cached_model = None
         self._cached_device = None
+        _ADAPTER_INSTANCES.add(self)
+
+    def unload_model(self) -> bool:
+        """Unload cached neural model from GPU/memory without eagerly importing torch."""
+        model = self._cached_model
+        if model is None:
+            self._cached_device = None
+            return False
+        self._cached_model = None
+        self._cached_device = None
+        try:
+            if hasattr(model, "to"):
+                model.to("cpu")
+        except Exception:
+            pass
+        del model
+        gc.collect()
+        torch_mod = sys.modules.get("torch")
+        if torch_mod is not None:
+            try:
+                if torch_mod.cuda.is_available():
+                    torch_mod.cuda.empty_cache()
+            except Exception:
+                pass
+        return True
 
     def _get_model(self, device: Any) -> Any:
         if self._cached_model is None or self._cached_device != device:
@@ -428,6 +456,31 @@ class CNNBlotchesDetectorAdapter(BaseDefectDetector):
         self.manifest_path = ROOT / "tools/checkpoints/manifests/cnn_blotches.json"
         self._cached_model = None
         self._cached_device = None
+        _ADAPTER_INSTANCES.add(self)
+
+    def unload_model(self) -> bool:
+        """Unload cached CNN blotch detector model from GPU/memory."""
+        model = self._cached_model
+        if model is None:
+            self._cached_device = None
+            return False
+        self._cached_model = None
+        self._cached_device = None
+        try:
+            if hasattr(model, "to"):
+                model.to("cpu")
+        except Exception:
+            pass
+        del model
+        gc.collect()
+        torch_mod = sys.modules.get("torch")
+        if torch_mod is not None:
+            try:
+                if torch_mod.cuda.is_available():
+                    torch_mod.cuda.empty_cache()
+            except Exception:
+                pass
+        return True
 
     def _get_model(self, device: Any) -> Any:
         if self._cached_model is None or self._cached_device != device:
@@ -744,6 +797,30 @@ class CorrelNetDetectorAdapter(BaseDefectDetector):
         raise NotImplementedError(
             "Correl-Net is in state TRAINING_REQUIRED. Checkpoint weights require multi-frame temporal training."
         )
+
+
+def unload_all_cached_defect_models() -> list[str]:
+    """Unload all cached PyTorch defect detector models across live adapters and registries."""
+    unloaded: list[str] = []
+    seen: set[int] = set()
+    candidates: list[Any] = list(_ADAPTER_INSTANCES)
+    for mod_name in ("scripts.film_defect_detectors", "film_defect_detectors"):
+        fdd = sys.modules.get(mod_name)
+        reg = getattr(fdd, "DEFAULT_REGISTRY", None) if fdd is not None else None
+        if reg is not None and hasattr(reg, "list_names"):
+            try:
+                for det_name in reg.list_names():
+                    candidates.append(reg.get(det_name))
+            except Exception:
+                pass
+    for adapter in candidates:
+        if adapter is None or id(adapter) in seen:
+            continue
+        seen.add(id(adapter))
+        unload_fn = getattr(adapter, "unload_model", None)
+        if callable(unload_fn) and unload_fn():
+            unloaded.append(str(getattr(adapter, "name", type(adapter).__name__)))
+    return unloaded
 
 
 def register_neural_defects(registry: Any = None) -> None:

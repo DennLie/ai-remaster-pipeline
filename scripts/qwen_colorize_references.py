@@ -11,10 +11,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from comfy_api import extract_output_files, node_by_id, queue_prompt, set_widget, wait_for_comfy, wait_for_prompt, widget_fallback_inputs, workflow_to_prompt, http_json
+from comfy_api import extract_output_files, free_comfy_models, node_by_id, queue_prompt, set_widget, wait_for_comfy, wait_for_prompt, widget_fallback_inputs, workflow_to_prompt, http_json
 from common import QWEN_IMAGE_EDIT_MODEL, ROOT, copy_to_comfy_input, file_fingerprint, load_local_config, newest_output, resolve_path, root_relative, resumable_output, write_signature
-from dependency_manager import ensure_qwen_image_edit_models
-from ddcolor_reference import colorize_reference_shot
+from dependency_manager import ensure_ddcolor_model, ensure_qwen_image_edit_models
+from ddcolor_reference import DEFAULT_MODEL_PATH as DDCOLOR_DEFAULT_MODEL_PATH, colorize_reference_shot
 from reference_sets import expanded_reference_rows
 
 DEFAULT_PROMPT = (
@@ -99,6 +99,7 @@ def describe_with_ollama(args: argparse.Namespace, image_path: Path) -> str:
         'prompt': args.reference_description_prompt,
         'images': [base64.b64encode(image_bytes).decode('ascii')],
         'stream': False,
+        'keep_alive': 0,
     }
     response = http_json('POST', f"{args.ollama_url.rstrip('/')}/api/generate", payload, timeout=180)
     return str(response.get('response') or '').strip()
@@ -780,6 +781,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--seed', type=int, default=-1, help='Sampler seed; -1 picks a new random seed for every still, so each attempt differs.')
     parser.add_argument('--poll-seconds', type=float, default=2.0)
     parser.add_argument('--limit', type=int)
+    parser.add_argument('--row-index', type=int, default=None, help='Process only this zero-based shot index in the manifest.')
+    parser.add_argument('--reference-index', type=int, default=0, help='Reference index within --row-index when regenerating a single still.')
+    parser.add_argument('--keep-comfy-loaded', action='store_true', help='Skip unloading ComfyUI models after finishing.')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--print-final-prompt', action='store_true')
@@ -787,13 +791,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--reference-runner',
         choices=['auto', 'guided_only', 'ddcolor_only'],
-        default='auto',
-        help='Reference colorization runner mode: auto (two-stage), guided_only, or ddcolor_only.',
+        default='guided_only',
+        help='Reference colorization runner mode: guided_only (default), auto (DDColor draft without entities), or ddcolor_only.',
     )
     parser.add_argument(
         '--guided-backend',
         default='qwen2511',
         help='Default guided reference backend to use (default: qwen2511).',
+    )
+    parser.add_argument(
+        '--ddcolor-model',
+        default='piddnad/ddcolor_modelscope',
+        help='Official piddnad/DDColor model variant used when runner routes a shot to DDColor.',
+    )
+    parser.add_argument(
+        '--ddcolor-model-path',
+        type=Path,
+        default=None,
+        help='Optional custom DDColor checkpoint path when runner routes a shot to DDColor.',
     )
     parser.add_argument(
         '--film-id',
@@ -824,6 +839,13 @@ def main_with_args(args: argparse.Namespace) -> int:
     comfy_dir = resolve_path(args.comfy_dir)
     _, shot_rows = read_manifest(manifest)
     rows = expanded_reference_rows(shot_rows)
+    if getattr(args, 'row_index', None) is not None:
+        target_shot = str(args.row_index)
+        target_ref = str(getattr(args, 'reference_index', 0))
+        filtered = [r for r in rows if r.get('_shot_index') == target_shot and r.get('_reference_index', '0') == target_ref]
+        if not filtered:
+            filtered = [r for r in rows if r.get('_shot_index') == target_shot]
+        rows = filtered
     if args.limit is not None:
         rows = rows[:args.limit]
     print(f'Manifest: {manifest}')
@@ -901,10 +923,7 @@ def main_with_args(args: argparse.Namespace) -> int:
                 continue
 
             # 3. Select Backend
-            effective_runner = getattr(args, 'reference_runner', 'auto')
-            if not getattr(args, 'film_id', None) and effective_runner == 'auto':
-                # Without film_id, default to guided backend for backward compatibility with standalone Qwen colorizer
-                effective_runner = 'guided_only'
+            effective_runner = getattr(args, 'reference_runner', 'guided_only')
 
             backend = TwoStageReferenceRouter.select_backend(
                 row=row,
@@ -969,16 +988,40 @@ def main_with_args(args: argparse.Namespace) -> int:
 
             # 7. Execute Selected Backend
             if backend == "ddcolor":
-                print(f'DDColor colorize {index:04d}: {src} -> {dst}')
-                colorize_reference_shot(src, dst, dry_run=args.dry_run, seed=args.active_seed)
-            else:
-                ref_note = f', described refs={len(refs)}' if refs else ''
-                shown = [resolve_path(path) for path in args.reference_image if resolve_path(path).is_file()][:MAX_REFERENCE_IMAGES]
-                if not shown:
-                    if getattr(args, 'film_id', None) and match_result.reference_paths:
-                        shown = match_result.reference_paths[:MAX_REFERENCE_IMAGES]
+                ddcolor_ckpt = getattr(args, 'ddcolor_model_path', None)
+                ddcolor_variant = getattr(args, 'ddcolor_model', 'piddnad/ddcolor_modelscope')
+                try:
+                    if not args.dry_run:
+                        ddcolor_ckpt = ensure_ddcolor_model(
+                            variant=ddcolor_variant,
+                            model_path=ddcolor_ckpt,
+                            auto_download=ddcolor_ckpt is None,
+                        )
+                    print(f'DDColor colorize {index:04d}: {src} -> {dst}')
+                    colorize_reference_shot(
+                        src,
+                        dst,
+                        model_path=ddcolor_ckpt or DDCOLOR_DEFAULT_MODEL_PATH,
+                        dry_run=args.dry_run,
+                        seed=args.active_seed,
+                        allow_builtin_arch=True,
+                    )
+                except Exception as exc:
+                    if effective_runner == 'auto':
+                        print(f'Warning: DDColor draft unavailable in auto mode ({exc}); falling back to guided Qwen backend.', flush=True)
+                        backend = getattr(args, 'guided_backend', 'qwen2511')
+                        model_name = "qwen-image-edit-2511"
                     else:
-                        shown = reference_images_for(rows, index, args.reference_count)
+                        raise
+            if backend != "ddcolor":
+                ref_note = f', described refs={len(refs)}' if refs else ''
+                explicit_refs = [resolve_path(path) for path in args.reference_image if resolve_path(path).is_file()][:MAX_REFERENCE_IMAGES]
+                if getattr(args, 'film_id', None) and match_result.reference_paths:
+                    shown = match_result.reference_paths[:MAX_REFERENCE_IMAGES]
+                elif explicit_refs:
+                    shown = explicit_refs
+                else:
+                    shown = reference_images_for(rows, index, args.reference_count)
                 shown = [path for path in shown if path.resolve() != dst.resolve()]
                 args.active_reference_names = [prepare_reference_image(path, comfy_dir) for path in shown] if not args.dry_run else [path.name for path in shown]
                 colours = reference_colours(args, shown) if shown and args.describe_references and not args.dry_run else ''
@@ -1031,6 +1074,8 @@ def main_with_args(args: argparse.Namespace) -> int:
     finally:
         if color_bible_service is not None:
             color_bible_service.close()
+        if needs_comfy and not getattr(args, 'keep_comfy_loaded', False):
+            free_comfy_models(args.comfy_url)
 
     return 0
 
