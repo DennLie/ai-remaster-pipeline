@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,50 @@ def _root_relative(root: Path, path: Path) -> str:
         return str(path).replace("\\", "/")
 
 
+def _auto_detect_film_id_from_db(db_path: Path, source_text: str) -> tuple[str, str]:
+    """Read-only lookup of a matching or sole film in an existing Color Bible SQLite DB."""
+    if not db_path.is_file():
+        return "", ""
+    conn: sqlite3.Connection | None = None
+    try:
+        try:
+            conn = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+        except sqlite3.Error:
+            conn = sqlite3.connect(str(db_path))
+        rows = conn.execute(
+            "SELECT film_id, COALESCE(source_video, '') FROM films ORDER BY updated_at DESC, film_id ASC"
+        ).fetchall()
+    except sqlite3.Error:
+        return "", ""
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+
+    if not rows:
+        return "", ""
+
+    clean_source = str(source_text or "").strip()
+    if clean_source:
+        src_path = Path(clean_source)
+        source_stem = src_path.stem.casefold()
+        source_name = src_path.name.casefold()
+        for row_film_id, _row_source in rows:
+            if row_film_id and str(row_film_id).strip().casefold() == source_stem:
+                return str(row_film_id).strip(), "auto_source"
+        for row_film_id, row_source in rows:
+            if row_source:
+                cand_path = Path(str(row_source).strip())
+                if cand_path.name.casefold() == source_name or cand_path.stem.casefold() == source_stem:
+                    return str(row_film_id).strip(), "auto_source"
+
+    if len(rows) == 1 and rows[0][0]:
+        return str(rows[0][0]).strip(), "auto_single"
+    return "", ""
+
+
 def resolve_color_bible_context(
     settings: dict[str, Any] | None,
     root: Path,
@@ -38,6 +83,7 @@ def resolve_color_bible_context(
     stage: str | None = None,
     explicit_db: str = "",
     explicit_film_id: str = "",
+    allow_auto_film: bool = True,
 ) -> dict[str, Any]:
     """Resolve the active Color Bible SQLite path and Film ID across stages.
 
@@ -55,6 +101,7 @@ def resolve_color_bible_context(
       3. ``settings["global"]["color_bible_film_id"]`` or ``settings["global"]["film_id"]``
       4. ``settings["references"]["film_id"]`` or ``settings["references"]["color_bible_film_id"]``
       5. ``settings["colour"]["film_id"]`` or ``settings["colour"]["color_bible_film_id"]``
+      6. Read-only match against existing DB ``films`` table (source match or sole film).
     """
     cfg = settings if isinstance(settings, dict) else {}
     stage_cfg = cfg.get(stage, {}) if stage and isinstance(cfg.get(stage), dict) else {}
@@ -70,22 +117,31 @@ def resolve_color_bible_context(
         refs_cfg.get("color_bible_db"),
         colour_cfg.get("color_bible_db"),
     )
-    if explicit_db:
+    if str(explicit_db or "").strip():
         db_raw = str(explicit_db).strip()
+        db_source = "override"
     elif str(stage_cfg.get("color_bible_db") or "").strip():
         db_raw = str(stage_cfg["color_bible_db"]).strip()
+        db_source = "override"
     elif env_db and (not configured_db or configured_db == DEFAULT_COLOR_BIBLE_DB):
         db_raw = env_db
+        db_source = "env"
+    elif configured_db:
+        db_raw = configured_db
+        db_source = "global"
     else:
-        db_raw = configured_db or DEFAULT_COLOR_BIBLE_DB
+        db_raw = DEFAULT_COLOR_BIBLE_DB
+        db_source = "default"
     candidate_path = Path(db_raw)
     db_path = candidate_path if candidate_path.is_absolute() else (root / candidate_path)
     db_rel = _root_relative(root, db_path)
 
-    film_id = _first_nonempty(
+    override_film_id = _first_nonempty(
         explicit_film_id,
         stage_cfg.get("film_id"),
         stage_cfg.get("color_bible_film_id"),
+    )
+    global_film_id = _first_nonempty(
         global_cfg.get("color_bible_film_id"),
         global_cfg.get("film_id"),
         refs_cfg.get("film_id"),
@@ -93,12 +149,28 @@ def resolve_color_bible_context(
         colour_cfg.get("film_id"),
         colour_cfg.get("color_bible_film_id"),
     )
+    if override_film_id:
+        film_id = override_film_id
+        film_id_source = "override"
+    elif global_film_id:
+        film_id = global_film_id
+        film_id_source = "global"
+    elif allow_auto_film:
+        film_id, film_id_source = _auto_detect_film_id_from_db(
+            db_path,
+            str(global_cfg.get("source") or "").strip(),
+        )
+    else:
+        film_id = ""
+        film_id_source = ""
 
     return {
         "db_path": db_path,
         "db_raw": db_raw,
         "db_rel": db_rel,
+        "db_source": db_source,
         "film_id": film_id,
+        "film_id_source": film_id_source,
         "exists": db_path.exists(),
     }
 

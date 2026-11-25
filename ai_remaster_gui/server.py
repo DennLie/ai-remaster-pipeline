@@ -1036,6 +1036,7 @@ class PipelineApp:
         return [] if self.preprocessing_uses_original(stage_key) else self.configured_preprocessing_upstream(stage_key)
 
     def preprocessing_problem(self, stage_key=None):
+        titles = {stage.key: stage.title for stage in STAGES}
         if stage_plan.pipeline_configured(self.settings):
             plan=self.pipeline_plan()
             if stage_key=='dust' and 'dust' not in plan['nodes']:
@@ -1063,13 +1064,24 @@ class PipelineApp:
                 if key in stage_plan.VIDEO_STAGES:
                     ready=comparison_output_ready(self,key)
                 else:
-                    try:
-                        ready=self.stage_is_current(key, respect_run_flags=False)
-                    except TypeError:
-                        ready=self.stage_is_current(key)
+                    ready=self.stage_is_current(key)
+                    if not ready:
+                        upstream_values=self.settings.get(key,{})
+                        has_force=is_true(upstream_values,'force')
+                        has_dry_run=is_true(upstream_values,'dry_run')
+                        if has_force or has_dry_run:
+                            try:
+                                outputs_valid=self.stage_is_current(key,respect_run_flags=False)
+                            except TypeError:
+                                outputs_valid=False
+                            if outputs_valid:
+                                title=titles.get(key,key)
+                                if has_force and has_dry_run:
+                                    return f"{title} still has 'Regenerate' and 'Dry run' checked; uncheck them or re-run {title}."
+                                flag_label='Regenerate' if has_force else 'Dry run'
+                                return f"{title} still has '{flag_label}' checked; uncheck it or re-run {title}."
                 if not ready:return f'Run {key} first for the current pipeline bindings; old artifacts are not substituted.'
             return ''
-        titles = {stage.key: stage.title for stage in STAGES}
         for key in self.preprocessing_upstream(stage_key):
             if not comparison_output_ready(self, key):
                 return f'Run {titles[key]} first so this stage has its current upstream video.'
@@ -2858,14 +2870,71 @@ class PipelineApp:
             }
         if view == "dust":
             payload["dust_edits"] = self.dust_edit_state(settings_snapshot)
-        if view in {"shots", "references", "colour", "color_bible"}:
+        if view in {"shots", "references", "colour", "color_bible", "output"}:
             from .color_bible_context import resolve_color_bible_context
             cb_ctx = resolve_color_bible_context(settings_snapshot, ROOT, stage="colour" if view == "colour" else "references")
             payload["color_bible_context"] = {
                 "film_id": cb_ctx["film_id"],
+                "film_id_source": cb_ctx["film_id_source"],
                 "db_path": cb_ctx["db_rel"],
+                "db_source": cb_ctx["db_source"],
                 "exists": cb_ctx["exists"],
             }
+        if view in {"colour", "color_bible", "references"}:
+            try:
+                from .commercial_policy import enabled as commercial_guard_enabled, evaluate_component
+                from .image_segmenters import DEFAULT_IMAGE_SEGMENTER_REGISTRY
+
+                guard_on = commercial_guard_enabled(settings_snapshot)
+                img_policies: dict[str, dict] = {}
+                for spec in DEFAULT_IMAGE_SEGMENTER_REGISTRY.list_specs():
+                    dec = evaluate_component(spec.component_id, settings=settings_snapshot, component_type="tool")
+                    img_policies[spec.name] = {
+                        "allowed": bool(dec.allowed) or (not guard_on),
+                        "status": dec.status,
+                        "license": spec.license,
+                        "commercial_tier": spec.commercial_tier,
+                        "category": spec.category,
+                        "supports_text_prompts": spec.supports_text_prompts,
+                        "supports_point_box_prompts": spec.supports_point_box_prompts,
+                        "supports_target_classes": spec.supports_target_classes,
+                        "label": spec.label,
+                        "reason": str(dec.reason or ""),
+                    }
+                payload["image_segmenter_policies"] = img_policies
+            except Exception:
+                payload["image_segmenter_policies"] = {}
+        if view == "colour":
+            try:
+                from .commercial_policy import enabled as commercial_guard_enabled, evaluate_component
+                from .video_segmenters import DEFAULT_SEGMENTER_REGISTRY
+
+                guard_on = commercial_guard_enabled(settings_snapshot)
+                sam2_decision = evaluate_component("sam2", settings=settings_snapshot, component_type="tool")
+                payload["sam2_policy"] = {
+                    "allowed": bool(sam2_decision.allowed) or not guard_on,
+                    "reason": str(sam2_decision.reason or ""),
+                }
+                seg_policies: dict[str, dict] = {}
+                for spec in DEFAULT_SEGMENTER_REGISTRY.list_specs():
+                    decisions = [
+                        evaluate_component(cid, settings=settings_snapshot, component_type="tool")
+                        for cid in (spec.component_id, *spec.extra_component_ids)
+                    ]
+                    blocked = next((d for d in decisions if not d.allowed), None)
+                    seg_policies[spec.name] = {
+                        "allowed": (blocked is None) or (not guard_on),
+                        "status": decisions[0].status,
+                        "license": spec.license,
+                        "commercial_tier": spec.commercial_tier,
+                        "supports_text_prompts": spec.supports_text_prompts,
+                        "label": spec.label,
+                        "reason": str((blocked.reason if blocked else decisions[0].reason) or ""),
+                    }
+                payload["segmenter_policies"] = seg_policies
+            except Exception as exc:
+                payload["sam2_policy"] = {"allowed": False, "reason": str(exc)}
+                payload["segmenter_policies"] = {}
         if view == "color_bible":
             from .color_bible_context import resolve_color_bible_context
             cb_ctx = resolve_color_bible_context(settings_snapshot, ROOT, stage="references")
@@ -4245,7 +4314,11 @@ class PipelineApp:
         return (
             stage_key in {"outpaint", "audio", "upscale"}
             or (stage_key == "colour" and values.get("method", "osi_masked_lab") not in {"openai", "cmnet2", "osi_masked_lab"})
-            or (stage_key == "references" and values.get("method", "qwen") not in {"openai", "ddcolor"})
+            or (
+                stage_key == "references"
+                and values.get("method", "qwen") not in {"openai", "ddcolor"}
+                and values.get("reference_runner", "guided_only") != "ddcolor_only"
+            )
         )
 
     def _prepare_vram_for_launch(self, stage_key: str, *, needs_comfy: bool, uses_runpod: bool) -> None:
@@ -4449,7 +4522,11 @@ class PipelineApp:
             stage_key in {"outpaint", "audio"}
             or (stage_key == "colour" and values.get("method", "osi_masked_lab") not in {"openai", "cmnet2", "osi_masked_lab"})
             or (stage_key == "cleanup" and is_true(values, "dearchive", "true"))
-            or (stage_key == "references" and values.get("method", "qwen") not in {"openai", "ddcolor"})
+            or (
+                stage_key == "references"
+                and values.get("method", "qwen") not in {"openai", "ddcolor"}
+                and values.get("reference_runner", "guided_only") != "ddcolor_only"
+            )
             or stage_key == "upscale"
         )
         if uses_runpod and not self.settings.get("cloud", {}).get("runpod_api_key", "").strip():
@@ -5311,7 +5388,7 @@ class PipelineApp:
         if (
             auto_free_vram_on_exit
             and self._auto_free_vram_enabled()
-            and not self.quitting
+            and not getattr(self, "quitting", False)
             and self._stage_uses_comfy(stage_key)
         ):
             res = vram_manager.free_comfy_vram(

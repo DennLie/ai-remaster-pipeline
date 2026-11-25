@@ -207,6 +207,217 @@
       ]
     },
     {
+      "id": "colour.segmenter.sam21",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "sam21",
+      "status": "cleared",
+      "reason": "Official facebookresearch/sam2 SAM 2.1 code and weights licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/facebookresearch/sam2"
+      ]
+    },
+    {
+      "id": "colour.segmenter.samurai",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "samurai",
+      "status": "cleared",
+      "reason": "Kalman motion/affinity wrapper over official SAM 2.1 Apache-2.0 weights",
+      "evidence": [
+        "https://github.com/facebookresearch/sam2"
+      ]
+    },
+    {
+      "id": "colour.segmenter.edgetam",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "edgetam",
+      "status": "cleared",
+      "reason": "Meta EdgeTAM video segmentation code and weights licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/facebookresearch/EdgeTAM"
+      ]
+    },
+    {
+      "id": "colour.segmenter.cutie",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "cutie",
+      "status": "cleared",
+      "reason": "hkchengrex/Cutie VOS tracker licensed under MIT",
+      "evidence": [
+        "https://github.com/hkchengrex/Cutie"
+      ]
+    },
+    {
+      "id": "colour.segmenter.grounded_sam2",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "grounded_sam2",
+      "status": "cleared",
+      "reason": "Grounding DINO (Apache-2.0) text detector paired with Apache-2.0 SAM 2.1 / EdgeTAM / SAMURAI tracker",
+      "evidence": [
+        "https://github.com/IDEA-Research/Grounded-SAM-2",
+        "https://github.com/IDEA-Research/GroundingDINO",
+        "https://github.com/facebookresearch/sam2"
+      ]
+    },
+    {
+      "id": "colour.segmenter.rf_detr_seg",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "rf_detr_seg",
+      "status": "cleared",
+      "reason": "Roboflow RF-DETR-Seg segmentation models licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/roboflow/rf-detr"
+      ]
+    },
+    {
+      "id": "colour.segmenter.videomama",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "videomama",
+      "status": "cleared",
+      "reason": "VideoMaMa video matting adapter licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/cvlab-kaist/VideoMaMa"
+      ]
+    },
+    {
+      "id": "colour.segmenter.sam3",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "sam3",
+      "status": "restricted",
+      "reason": "Meta SAM 3 is governed by the Meta SAM License (non-commercial / benchmark-only)",
+      "evidence": [
+        "https://github.com/facebookresearch/sam3"
+      ]
+    },
+    {
+      "id": "colour.segmenter.sam31",
+      "stage": "colour",
+      "field": "segmenter",
+      "value": "sam31",
+      "status": "restricted",
+      "reason": "Meta SAM 3.1 is governed by the Meta SAM License (non-commercial / benchmark-only)",
+      "evidence": [
+        "https://github.com/facebookresearch/sam3"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.evf_sam2",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "evf_sam2",
+      "status": "cleared",
+      "reason": "EVF-SAM-2 referring-expression segmentation code and weights licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/hustvl/EVF-SAM"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.florence2",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "florence2",
+      "status": "cleared",
+      "reason": "Microsoft Florence-2 code and weights licensed under MIT",
+      "evidence": [
+        "https://huggingface.co/microsoft/Florence-2-large"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.birefnet",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "birefnet",
+      "status": "cleared",
+      "reason": "BiRefNet and BiRefNet_lite code and weights licensed under MIT",
+      "evidence": [
+        "https://github.com/ZhengPeng7/BiRefNet"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.mask2former",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "mask2former",
+      "status": "cleared",
+      "reason": "Mask2Former code and Swin checkpoints licensed under MIT / Apache-2.0",
+      "evidence": [
+        "https://github.com/facebookresearch/Mask2Former"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.oneformer",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "oneformer",
+      "status": "cleared",
+      "reason": "SHI-Labs OneFormer panoptic/instance/semantic segmentation licensed under MIT",
+      "evidence": [
+        "https://github.com/SHI-Labs/OneFormer"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.grounding_dino",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "grounding_dino",
+      "status": "cleared",
+      "reason": "Grounding DINO open-vocabulary detector licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/IDEA-Research/GroundingDINO"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.rf_detr_seg",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "rf_detr_seg",
+      "status": "cleared",
+      "reason": "Roboflow RF-DETR-Seg segmentation models licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/roboflow/rf-detr"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.sam21_image",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "sam21_image",
+      "status": "cleared",
+      "reason": "Official facebookresearch/sam2 SAM 2.1 single-image mode licensed under Apache-2.0",
+      "evidence": [
+        "https://github.com/facebookresearch/sam2"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.sam3_image",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "sam3_image",
+      "status": "restricted",
+      "reason": "Meta SAM 3 single-image mode is governed by the Meta SAM License (non-commercial / benchmark-only)",
+      "evidence": [
+        "https://github.com/facebookresearch/sam3"
+      ]
+    },
+    {
+      "id": "colour.image_segmenter.sam31_image",
+      "stage": "colour",
+      "field": "image_segmenter",
+      "value": "sam31_image",
+      "status": "restricted",
+      "reason": "Meta SAM 3.1 single-image mode is governed by the Meta SAM License (non-commercial / benchmark-only)",
+      "evidence": [
+        "https://github.com/facebookresearch/sam3"
+      ]
+    },
+    {
       "id": "colour.method.both",
       "stage": "colour",
       "field": "method",

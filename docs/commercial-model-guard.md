@@ -49,6 +49,10 @@ reporting enabled. Existing outputs are not audited.
 | Deep Exemplar | Pending audit, blocked | MIT code does not automatically license every checkpoint/dependency |
 | LTX Colorizer | Blocked | Full bundle not unrestricted |
 | OSI Masked LAB (video colorization) | Allowed (OSI) | Apache-2.0 / OpenCV DIS Optical Flow + native He et al. Guided Filter + SAM 2.1 Apache-2.0 masks, 100% OSI commercial-cleared |
+| Shot mask segmenters (`sam21`, `samurai`, `edgetam`, `cutie`, `grounded_sam2`, `rf_detr_seg`, `videomama`) | Allowed (OSI) | Apache-2.0 / MIT video segmentation and matting backends writing compressed `.masks.npz` |
+| Shot mask segmenters (`sam3`, `sam31`) | Blocked | Meta SAM License — non-commercial / benchmark-only unless guard override is explicitly active |
+| Keyframe still segmenters (`evf_sam2`, `florence2`, `birefnet`, `mask2former`, `oneformer`, `grounding_dino`, `rf_detr_seg`, `sam21_image`) | Allowed (OSI) | Apache-2.0 / MIT still-image segmentation models generating binary masks and JSON sidecars |
+| Keyframe still segmenters (`sam3_image`, `sam31_image`) | Blocked | Meta SAM License — non-commercial / benchmark-only unless guard override is explicitly active |
 | Stable Audio Open / MMAudio | Pending audit, blocked | Weight and dependency terms need review |
 | FlashVSR / SeedVR2 / LTX upscale | Pending audit or restricted, blocked | Checkpoint / dependency clearance incomplete |
 | Stabilization / shot detection / recomposition | Not blocked | No AI checkpoint selected; other obligations remain |

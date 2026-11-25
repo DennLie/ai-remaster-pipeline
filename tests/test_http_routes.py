@@ -50,6 +50,7 @@ EXPECTED_GET_ROUTES = {
     "/api/color-bible/shot-assignments",
     "/api/color-bible/snapshot-hash",
     "/api/color-bible/qc-summary",
+    "/api/segmenters",
     "/media",
 }
 
@@ -86,7 +87,13 @@ EXPECTED_POST_ROUTES = {
     "/api/color-bible/assign-ranges",
     "/api/color-bible/reference",
     "/api/color-bible/reference-approval",
+    "/api/color-bible/select-film",
+    "/api/color-bible/run-qc",
+    "/api/colour-rerender-failed",
+    "/api/free-vram",
     "/api/sam2-track-shot",
+    "/api/track-shot",
+    "/api/segment-keyframe",
 }
 
 

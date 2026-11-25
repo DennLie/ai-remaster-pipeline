@@ -154,7 +154,6 @@ def base_settings() -> dict[str, dict[str, str]]:
         "commercial_model_guard": "true",
         "non_commercial_benchmark_override": "false",
         "auto_free_vram": "true",
-        "qwen_2511_audited": "false",
         "ic_lora_audited": "false",
         "gemma_encoder_audited": "false",
         "weight_vgg19_audited": "false",

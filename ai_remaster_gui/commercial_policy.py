@@ -427,6 +427,37 @@ def stage_issue(
             pass
         else:
             reasons.append(f"unknown colorization model {model!r} has not been reviewed")
+        segmenter = (values.get("segmenter") or "sam21").strip().lower() or "sam21"
+        allowed_segmenters = {
+            "sam21",
+            "sam2",
+            "sam2.1",
+            "samurai",
+            "edgetam",
+            "cutie",
+            "grounded_sam2",
+            "rf_detr_seg",
+            "videomama",
+        }
+        if segmenter in {"sam3", "sam-3", "sam31", "sam3.1", "sam-3.1"}:
+            reasons.append(f"{segmenter} is governed by the Meta SAM License (non-commercial / benchmark only)")
+        elif segmenter not in allowed_segmenters:
+            reasons.append(f"unknown shot mask segmenter {segmenter!r} has not been reviewed")
+        image_segmenter = (values.get("image_segmenter") or "birefnet").strip().lower() or "birefnet"
+        allowed_image_segmenters = {
+            "evf_sam2",
+            "florence2",
+            "birefnet",
+            "mask2former",
+            "oneformer",
+            "grounding_dino",
+            "rf_detr_seg",
+            "sam21_image",
+        }
+        if image_segmenter in {"sam3_image", "sam3-image", "sam31_image", "sam31-image", "sam3.1-image"}:
+            reasons.append(f"{image_segmenter} is governed by the Meta SAM License (non-commercial / benchmark only)")
+        elif image_segmenter not in allowed_image_segmenters:
+            reasons.append(f"unknown keyframe image segmenter {image_segmenter!r} has not been reviewed")
     elif stage == "audio":
         if _on(values, "create_music", "true"):
             reasons.append("Stable Audio Open checkpoint has not been cleared for unrestricted use")

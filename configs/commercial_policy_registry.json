@@ -50,10 +50,114 @@
         },
         "sam2": {
           "name": "SAM 2 / SAM 2.1",
-          "aliases": ["sam2", "sam2.1", "sam-2", "sam-2.1"],
+          "aliases": ["sam2", "sam21", "sam2.1", "sam-2", "sam-2.1"],
           "license": "Apache-2.0",
           "source_repo": "https://github.com/facebookresearch/sam2",
-          "component_types": ["checkpoint"],
+          "component_types": ["checkpoint", "tool", "tracker"],
+          "audited_hashes": []
+        },
+        "samurai": {
+          "name": "SAMURAI (Kalman-stabilized SAM 2.1)",
+          "aliases": ["samurai", "samurai-sam21"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/facebookresearch/sam2",
+          "component_types": ["tool", "tracker", "checkpoint"],
+          "audited_hashes": []
+        },
+        "edgetam": {
+          "name": "Meta EdgeTAM",
+          "aliases": ["edgetam", "edge-tam"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/facebookresearch/EdgeTAM",
+          "component_types": ["tool", "tracker", "checkpoint"],
+          "audited_hashes": []
+        },
+        "cutie": {
+          "name": "Cutie VOS",
+          "aliases": ["cutie", "hkchengrex-cutie"],
+          "license": "MIT",
+          "source_repo": "https://github.com/hkchengrex/Cutie",
+          "component_types": ["tool", "tracker", "checkpoint"],
+          "audited_hashes": []
+        },
+        "grounding_dino": {
+          "name": "Grounding DINO",
+          "aliases": ["grounding_dino", "grounding-dino", "groundingdino"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/IDEA-Research/GroundingDINO",
+          "component_types": ["detector", "checkpoint"],
+          "audited_hashes": []
+        },
+        "grounded_sam2": {
+          "name": "Grounded-SAM-2 (Grounding DINO + SAM 2.1)",
+          "aliases": ["grounded_sam2", "grounded-sam2", "grounded-sam-2"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/IDEA-Research/Grounded-SAM-2",
+          "component_types": ["tool", "tracker", "checkpoint"],
+          "audited_hashes": []
+        },
+        "rf_detr_seg": {
+          "name": "Roboflow RF-DETR-Seg",
+          "aliases": ["rf_detr_seg", "rf-detr-seg", "rfdetr-seg", "rfdetr"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/roboflow/rf-detr",
+          "component_types": ["tool", "detector", "checkpoint"],
+          "audited_hashes": []
+        },
+        "videomama": {
+          "name": "VideoMaMa",
+          "aliases": ["videomama", "video-mama"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/cvlab-kaist/VideoMaMa",
+          "component_types": ["tool", "checkpoint"],
+          "audited_hashes": []
+        },
+        "evf_sam2": {
+          "name": "EVF-SAM-2",
+          "aliases": ["evf_sam2", "evf-sam2", "evf-sam-2"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/hustvl/EVF-SAM",
+          "component_types": ["tool", "checkpoint"],
+          "audited_hashes": []
+        },
+        "florence2": {
+          "name": "Microsoft Florence-2",
+          "aliases": ["florence2", "florence-2"],
+          "license": "MIT",
+          "source_repo": "https://huggingface.co/microsoft/Florence-2-large",
+          "component_types": ["tool", "checkpoint"],
+          "audited_hashes": []
+        },
+        "birefnet": {
+          "name": "BiRefNet / BiRefNet_lite",
+          "aliases": ["birefnet", "birefnet-lite", "birefnet_lite"],
+          "license": "MIT",
+          "source_repo": "https://github.com/ZhengPeng7/BiRefNet",
+          "component_types": ["tool", "checkpoint"],
+          "audited_hashes": []
+        },
+        "mask2former": {
+          "name": "Mask2Former",
+          "aliases": ["mask2former", "mask2-former"],
+          "license": "MIT / Apache-2.0",
+          "source_repo": "https://github.com/facebookresearch/Mask2Former",
+          "component_types": ["tool", "checkpoint"],
+          "audited_hashes": []
+        },
+        "oneformer": {
+          "name": "SHI-Labs OneFormer",
+          "aliases": ["oneformer", "one-former"],
+          "license": "MIT",
+          "source_repo": "https://github.com/SHI-Labs/OneFormer",
+          "component_types": ["tool", "checkpoint"],
+          "audited_hashes": []
+        },
+        "sam21_image": {
+          "name": "SAM 2.1 Single-Image Mode",
+          "aliases": ["sam21_image", "sam21-image", "sam2.1-image"],
+          "license": "Apache-2.0",
+          "source_repo": "https://github.com/facebookresearch/sam2",
+          "component_types": ["tool", "checkpoint"],
           "audited_hashes": []
         },
         "bytetrack": {
@@ -157,12 +261,33 @@
           "source_repo": "https://huggingface.co/MiniMaxAI",
           "reason": "Territorial and commercial restrictions incompatible with unrestricted commercial remaster workflows."
         },
+        "sam3": {
+          "name": "Meta SAM 3",
+          "aliases": ["sam3", "sam-3"],
+          "license": "Meta SAM License",
+          "source_repo": "https://github.com/facebookresearch/sam3",
+          "reason": "Governed by the Meta SAM License (restricted non-commercial / benchmark-only terms); prohibited in commercial remaster workflows."
+        },
         "sam3.1": {
-          "name": "SAM 3.1",
-          "aliases": ["sam3", "sam3.1", "sam-3.1"],
-          "license": "Non-Commercial Research",
-          "source_repo": "https://github.com/facebookresearch/segment-anything",
-          "reason": "Restricted research-only license prohibits commercial use."
+          "name": "Meta SAM 3.1",
+          "aliases": ["sam31", "sam3.1", "sam-3.1"],
+          "license": "Meta SAM License",
+          "source_repo": "https://github.com/facebookresearch/sam3",
+          "reason": "Governed by the Meta SAM License (restricted non-commercial / benchmark-only terms); prohibited in commercial remaster workflows."
+        },
+        "sam3_image": {
+          "name": "Meta SAM 3 Single-Image Mode",
+          "aliases": ["sam3_image", "sam3-image"],
+          "license": "Meta SAM License",
+          "source_repo": "https://github.com/facebookresearch/sam3",
+          "reason": "Governed by the Meta SAM License (restricted non-commercial / benchmark-only terms); prohibited in commercial remaster workflows."
+        },
+        "sam31_image": {
+          "name": "Meta SAM 3.1 Single-Image Mode",
+          "aliases": ["sam31_image", "sam31-image", "sam3.1-image"],
+          "license": "Meta SAM License",
+          "source_repo": "https://github.com/facebookresearch/sam3",
+          "reason": "Governed by the Meta SAM License (restricted non-commercial / benchmark-only terms); prohibited in commercial remaster workflows."
         }
       }
     }

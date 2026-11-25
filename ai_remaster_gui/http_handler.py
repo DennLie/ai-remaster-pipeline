@@ -496,6 +496,7 @@ class Handler(BaseHTTPRequestHandler):
                     stage="references",
                     explicit_db=query.get("color_bible_db", [""])[0].strip(),
                     explicit_film_id=query.get("film_id", [""])[0].strip(),
+                    allow_auto_film=False,
                 )
                 film_id = cb_ctx["film_id"]
                 raw_index = query.get("shot_index", [""])[0]
@@ -562,6 +563,7 @@ class Handler(BaseHTTPRequestHandler):
                     stage="references",
                     explicit_db=query.get("color_bible_db", [""])[0].strip(),
                     explicit_film_id=query.get("film_id", [""])[0].strip(),
+                    allow_auto_film=False,
                 )
                 film_id = cb_ctx["film_id"]
                 if not film_id:
@@ -615,6 +617,84 @@ class Handler(BaseHTTPRequestHandler):
                     return {"status": "ok", "summary": summary}
 
             self._send_result("Color Bible QC summary", qc_summary_action)
+        elif parsed.path == "/api/segmenters":
+            def list_segmenters_action() -> dict:
+                import importlib.util
+                import sys
+                from .commercial_policy import enabled as commercial_guard_enabled, evaluate_component
+                from .image_segmenters import DEFAULT_IMAGE_SEGMENTER_REGISTRY
+                from .video_segmenters import DEFAULT_SEGMENTER_REGISTRY
+
+                def _probe_available(probes: tuple[str, ...]) -> bool:
+                    for mod_name in probes:
+                        if mod_name in sys.modules:
+                            return True
+                        try:
+                            if importlib.util.find_spec(mod_name) is not None:
+                                return True
+                        except Exception:
+                            continue
+                    return False
+
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                guard_on = commercial_guard_enabled(app_settings)
+
+                img_items = []
+                for spec in DEFAULT_IMAGE_SEGMENTER_REGISTRY.list_specs():
+                    dec = evaluate_component(spec.component_id, settings=app_settings, component_type="tool")
+                    img_items.append({
+                        "name": spec.name,
+                        "label": spec.label,
+                        "component_id": spec.component_id,
+                        "category": spec.category,
+                        "license": spec.license,
+                        "commercial_tier": spec.commercial_tier,
+                        "allowed": bool(dec.allowed) or (not guard_on),
+                        "reason": str(dec.reason or ""),
+                        "supports_text_prompts": spec.supports_text_prompts,
+                        "supports_point_box_prompts": spec.supports_point_box_prompts,
+                        "supports_target_classes": spec.supports_target_classes,
+                        "available": DEFAULT_IMAGE_SEGMENTER_REGISTRY.is_available(spec.name),
+                    })
+
+                vid_probes = {
+                    "sam21": ("sam2",),
+                    "samurai": ("sam2",),
+                    "edgetam": ("edgetam",),
+                    "cutie": ("cutie",),
+                    "grounded_sam2": ("groundingdino", "transformers"),
+                    "rf_detr_seg": ("rfdetr",),
+                    "videomama": ("videomama",),
+                    "sam3": ("sam3",),
+                    "sam31": ("sam3",),
+                }
+                vid_items = []
+                for spec in DEFAULT_SEGMENTER_REGISTRY.list_specs():
+                    decs = [
+                        evaluate_component(cid, settings=app_settings, component_type="tool")
+                        for cid in (spec.component_id, *spec.extra_component_ids)
+                    ]
+                    blocked = next((d for d in decs if not d.allowed), None)
+                    available = _probe_available(vid_probes.get(spec.name, ()))
+                    vid_items.append({
+                        "name": spec.name,
+                        "label": spec.label,
+                        "component_id": spec.component_id,
+                        "license": spec.license,
+                        "commercial_tier": spec.commercial_tier,
+                        "allowed": (blocked is None) or (not guard_on),
+                        "reason": str((blocked.reason if blocked else decs[0].reason) or ""),
+                        "supports_text_prompts": spec.supports_text_prompts,
+                        "available": available,
+                    })
+
+                return {
+                    "commercial_guard_enabled": guard_on,
+                    "image_segmenters": img_items,
+                    "video_trackers": vid_items,
+                }
+
+            self._send_result("Segmenter registry query", list_segmenters_action)
         elif parsed.path == "/media":
             query = parse_qs(parsed.query)
             path = resolve_served(unquote(query.get("path", [""])[0]), served_source_paths())
@@ -1073,7 +1153,10 @@ class Handler(BaseHTTPRequestHandler):
             def create_film_action():
                 from .paths import ROOT
                 app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
-                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=str(data.get("film_id", "")))
+                raw_film_id = str(data.get("film_id", "")).strip()
+                if not raw_film_id:
+                    raise ValueError("film_id must not be empty.")
+                cb_ctx = resolve_color_bible_context(app_settings, ROOT, stage="references", explicit_db=str(data.get("color_bible_db", "")), explicit_film_id=raw_film_id, allow_auto_film=False)
                 film_id = cb_ctx["film_id"]
                 title = str(data.get("title", "")).strip() or None
                 source_video = str(data.get("source_video", "")).strip() or None
@@ -1269,7 +1352,6 @@ class Handler(BaseHTTPRequestHandler):
             )
             self.send_json({"ok": ok, "message": msg, **({"error": msg} if not ok else {})})
         elif parsed.path == "/api/colour-rerender-failed":
-            from .paths import resolve
             raw_indices = data.get("shot_indices")
             indices = [int(i) for i in raw_indices] if isinstance(raw_indices, list) else []
             manifest_str = str(data.get("manifest") or state.APP.settings.get("colour", {}).get("manifest") or "").strip()
@@ -1282,18 +1364,33 @@ class Handler(BaseHTTPRequestHandler):
                             indices.append(idx)
             ok, msg = state.APP.rerender_failed_colour_shots(shot_indices=indices, manifest=manifest_str)
             self.send_json({"ok": ok, "message": msg, **({"error": msg} if not ok else {})})
-        elif parsed.path == "/api/sam2-track-shot":
+        elif parsed.path == "/api/sam2-track-shot" or parsed.path == "/api/track-shot":
             def sam2_track_shot_action() -> dict:
-                from .commercial_policy import evaluate_component, CommercialPolicyError
+                from .commercial_policy import (
+                    CommercialPolicyError,
+                    enabled as commercial_guard_enabled,
+                    evaluate_component,
+                )
                 from .paths import ROOT, is_within, resolve, served_roots
                 from .sam2_tracker import run_shot_tracking_pipeline, verify_sam2_installation
-
-                verify_sam2_installation()
+                from .video_segmenters import DEFAULT_SEGMENTER_REGISTRY
 
                 settings = getattr(state.APP, "settings", {}) if state.APP else {}
-                decision = evaluate_component("sam2", settings=settings, component_type="tool")
-                if not decision.allowed:
-                    raise CommercialPolicyError(f"Commercial Model Guard blocked sam2: {decision.reason}")
+                raw_segmenter = str(
+                    data.get("segmenter")
+                    or settings.get("colour", {}).get("segmenter")
+                    or "sam21"
+                ).strip()
+                spec = DEFAULT_SEGMENTER_REGISTRY.get_spec(raw_segmenter)
+
+                guard_on = commercial_guard_enabled(settings)
+                for cid in (spec.component_id, *spec.extra_component_ids):
+                    decision = evaluate_component(cid, settings=settings, component_type="tool")
+                    if guard_on and not decision.allowed:
+                        raise CommercialPolicyError(f"Commercial Model Guard blocked {cid}: {decision.reason}")
+
+                if spec.name in {"sam21", "samurai"}:
+                    verify_sam2_installation()
 
                 cb_ctx = resolve_color_bible_context(settings, ROOT, stage="colour")
                 shot_index = data.get("shot_index")
@@ -1305,6 +1402,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(prompts, dict):
                     raise ValueError("prompts must be a dictionary.")
 
+                text_prompts = data.get("text_prompts")
+                if text_prompts is not None and not isinstance(text_prompts, (str, list)):
+                    raise ValueError("text_prompts must be a string or list of strings.")
+
+                allowed_roots = served_roots(served_source_paths())
                 resolved_frames = frames
                 if (resolved_frames is None or resolved_frames == "") and shot_index is not None:
                     manifest_str = str(data.get("manifest") or settings.get("colour", {}).get("manifest") or "").strip()
@@ -1314,14 +1416,22 @@ class Handler(BaseHTTPRequestHandler):
                         src_vid_str = manifest_source_video(man_path) or settings.get("global", {}).get("source", "")
                         if src_vid_str:
                             resolved_vid = resolve(src_vid_str)
-                            if any(is_within(resolved_vid, r) for r in served_roots(served_source_paths())):
+                            if any(is_within(resolved_vid, r) for r in allowed_roots):
                                 resolved_frames = resolved_vid
 
                 if isinstance(frames, str) and frames.strip():
                     frame_path = resolve(frames.strip())
-                    if not any(is_within(frame_path, r) for r in served_roots(served_source_paths())):
+                    if not any(is_within(frame_path, r) for r in allowed_roots):
                         raise ValueError("Invalid frames path or path traversal detected.")
                     resolved_frames = frame_path
+                elif isinstance(frames, list):
+                    checked_list = []
+                    for item in frames:
+                        item_path = resolve(str(item).strip())
+                        if not any(is_within(item_path, r) for r in allowed_roots):
+                            raise ValueError("Invalid frames path or path traversal detected.")
+                        checked_list.append(item_path)
+                    resolved_frames = checked_list
 
                 raw_output_npz = data.get("output_npz_path")
                 if raw_output_npz and str(raw_output_npz).strip():
@@ -1334,15 +1444,116 @@ class Handler(BaseHTTPRequestHandler):
                     if not is_within(out_path, ROOT):
                         raise ValueError("Invalid shot_id or path traversal detected.")
 
+                ckpt_raw = data.get("checkpoint_path")
+                resolved_ckpt = None
+                if ckpt_raw is not None and str(ckpt_raw).strip():
+                    ckpt_str = str(ckpt_raw).strip()
+                    ckpt_path = resolve(ckpt_str)
+                    if Path(ckpt_str).is_absolute() or ".." in ckpt_str.replace("\\", "/").split("/"):
+                        if not is_within(ckpt_path, ROOT):
+                            raise ValueError("Invalid checkpoint_path or path traversal detected.")
+                        resolved_ckpt = ckpt_path
+                    else:
+                        resolved_ckpt = ckpt_str
+
+                seed_mask_raw = data.get("seed_mask_path")
+                if seed_mask_raw is not None and str(seed_mask_raw).strip():
+                    from .image_segmenters import load_seed_mask_for_tracker
+                    resolved_seed = resolve_served(str(seed_mask_raw).strip(), served_source_paths())
+                    if not resolved_seed or not resolved_seed.is_file():
+                        raise ValueError("Invalid seed_mask_path or path traversal detected.")
+                    seed_arr = load_seed_mask_for_tracker(resolved_seed)
+                    prompts = dict(prompts)
+                    if 1 not in prompts and "1" not in prompts:
+                        prompts[1] = {
+                            "frame_idx": int(data.get("seed_frame_idx", 0)),
+                            "mask": seed_arr,
+                            "name": resolved_seed.stem,
+                            "entity_type": "object",
+                        }
+
+                alpha_thresh = float(data.get("alpha_threshold", 0.5))
                 produced_path = run_shot_tracking_pipeline(
                     shot_id=shot_id,
                     frames=resolved_frames,
                     prompts=prompts,
                     output_npz_path=out_path,
+                    checkpoint_path=resolved_ckpt,
+                    segmenter=spec.name,
+                    text_prompts=text_prompts,
+                    alpha_threshold=alpha_thresh,
+                    settings=settings,
+                    compliance_output_dir=ROOT / "output",
                 )
                 return {"output_npz_path": str(produced_path)}
 
             self._send_result("SAM2 track shot", sam2_track_shot_action)
+        elif parsed.path == "/api/segment-keyframe":
+            def segment_keyframe_action() -> dict:
+                from .commercial_policy import (
+                    CommercialPolicyError,
+                    enabled as commercial_guard_enabled,
+                    evaluate_component,
+                )
+                from .image_segmenters import DEFAULT_IMAGE_SEGMENTER_REGISTRY, run_keyframe_segmentation
+                from .paths import ROOT, is_within, resolve
+
+                settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                raw_segmenter = str(
+                    data.get("segmenter")
+                    or settings.get("colour", {}).get("image_segmenter")
+                    or "birefnet"
+                ).strip()
+                spec = DEFAULT_IMAGE_SEGMENTER_REGISTRY.get_spec(raw_segmenter)
+
+                guard_on = commercial_guard_enabled(settings)
+                decision = evaluate_component(spec.component_id, settings=settings, component_type="tool")
+                if guard_on and not decision.allowed:
+                    raise CommercialPolicyError(f"Commercial Model Guard blocked {spec.component_id}: {decision.reason}")
+
+                image_str = str(data.get("image_path") or data.get("image") or "").strip()
+                resolved_img = resolve_served(image_str, served_source_paths()) if image_str else None
+                if not resolved_img or not resolved_img.is_file():
+                    raise ValueError("Invalid image_path or path traversal detected.")
+
+                raw_output_mask = data.get("output_mask_path")
+                if raw_output_mask and str(raw_output_mask).strip():
+                    out_mask = resolve(str(raw_output_mask).strip())
+                    if not is_within(out_mask, ROOT):
+                        raise ValueError("Invalid output_mask_path or path traversal detected.")
+                else:
+                    clean_stem = Path(resolved_img.stem).name
+                    out_mask = ROOT / "intermediate" / "keyframe_masks" / f"{clean_stem}_{spec.name}.png"
+                    if not is_within(out_mask, ROOT):
+                        raise ValueError("Invalid output mask path.")
+
+                ckpt_raw = data.get("checkpoint_path")
+                resolved_ckpt = None
+                if ckpt_raw is not None and str(ckpt_raw).strip():
+                    ckpt_str = str(ckpt_raw).strip()
+                    ckpt_path = resolve(ckpt_str)
+                    if Path(ckpt_str).is_absolute() or ".." in ckpt_str.replace("\\", "/").split("/"):
+                        if not is_within(ckpt_path, ROOT):
+                            raise ValueError("Invalid checkpoint_path or path traversal detected.")
+                        resolved_ckpt = ckpt_path
+                    else:
+                        resolved_ckpt = ckpt_str
+
+                return run_keyframe_segmentation(
+                    image=resolved_img,
+                    output_mask_path=out_mask,
+                    segmenter=spec.name,
+                    text_prompt=data.get("text_prompt"),
+                    points=data.get("points"),
+                    boxes=data.get("boxes"),
+                    target_classes=data.get("target_classes"),
+                    alpha_threshold=float(data.get("alpha_threshold", 0.5)),
+                    checkpoint_path=resolved_ckpt,
+                    settings=settings,
+                    compliance_output_dir=ROOT / "output",
+                )
+
+            self._send_result("Keyframe segmentation", segment_keyframe_action)
         else:
             self.send_error(404)
 

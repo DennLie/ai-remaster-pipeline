@@ -229,6 +229,115 @@ class ColorizationCliContractsTests(unittest.TestCase):
         self.assertFalse(bundle_name_allowed("intermediate/shot_masks/evil.exe"))
         self.assertFalse(bundle_name_allowed("../manifests/color_bible.db"))
 
+    def test_color_bible_context_auto_detects_film_from_sqlite_without_overwriting(self) -> None:
+        from ai_remaster_gui.color_bible_context import resolve_color_bible_context
+        from ai_remaster_gui.color_bible_service import ColorBibleService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "manifests" / "color_bible.db"
+            with ColorBibleService(db_path=db_path) as svc:
+                svc.create_film("alpha_cut", title="Alpha", source_video="input/alpha_cut.mp4")
+
+            # Single film fallback when source doesn't explicitly match
+            ctx_single = resolve_color_bible_context({"global": {"source": ""}}, root, stage="references")
+            self.assertEqual(ctx_single["film_id"], "alpha_cut")
+            self.assertEqual(ctx_single["film_id_source"], "auto_single")
+
+            # Multi-film DB: matches source stem or source_video, stays empty if ambiguous
+            with ColorBibleService(db_path=db_path) as svc:
+                svc.create_film("beta_reel", title="Beta", source_video="input/other_beta_source.mov")
+
+            ctx_by_stem = resolve_color_bible_context(
+                {"global": {"source": "D:/clips/alpha_cut.mkv"}}, root, stage="colour"
+            )
+            self.assertEqual(ctx_by_stem["film_id"], "alpha_cut")
+            self.assertEqual(ctx_by_stem["film_id_source"], "auto_source")
+
+            ctx_by_src = resolve_color_bible_context(
+                {"global": {"source": "E:/archive/other_beta_source.mov"}}, root, stage="references"
+            )
+            self.assertEqual(ctx_by_src["film_id"], "beta_reel")
+            self.assertEqual(ctx_by_src["film_id_source"], "auto_source")
+
+            ctx_ambig = resolve_color_bible_context(
+                {"global": {"source": "E:/archive/unrelated.mkv"}}, root, stage="references"
+            )
+            self.assertEqual(ctx_ambig["film_id"], "")
+            self.assertEqual(ctx_ambig["film_id_source"], "")
+
+            # Non-existent DB must never create an empty SQLite file during read-only resolve
+            missing_root = root / "clean_root"
+            missing_root.mkdir()
+            ctx_missing = resolve_color_bible_context({"global": {}}, missing_root, stage="references")
+            self.assertFalse(ctx_missing["exists"])
+            self.assertFalse((missing_root / "manifests" / "color_bible.db").exists())
+
+    def test_preprocessing_problem_reports_actionable_upstream_regenerate_and_dry_run(self) -> None:
+        from ai_remaster_gui.server import PipelineApp
+
+        app_inst = PipelineApp.__new__(PipelineApp)
+        app_inst.settings = {
+            "global": {},
+            "shots": {"force": "true", "dry_run": "false"},
+            "references": {},
+        }
+        plan = {
+            "problems": [],
+            "nodes": {
+                "shots": {"problem": "", "bindings": {"source": "in.mkv", "manifest": "m.csv"}},
+                "references": {"problem": "", "bindings": {"source": "in.mkv", "manifest": "m.csv"}},
+            },
+        }
+        with (
+            mock.patch("ai_remaster_gui.stage_plan.pipeline_configured", return_value=True),
+            mock.patch.object(app_inst, "pipeline_plan", return_value=plan),
+            mock.patch.object(app_inst, "stage_is_current", side_effect=[False, True]),
+        ):
+            msg = app_inst.preprocessing_problem("references")
+            self.assertIn("Shot Detection", msg)
+            self.assertIn("Regenerate", msg)
+
+        app_inst.settings["shots"] = {"force": "false", "dry_run": "true"}
+        with (
+            mock.patch("ai_remaster_gui.stage_plan.pipeline_configured", return_value=True),
+            mock.patch.object(app_inst, "pipeline_plan", return_value=plan),
+            mock.patch.object(app_inst, "stage_is_current", side_effect=[False, True]),
+        ):
+            msg_dry = app_inst.preprocessing_problem("references")
+            self.assertIn("Shot Detection", msg_dry)
+            self.assertIn("Dry run", msg_dry)
+
+        # When outputs are genuinely missing/stale, preserve standard message
+        app_inst.settings["shots"] = {"force": "true", "dry_run": "false"}
+        with (
+            mock.patch("ai_remaster_gui.stage_plan.pipeline_configured", return_value=True),
+            mock.patch.object(app_inst, "pipeline_plan", return_value=plan),
+            mock.patch.object(app_inst, "stage_is_current", side_effect=[False, False]),
+        ):
+            msg_stale = app_inst.preprocessing_problem("references")
+            self.assertIn("Run shots first", msg_stale)
+
+    def test_references_routing_and_comfy_skip_for_ddcolor_only(self) -> None:
+        from ai_remaster_gui.server import PipelineApp
+
+        app_inst = PipelineApp.__new__(PipelineApp)
+        app_inst.settings = {
+            "global": {},
+            "references": {"method": "ddcolor", "reference_runner": "guided_only", "manifest": "m.csv"},
+        }
+        app_inst.settings["references"] = {"method": "qwen", "reference_runner": "ddcolor_only", "manifest": "m.csv"}
+        self.assertFalse(app_inst._stage_uses_comfy("references"))
+        with mock.patch("ai_remaster_gui.server.qwen_workflow_for", return_value="workflows/qwen.json"):
+            cmd_qwen_dd = app_inst._references_command({}, app_inst.settings["references"])
+            self.assertEqual(cmd_qwen_dd[cmd_qwen_dd.index("--reference-runner") + 1], "ddcolor_only")
+
+        app_inst.settings["references"] = {"method": "qwen", "reference_runner": "auto", "manifest": "m.csv"}
+        self.assertTrue(app_inst._stage_uses_comfy("references"))
+        with mock.patch("ai_remaster_gui.server.qwen_workflow_for", return_value="workflows/qwen.json"):
+            cmd_auto = app_inst._references_command({}, app_inst.settings["references"])
+            self.assertEqual(cmd_auto[cmd_auto.index("--reference-runner") + 1], "auto")
+
 
 if __name__ == "__main__":
     unittest.main()

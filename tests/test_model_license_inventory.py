@@ -22,6 +22,10 @@ MODEL_SELECTORS = {
     "colour": "method",
     "upscale": "method",
 }
+EXTRA_MODEL_SELECTORS = (
+    ("colour", "segmenter"),
+    ("colour", "image_segmenter"),
+)
 MODEL_FLAGS = {
     ("cleanup", "ai_descratch", "true"),
     ("cleanup", "dearchive", "true"),
@@ -37,10 +41,10 @@ class ModelLicenseInventoryTests(unittest.TestCase):
 
     def test_each_gui_model_choice_is_inventory_covered(self):
         expected = set(MODEL_FLAGS)
-        for stage in STAGES:
-            selector = MODEL_SELECTORS.get(stage.key)
-            if not selector:
-                continue
+        stage_map = {stage.key: stage for stage in STAGES}
+        selector_pairs = list(MODEL_SELECTORS.items()) + list(EXTRA_MODEL_SELECTORS)
+        for stage_key, selector in selector_pairs:
+            stage = stage_map[stage_key]
             field = next(item for item in stage.fields if item[0] == selector)
             self.assertTrue(field[2].startswith("select:"), (stage.key, selector))
             expected.update((stage.key, selector, option) for option in field[2].split(":", 1)[1].split("|"))
