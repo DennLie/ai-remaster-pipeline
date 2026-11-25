@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+from contextvars import ContextVar
+from functools import wraps
 import io
 import json
 import hashlib
@@ -17,6 +19,20 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+_STATE_SNAPSHOT_CACHE: ContextVar[dict[Any, Any] | None] = ContextVar("arp_state_snapshot_cache", default=None)
+
+
+def _with_state_snapshot_cache(function):
+    """Memoize expensive pure lookups strictly within a single PipelineApp.state() response."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        token = _STATE_SNAPSHOT_CACHE.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _STATE_SNAPSHOT_CACHE.reset(token)
+    return wrapped
 
 from .config import (
     ASPECT_PREVIEW_DIR,
@@ -2174,9 +2190,25 @@ class PipelineApp:
             raise ValueError('Inspect and explicitly adopt the current Dust & Scratches repair first.')
 
     def pipeline_plan(self):
-        return complete_pipeline_plan(self.settings)
+        cache = _STATE_SNAPSHOT_CACHE.get()
+        if cache is None:
+            return complete_pipeline_plan(self.settings)
+        key = ("pipeline_plan", id(self), json.dumps(self.settings, sort_keys=True))
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        plan = complete_pipeline_plan(self.settings)
+        cache[key] = plan
+        return plan
 
     def hydrate_pipeline_bindings(self):
+        cache = _STATE_SNAPSHOT_CACHE.get()
+        pre_key = None
+        if cache is not None:
+            pre_key = ("hydrate_bindings", id(self), json.dumps(self.settings, sort_keys=True))
+            cached = cache.get(pre_key)
+            if cached is not None:
+                return cached
         self._sync_dust_edit_binding()
         plan=self.pipeline_plan()
         if plan['nodes'].get('upscale',{}).get('input'):
@@ -2192,6 +2224,10 @@ class PipelineApp:
             if key=='recomp':values.update(row['bindings'])
             if key in ('audio','upscale','stabilize'):values['input_video']=row['input']
             if key not in ('shots','references'):values['output']=row['output']
+        if cache is not None and pre_key is not None:
+            post_key = ("hydrate_bindings", id(self), json.dumps(self.settings, sort_keys=True))
+            cache[pre_key] = plan
+            cache[post_key] = plan
         return plan
 
     def outpaint_source_for(self) -> str:
@@ -2744,6 +2780,7 @@ class PipelineApp:
                 label = "Finishing: " + label
         return {"key": self.running_stage_key, "stage": self.running_stage, "percent": percent, "label": label}
 
+    @_with_state_snapshot_cache
     @readiness_snapshot
     def state(self, view: str = "", retry_section: bool = False) -> dict:
         with self.lock:

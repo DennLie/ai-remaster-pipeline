@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import csv
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -261,8 +262,34 @@ def detector_strategy_config(strategy, o):
     return cfg
 
 
+_DIGEST_LOCK = threading.Lock()
+_DIGEST_CACHE_MIN_BYTES = 65536
+_METADATA_LOCK = threading.Lock()
+
+
+@lru_cache(maxsize=128)
+def _digest_cached(path_text: str, _size: int, _mtime_ns: int, _ctime_ns: int) -> str:
+    with Path(path_text).open('rb') as f:
+        if hasattr(hashlib, 'file_digest'):
+            return hashlib.file_digest(f, 'sha256').hexdigest()
+        h = hashlib.sha256()
+        while chunk := f.read(65536):
+            h.update(chunk)
+        return h.hexdigest()
+
+
 def digest(path):
-    with Path(path).open('rb') as f:
+    target = Path(path)
+    try:
+        st = target.stat()
+        resolved = str(target.resolve())
+    except OSError:
+        st = None
+        resolved = ''
+    if st is not None and st.st_size >= _DIGEST_CACHE_MIN_BYTES and resolved:
+        with _DIGEST_LOCK:
+            return _digest_cached(resolved, st.st_size, st.st_mtime_ns, getattr(st, 'st_ctime_ns', 0))
+    with target.open('rb') as f:
         if hasattr(hashlib, 'file_digest'):
             return hashlib.file_digest(f, 'sha256').hexdigest()
         h = hashlib.sha256()
@@ -586,16 +613,39 @@ def resolve_edit_signature(
     return str(resolve_edit_context(source, values, root=root)['edit_signature'])
 
 
-def metadata(source):
+@lru_cache(maxsize=64)
+def _metadata_cached(path_text: str, _size: int, _mtime_ns: int, _ctime_ns: int) -> tuple[tuple[str, Any], ...]:
     ffprobe = str(Path(find_ffmpeg()).with_name('ffprobe.exe' if sys.platform == 'win32' else 'ffprobe'))
     d = json.loads(subprocess.check_output([ffprobe, '-v', 'error', '-select_streams', 'v:0',
-        '-count_frames', '-show_entries', 'stream=width,height,avg_frame_rate,nb_read_frames,pix_fmt,color_transfer,color_space,color_range,color_primaries', '-of', 'json', str(source)], text=True))['streams'][0]
+        '-count_frames', '-show_entries', 'stream=width,height,avg_frame_rate,nb_read_frames,pix_fmt,color_transfer,color_space,color_range,color_primaries', '-of', 'json', path_text], text=True))['streams'][0]
     from fractions import Fraction
     fps = Fraction(d['avg_frame_rate'])
     if fps <= 0 or int(d['nb_read_frames']) < 1:
         raise ValueError('Invalid source cadence/frame count.')
-    return {'width': int(d['width']), 'height': int(d['height']), 'frames': int(d['nb_read_frames']), 'fps': str(fps), 'pixel_format': d['pix_fmt'], 'transfer': d.get('color_transfer', 'unknown'),
-            **{key:d.get(key, 'unknown') for key in ('color_space','color_range','color_primaries')}}
+    info = {
+        'width': int(d['width']),
+        'height': int(d['height']),
+        'frames': int(d['nb_read_frames']),
+        'fps': str(fps),
+        'pixel_format': d['pix_fmt'],
+        'transfer': d.get('color_transfer', 'unknown'),
+        **{key: d.get(key, 'unknown') for key in ('color_space', 'color_range', 'color_primaries')},
+    }
+    return tuple(info.items())
+
+
+def metadata(source):
+    target = Path(source)
+    try:
+        st = target.stat()
+        resolved = str(target.resolve())
+    except OSError:
+        resolved = str(target)
+        st = None
+    if st is not None:
+        with _METADATA_LOCK:
+            return dict(_metadata_cached(resolved, st.st_size, st.st_mtime_ns, getattr(st, 'st_ctime_ns', 0)))
+    return dict(_metadata_cached.__wrapped__(resolved, -1, -1, -1))
 
 
 def validate_repair_timeline(source, meta):

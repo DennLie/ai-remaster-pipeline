@@ -356,3 +356,61 @@ def test_ollama_calls_send_keep_alive_zero(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     assert audio_models.run_ollama_caption("http://127.0.0.1:11434", "gemma3:4b", image_path=img, question="What?") == "quiet room"
     assert captured_audio[0]["keep_alive"] == 0
+
+
+def test_dust_metadata_caches_and_invalidates_on_stat_change(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import os
+    from ai_remaster_gui import dust
+
+    dust._metadata_cached.cache_clear()
+    sample = tmp_path / "clip.mkv"
+    sample.write_bytes(b"frame-data-1")
+    calls = 0
+
+    def fake_check_output(*_args, **_kwargs) -> str:
+        nonlocal calls
+        calls += 1
+        return json.dumps({
+            "streams": [{
+                "width": 640,
+                "height": 480,
+                "avg_frame_rate": "24/1",
+                "nb_read_frames": str(10 + calls),
+                "pix_fmt": "gray",
+            }]
+        })
+
+    monkeypatch.setattr(dust.subprocess, "check_output", fake_check_output)
+    first = dust.metadata(sample)
+    second = dust.metadata(sample)
+    first["frames"] = 999  # caller mutation must not pollute cache
+    third = dust.metadata(sample)
+    assert calls == 1
+    assert second["frames"] == 11
+    assert third["frames"] == 11
+
+    # Touch mtime/size -> must invalidate and re-probe
+    sample.write_bytes(b"frame-data-1-updated")
+    stat = sample.stat()
+    os.utime(sample, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000))
+    fourth = dust.metadata(sample)
+    assert calls == 2
+    assert fourth["frames"] == 12
+
+
+def test_state_memoizes_pipeline_plan_and_bindings_per_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_remaster_gui import server
+
+    plan_calls = 0
+    real_complete = server.complete_pipeline_plan
+
+    def counted_complete(settings_dict):
+        nonlocal plan_calls
+        plan_calls += 1
+        return real_complete(settings_dict)
+
+    monkeypatch.setattr(server, "complete_pipeline_plan", counted_complete)
+    payload = server.APP.state("global")
+    assert isinstance(payload.get("stages"), list)
+    assert plan_calls <= 2
+

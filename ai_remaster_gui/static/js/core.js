@@ -9,6 +9,7 @@ let tabEpoch = 0;
 let tabLoading = false;
 let refreshEpoch = 0;
 let refreshApplied = 0;
+let refreshInFlight = false;
 let pipelineNavSignature = '';
 
 const media = path => '/media?path=' + encodeURIComponent(path);
@@ -29,6 +30,16 @@ async function api(path, opts = {}) {
 }
 
 async function refresh(force = false) {
+  if (quitting || tabLoading || (refreshInFlight && !force)) return;
+  refreshInFlight = true;
+  try {
+    return await _refreshInner(force);
+  } finally {
+    refreshInFlight = false;
+  }
+}
+
+async function _refreshInner(force = false) {
   if (quitting || tabLoading) return;
   const tab=active,epoch=tabEpoch,request=++refreshEpoch;
   const snap = captureScrollState();

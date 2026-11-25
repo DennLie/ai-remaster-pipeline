@@ -27,5 +27,6 @@ function scheduleNextRefresh() {
   }, 4000);
 }
 
-refresh();
-scheduleNextRefresh();
+refresh().finally(() => {
+  if (!quitting) scheduleNextRefresh();
+});
