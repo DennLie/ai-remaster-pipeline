@@ -2960,6 +2960,13 @@ class PipelineApp:
             except Exception as exc:
                 cb_state = {"error": str(exc), "film_id": cb_ctx["film_id"], "db_path": cb_ctx["db_rel"], "film_count": 0, "films": []}
             payload["color_bible"] = cb_state
+        if view in {"global", "references", "colour", "color_bible", "settings"}:
+            try:
+                from .managed_model_envs import inspect_all_envs
+
+                payload["model_envs"] = inspect_all_envs(settings=settings_snapshot)
+            except Exception:
+                payload["model_envs"] = {}
         if view in {"shots", "references", "colour", "upscale"}:
             payload["shot_views"] = shot_views(settings_snapshot, view)
         if view == "recomp":
@@ -5495,6 +5502,37 @@ class PipelineApp:
         cmd = self._colour_command(current_config(), values)
         cmd.extend(["--only-shots", ",".join(str(i) for i in sorted(set(indices))), "--force"])
         return self.start_background_command(f"Re-render {len(indices)} shot(s)", cmd, stage_key="colour")
+
+    def install_model_env(
+        self,
+        env_name: str,
+        *,
+        cpu: bool = False,
+        dry_run: bool = False,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Validate policy and launch managed isolated environment setup without blocking HTTP threads."""
+        from .managed_model_envs import get_env_spec, install_env, require_env_policy
+
+        spec = get_env_spec(env_name)
+        require_env_policy(spec.name, settings=self.settings, allow_non_commercial=False)
+
+        if dry_run:
+            plan = install_env(
+                spec.name,
+                cuda=not cpu,
+                allow_non_commercial=not spec.commercial_safe,
+                dry_run=True,
+                settings=self.settings,
+            )
+            return True, f"Dry-run install plan prepared for '{spec.name}'.", plan
+
+        cmd = [sys.executable, "-u", str(SCRIPTS / "setup_model_env.py"), "install", spec.name]
+        if cpu:
+            cmd.append("--cpu")
+        if not spec.commercial_safe:
+            cmd.append("--allow-non-commercial-benchmark")
+        ok, msg = self.start_background_command(f"Install model env: {spec.name}", cmd, stage_key="")
+        return ok, msg, {"env_name": spec.name, "command": cmd, "async": True}
 
     def _record_stage_compliance(self, stage_key: str) -> None:
         try:

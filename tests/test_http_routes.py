@@ -51,6 +51,7 @@ EXPECTED_GET_ROUTES = {
     "/api/color-bible/snapshot-hash",
     "/api/color-bible/qc-summary",
     "/api/segmenters",
+    "/api/model-envs",
     "/media",
 }
 
@@ -94,6 +95,7 @@ EXPECTED_POST_ROUTES = {
     "/api/sam2-track-shot",
     "/api/track-shot",
     "/api/segment-keyframe",
+    "/api/model-envs/install",
 }
 
 

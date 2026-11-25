@@ -1537,6 +1537,13 @@ button:focus-visible {
 .seg-section-badge { display: inline-block; padding: 1px 7px; margin-right: 6px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #1d2f45; color: #8dc5ff; border: 1px solid #2e4b6e; }
 .seg-nc-badge { display: inline-block; padding: 1px 7px; margin-left: 6px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #481414; color: #ff8e8e; border: 1px solid #732222; }
 .cb-keyframe-seg-box { padding: 10px 12px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 6px; background: color-mix(in srgb, var(--panel) 55%, var(--bg)); }
+.env-pill { display: inline-block; padding: 2px 8px; margin-left: 6px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid var(--line); }
+.env-pill.ready { background: #16432f; color: #4ee09b; border-color: #236c4b; }
+.env-pill.missing { background: #262e35; color: #b7c4cd; border-color: #3d4b56; }
+.env-pill.installing { background: #1d2f45; color: #8dc5ff; border-color: #2e4b6e; }
+.env-pill.error { background: #481414; color: #ff8e8e; border-color: #732222; }
+.model-env-grid { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+.model-env-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
 
 .cb-qc-summary-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 16px; }
 .cb-qc-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

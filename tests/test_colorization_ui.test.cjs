@@ -282,3 +282,34 @@ test('two-step Keyframe Image Segmenter vs Video Mask Tracker UI separation work
   assert.ok(cbBoxHtml.includes('Send to Video Tracker'));
   assert.ok(ctx.selectOptionLabel('image_segmenter', 'sam3_image').includes('Non-Commercial'));
 });
+
+test('managed model environment pills, 1-click install buttons, and Settings panel render accurately', () => {
+  const ctx = loadJsHelpers();
+  ctx.state.shot_views = { colour: [{ index: 0, shot_id: 'film_01_0', has_masks: false }] };
+  ctx.state.model_envs = {
+    transformers_seg: { env_name: 'transformers_seg', status: 'ready', ready: true, torch_flavor: 'cuda' },
+    sam2_family: { env_name: 'sam2_family', status: 'missing', ready: false, torch_flavor: 'uninstalled' },
+    ddcolor_env: { env_name: 'ddcolor_env', status: 'missing', ready: false, torch_flavor: 'uninstalled' },
+    vos_matting: { env_name: 'vos_matting', status: 'missing', ready: false, torch_flavor: 'uninstalled' },
+    noncommercial_research: { env_name: 'noncommercial_research', status: 'missing', ready: false, torch_flavor: 'uninstalled' },
+  };
+
+  // Colorization Step 1 shows Ready (managed env) for birefnet while Step 2 shows Not installed + Install Environment for sam21
+  const osiHtml = ctx.osiMaskStatusHtml({ method: 'osi_masked_lab', image_segmenter: 'birefnet', segmenter: 'sam21' });
+  assert.ok(osiHtml.includes('Ready (managed env)'));
+  assert.ok(osiHtml.includes('Not installed'));
+  assert.ok(osiHtml.includes("installModelEnv(\"sam2_family\", false)"));
+
+  // References tab shows DDColor env status bar with Install Environment
+  const ddHtml = ctx.renderDdcolorEnvStatusHtml({ method: 'ddcolor', reference_runner: 'guided_only' });
+  assert.ok(ddHtml.includes('ddcolor_env'));
+  assert.ok(ddHtml.includes('Install Environment'));
+  assert.equal(ctx.renderDdcolorEnvStatusHtml({ method: 'qwen', reference_runner: 'guided_only' }), '');
+
+  // Settings tab renders all 5 isolated env groups
+  const settingsEnvsHtml = ctx.managedModelEnvsSettingsHtml();
+  for (const envName of ['transformers_seg', 'sam2_family', 'ddcolor_env', 'vos_matting', 'noncommercial_research']) {
+    assert.ok(settingsEnvsHtml.includes(envName));
+  }
+  assert.ok(settingsEnvsHtml.includes('Blocked while Commercial Model Guard is ON'));
+});

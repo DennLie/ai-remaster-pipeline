@@ -85,7 +85,16 @@ def _load_prompts_json(raw: str | None) -> dict[int, dict[str, Any]]:
         loaded = json.loads(raw)
     if not isinstance(loaded, dict):
         raise ValueError("--prompts-json must decode to a JSON object mapping object IDs to prompt specs.")
-    return {int(k): v for k, v in loaded.items()}
+    normalized: dict[int, dict[str, Any]] = {}
+    for k, val in loaded.items():
+        entry = dict(val or {})
+        mask_path = entry.pop("mask_path", None)
+        if mask_path and entry.get("mask") is None:
+            from ai_remaster_gui.image_segmenters import load_seed_mask_for_tracker
+
+            entry["mask"] = load_seed_mask_for_tracker(Path(str(mask_path)))
+        normalized[int(k)] = entry
+    return normalized
 
 
 def main(argv: Sequence[str] | None = None) -> int:

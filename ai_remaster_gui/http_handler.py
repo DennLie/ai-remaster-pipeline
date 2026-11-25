@@ -619,22 +619,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_result("Color Bible QC summary", qc_summary_action)
         elif parsed.path == "/api/segmenters":
             def list_segmenters_action() -> dict:
-                import importlib.util
-                import sys
                 from .commercial_policy import enabled as commercial_guard_enabled, evaluate_component
                 from .image_segmenters import DEFAULT_IMAGE_SEGMENTER_REGISTRY
                 from .video_segmenters import DEFAULT_SEGMENTER_REGISTRY
-
-                def _probe_available(probes: tuple[str, ...]) -> bool:
-                    for mod_name in probes:
-                        if mod_name in sys.modules:
-                            return True
-                        try:
-                            if importlib.util.find_spec(mod_name) is not None:
-                                return True
-                        except Exception:
-                            continue
-                    return False
 
                 app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
                 guard_on = commercial_guard_enabled(app_settings)
@@ -642,6 +629,7 @@ class Handler(BaseHTTPRequestHandler):
                 img_items = []
                 for spec in DEFAULT_IMAGE_SEGMENTER_REGISTRY.list_specs():
                     dec = evaluate_component(spec.component_id, settings=app_settings, component_type="tool")
+                    avail_info = DEFAULT_IMAGE_SEGMENTER_REGISTRY.availability_info(spec.name, settings=app_settings)
                     img_items.append({
                         "name": spec.name,
                         "label": spec.label,
@@ -654,20 +642,12 @@ class Handler(BaseHTTPRequestHandler):
                         "supports_text_prompts": spec.supports_text_prompts,
                         "supports_point_box_prompts": spec.supports_point_box_prompts,
                         "supports_target_classes": spec.supports_target_classes,
-                        "available": DEFAULT_IMAGE_SEGMENTER_REGISTRY.is_available(spec.name),
+                        "available": avail_info["available"],
+                        "runtime": avail_info["runtime"],
+                        "env_name": avail_info["env_name"],
+                        "env_status": avail_info["env_status"],
                     })
 
-                vid_probes = {
-                    "sam21": ("sam2",),
-                    "samurai": ("sam2",),
-                    "edgetam": ("edgetam",),
-                    "cutie": ("cutie",),
-                    "grounded_sam2": ("groundingdino", "transformers"),
-                    "rf_detr_seg": ("rfdetr",),
-                    "videomama": ("videomama",),
-                    "sam3": ("sam3",),
-                    "sam31": ("sam3",),
-                }
                 vid_items = []
                 for spec in DEFAULT_SEGMENTER_REGISTRY.list_specs():
                     decs = [
@@ -675,7 +655,7 @@ class Handler(BaseHTTPRequestHandler):
                         for cid in (spec.component_id, *spec.extra_component_ids)
                     ]
                     blocked = next((d for d in decs if not d.allowed), None)
-                    available = _probe_available(vid_probes.get(spec.name, ()))
+                    avail_info = DEFAULT_SEGMENTER_REGISTRY.availability_info(spec.name, settings=app_settings)
                     vid_items.append({
                         "name": spec.name,
                         "label": spec.label,
@@ -685,7 +665,10 @@ class Handler(BaseHTTPRequestHandler):
                         "allowed": (blocked is None) or (not guard_on),
                         "reason": str((blocked.reason if blocked else decs[0].reason) or ""),
                         "supports_text_prompts": spec.supports_text_prompts,
-                        "available": available,
+                        "available": avail_info["available"],
+                        "runtime": avail_info["runtime"],
+                        "env_name": avail_info["env_name"],
+                        "env_status": avail_info["env_status"],
                     })
 
                 return {
@@ -695,6 +678,19 @@ class Handler(BaseHTTPRequestHandler):
                 }
 
             self._send_result("Segmenter registry query", list_segmenters_action)
+        elif parsed.path == "/api/model-envs":
+            def list_model_envs_action() -> dict:
+                from .commercial_policy import enabled as commercial_guard_enabled
+                from .managed_model_envs import inspect_all_envs, model_to_env_map
+
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                return {
+                    "commercial_guard_enabled": commercial_guard_enabled(app_settings),
+                    "envs": inspect_all_envs(settings=app_settings),
+                    "model_to_env": model_to_env_map(),
+                }
+
+            self._send_result("Model environments status", list_model_envs_action)
         elif parsed.path == "/media":
             query = parse_qs(parsed.query)
             path = resolve_served(unquote(query.get("path", [""])[0]), served_source_paths())
@@ -1390,7 +1386,15 @@ class Handler(BaseHTTPRequestHandler):
                         raise CommercialPolicyError(f"Commercial Model Guard blocked {cid}: {decision.reason}")
 
                 if spec.name in {"sam21", "samurai"}:
-                    verify_sam2_installation()
+                    try:
+                        verify_sam2_installation()
+                    except CommercialPolicyError:
+                        raise
+                    except RuntimeError:
+                        from .managed_model_envs import inspect_env, is_managed_env_active
+
+                        if is_managed_env_active() or not inspect_env("sam2_family", settings=settings)["ready"]:
+                            raise
 
                 cb_ctx = resolve_color_bible_context(settings, ROOT, stage="colour")
                 shot_index = data.get("shot_index")
@@ -1554,6 +1558,24 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
             self._send_result("Keyframe segmentation", segment_keyframe_action)
+        elif parsed.path == "/api/model-envs/install":
+            def install_model_env_action() -> dict:
+                from .managed_model_envs import get_env_spec, require_env_policy
+
+                app_settings = getattr(state.APP, "settings", {}) if state.APP else {}
+                env_name = str(data.get("env_name") or "").strip()
+                spec = get_env_spec(env_name)
+                require_env_policy(spec.name, settings=app_settings, allow_non_commercial=False)
+                ok, msg, extra = state.APP.install_model_env(
+                    spec.name,
+                    cpu=bool(data.get("cpu", False)),
+                    dry_run=bool(data.get("dry_run", False)),
+                )
+                if not ok:
+                    raise RuntimeError(msg)
+                return {"message": msg, **extra}
+
+            self._send_result("Model environment install", install_model_env_action)
         else:
             self.send_error(404)
 

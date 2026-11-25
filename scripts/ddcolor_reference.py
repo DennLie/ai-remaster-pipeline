@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.util
 import io
 import os
 import random
@@ -85,6 +86,30 @@ except ImportError:
             reason = "DDColor Apache-2.0 still reference draft generator"
             sha256 = None
         return _FallbackDecision()
+
+
+try:
+    from ai_remaster_gui.managed_model_envs import (
+        inspect_env as inspect_managed_env,
+        is_managed_env_active,
+        run_in_managed_env,
+    )
+except ImportError:
+    inspect_managed_env = None  # type: ignore[assignment]
+
+    def is_managed_env_active(*args: Any, **kwargs: Any) -> bool:  # type: ignore[no-redef]
+        return False
+
+    run_in_managed_env = None  # type: ignore[assignment]
+
+
+def _ddcolor_package_importable() -> bool:
+    if "ddcolor" in sys.modules:
+        return True
+    try:
+        return importlib.util.find_spec("ddcolor") is not None
+    except Exception:
+        return False
 
 
 def get_commercial_settings(settings: Mapping[str, Any] | None = None) -> Mapping[str, Any] | None:
@@ -221,7 +246,8 @@ def load_model(model_path: Path | str, device: str = "auto", allow_builtin_arch:
                     model = loaded_model
                 else:
                     raise RuntimeError(
-                        f"Checkpoint at '{path}' is an official piddnad/DDColor model, which requires the optional 'ddcolor' package. Install it via 'pip install ddcolor' (or clone https://github.com/piddnad/DDColor), or supply a compatible DDColorModel state dict. Pass --dry-run for synthetic mock mode."
+                        f"Checkpoint at '{path}' is an official piddnad/DDColor model, which requires the optional 'ddcolor' package. "
+                        f"Install it via 'pip install ddcolor' (or clone https://github.com/piddnad/DDColor), or install the isolated managed environment via 'python scripts/setup_model_env.py install ddcolor_env' (or the GUI 'Install Environment' button), or supply a compatible DDColorModel state dict. Pass --dry-run for synthetic mock mode."
                     )
             else:
                 raise ValueError(f"Checkpoint at {path} does not match DDColorModel architecture (0 matching keys).")
@@ -404,8 +430,8 @@ def colorize_reference_shot(
 
     m_path = resolve_path(model_path) if model_path is not None else DEFAULT_MODEL_PATH
 
+    comm_settings = get_commercial_settings(settings)
     if enforce_policy or settings is not None:
-        comm_settings = get_commercial_settings(settings)
         decision = evaluate_component(
             "ddcolor",
             component_type="checkpoint",
@@ -414,6 +440,37 @@ def colorize_reference_shot(
         )
         if not decision.allowed:
             raise CommercialPolicyError(f"Commercial Model Guard blocked DDColor: {decision.reason}")
+
+    if (
+        not dry_run
+        and m_path.is_file()
+        and not _ddcolor_package_importable()
+        and not is_managed_env_active()
+        and inspect_managed_env is not None
+        and run_in_managed_env is not None
+        and inspect_managed_env("ddcolor_env", settings=comm_settings)["ready"]
+    ):
+        argv = [
+            "--input-image",
+            str(src),
+            "--output",
+            str(dst),
+            "--model-path",
+            str(m_path),
+            "--device",
+            str(device),
+        ]
+        if seed is not None:
+            argv.extend(["--seed", str(seed)])
+        run_in_managed_env(
+            "ddcolor_env",
+            Path(__file__),
+            argv,
+            settings=comm_settings,
+        )
+        if not dst.is_file():
+            raise RuntimeError(f"Managed env 'ddcolor_env' did not produce expected output at '{dst}'.")
+        return dst
 
     with Image.open(src) as im:
         rgb_in = np.asarray(im.convert("RGB"))
@@ -804,6 +861,23 @@ def main() -> int:
     )
     if not decision.allowed:
         raise CommercialPolicyError(f"Commercial Model Guard blocked DDColor: {decision.reason}")
+
+    if (
+        not args.dry_run
+        and model_path.is_file()
+        and not _ddcolor_package_importable()
+        and not is_managed_env_active()
+        and inspect_managed_env is not None
+        and run_in_managed_env is not None
+        and inspect_managed_env("ddcolor_env", settings=comm_settings)["ready"]
+    ):
+        run_in_managed_env(
+            "ddcolor_env",
+            Path(__file__),
+            sys.argv[1:],
+            settings=comm_settings,
+        )
+        return 0
 
     # Single-image colorization mode (run only when --manifest is not taking precedence via --row-index)
     if args.input_image and not (args.manifest and args.row_index is not None):

@@ -27,6 +27,7 @@ import importlib
 import importlib.util
 import json
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -44,6 +45,13 @@ from .commercial_policy import (
     compute_sha256,
     enabled as commercial_guard_enabled,
     evaluate_component,
+)
+from .config import ROOT
+from .managed_model_envs import (
+    env_for_model,
+    inspect_env,
+    is_managed_env_active,
+    run_in_managed_env,
 )
 from .video_segmenters import binarize_mask, release_gpu_memory
 
@@ -1191,8 +1199,45 @@ class ImageSegmenterRegistry:
         return list(self._specs.values())
 
     def is_available(self, name: str) -> bool:
+        return self.availability_info(name)["available"]
+
+    def availability_info(
+        self,
+        name: str,
+        *,
+        settings: Mapping[str, Mapping[str, str]] | None = None,
+    ) -> dict[str, Any]:
         spec = self.get_spec(name)
-        return _module_available(spec.probe_modules)
+        env_name = env_for_model(spec.name) or ""
+        local_ok = _module_available(spec.probe_modules)
+        if local_ok:
+            return {
+                "available": True,
+                "runtime": "in_process",
+                "env_name": env_name,
+                "env_status": inspect_env(env_name, settings=settings)["status"] if env_name else "missing",
+            }
+        if env_name:
+            env_info = inspect_env(env_name, settings=settings)
+            if env_info["ready"]:
+                return {
+                    "available": True,
+                    "runtime": f"managed_env:{env_name}",
+                    "env_name": env_name,
+                    "env_status": "ready",
+                }
+            return {
+                "available": False,
+                "runtime": "missing",
+                "env_name": env_name,
+                "env_status": env_info["status"],
+            }
+        return {
+            "available": False,
+            "runtime": "missing",
+            "env_name": "",
+            "env_status": "missing",
+        }
 
     def check_policy(
         self,
@@ -1456,6 +1501,104 @@ def _record_keyframe_compliance(
     )
 
 
+def _dispatch_keyframe_in_managed_env(
+    *,
+    env_name: str,
+    spec: ImageSegmenterSpec,
+    image: Path | str | np.ndarray,
+    mask_file: Path,
+    sidecar_file: Path,
+    text_prompt: str | None,
+    points: Any | None,
+    boxes: Any | None,
+    target_classes: list[str] | str | None,
+    alpha_threshold: float,
+    checkpoint_path: Path | str | None,
+    device: str,
+    settings: Mapping[str, Mapping[str, str]] | None,
+    allow_non_commercial_benchmark: bool,
+) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="arp-kf-env-") as tmpdir:
+        tmp_path = Path(tmpdir)
+        if isinstance(image, np.ndarray):
+            img_arg = tmp_path / "keyframe_input.png"
+            Image.fromarray(load_image_rgb_array(image)).save(img_arg, format="PNG")
+        else:
+            img_arg = Path(image)
+
+        argv: list[str] = [
+            "--segmenter",
+            spec.name,
+            "--image",
+            str(img_arg),
+            "--output",
+            str(mask_file),
+            "--alpha-threshold",
+            str(alpha_threshold),
+            "--device",
+            str(device),
+            "--compliance-output-dir",
+            "",
+        ]
+        if text_prompt is not None and str(text_prompt).strip():
+            argv.extend(["--text-prompt", str(text_prompt).strip()])
+        cls_list = normalize_target_classes(target_classes)
+        if cls_list:
+            argv.extend(["--target-classes", ",".join(cls_list)])
+        if points is not None:
+            pts_file = tmp_path / "points.json"
+            pts_file.write_text(json.dumps(np.asarray(points).tolist()), encoding="utf-8")
+            argv.extend(["--points-json", str(pts_file)])
+        if boxes is not None:
+            boxes_file = tmp_path / "boxes.json"
+            boxes_file.write_text(json.dumps(np.asarray(boxes).tolist()), encoding="utf-8")
+            argv.extend(["--boxes-json", str(boxes_file)])
+        if checkpoint_path is not None:
+            argv.extend(["--checkpoint", str(checkpoint_path)])
+        if allow_non_commercial_benchmark or spec.commercial_tier == "hard_blocked":
+            argv.append("--allow-non-commercial-benchmark")
+
+        run_in_managed_env(
+            env_name,
+            ROOT / "scripts" / "segment_keyframe_mask.py",
+            argv,
+            settings=settings,
+            allow_non_commercial=bool(allow_non_commercial_benchmark or spec.commercial_tier == "hard_blocked"),
+        )
+
+    if not mask_file.is_file():
+        raise RuntimeError(
+            f"Managed env '{env_name}' did not produce expected keyframe mask at '{mask_file}'."
+        )
+
+    mask_sha256 = compute_sha256(mask_file)
+    if sidecar_file.is_file():
+        sidecar_data = json.loads(sidecar_file.read_text(encoding="utf-8"))
+        labels = list(sidecar_data.get("labels", []))
+        fg_pixels = int(sidecar_data.get("foreground_pixels", 0))
+        w = int(sidecar_data.get("width", 0))
+        h = int(sidecar_data.get("height", 0))
+    else:
+        with Image.open(mask_file) as im:
+            arr = np.array(im.convert("L"), dtype=np.uint8)
+        h, w = arr.shape[:2]
+        fg_pixels = int(np.count_nonzero(arr))
+        labels = [str(text_prompt).strip()] if text_prompt and str(text_prompt).strip() else []
+
+    return {
+        "mask_path": str(mask_file),
+        "sidecar_path": str(sidecar_file),
+        "mask_sha256": mask_sha256,
+        "segmenter": spec.name,
+        "category": spec.category,
+        "labels": labels,
+        "foreground_pixels": fg_pixels,
+        "width": int(w),
+        "height": int(h),
+        "runtime": f"managed_env:{env_name}",
+    }
+
+
 def run_keyframe_segmentation(
     *,
     image: Path | str | np.ndarray,
@@ -1478,16 +1621,66 @@ def run_keyframe_segmentation(
     reg = registry or DEFAULT_IMAGE_SEGMENTER_REGISTRY
     spec = reg.get_spec(segmenter)
 
+    # Always evaluate commercial policy FIRST (fail-closed).
+    reg.check_policy(
+        spec.name,
+        settings=settings,
+        allow_non_commercial_benchmark=allow_non_commercial_benchmark,
+        checkpoint_path=checkpoint_path,
+    )
+
     init_kwargs: dict[str, Any] = dict(backend_kwargs)
     if checkpoint_path is not None:
         init_kwargs.setdefault("checkpoint_path", checkpoint_path)
     init_kwargs.setdefault("device", device)
 
-    image_rgb = load_image_rgb_array(image)
     mask_file = Path(output_mask_path)
     mask_file.parent.mkdir(parents=True, exist_ok=True)
     sidecar_file = mask_file.with_suffix(".json")
 
+    has_injected_runner = any(init_kwargs.get(k) is not None for k in ("runner", "predictor", "refiner"))
+    local_ok = _module_available(spec.probe_modules)
+
+    if not has_injected_runner and not local_ok:
+        env_name = env_for_model(spec.name)
+        if env_name and not is_managed_env_active():
+            env_info = inspect_env(env_name, settings=settings)
+            if env_info["ready"]:
+                out = _dispatch_keyframe_in_managed_env(
+                    env_name=env_name,
+                    spec=spec,
+                    image=image,
+                    mask_file=mask_file,
+                    sidecar_file=sidecar_file,
+                    text_prompt=text_prompt,
+                    points=points,
+                    boxes=boxes,
+                    target_classes=target_classes,
+                    alpha_threshold=alpha_threshold,
+                    checkpoint_path=checkpoint_path,
+                    device=device,
+                    settings=settings,
+                    allow_non_commercial_benchmark=allow_non_commercial_benchmark,
+                )
+                if compliance_output_dir is not None:
+                    _record_keyframe_compliance(
+                        compliance_output_dir=compliance_output_dir,
+                        spec=spec,
+                        mask_path=mask_file,
+                        sidecar_path=sidecar_file,
+                        checkpoint_path=checkpoint_path,
+                        settings=settings,
+                        allow_non_commercial_benchmark=allow_non_commercial_benchmark,
+                    )
+                return out
+        target_env = env_name or "transformers_seg"
+        raise RuntimeError(
+            f"Keyframe image segmenter '{spec.name}' dependencies ({', '.join(spec.probe_modules)}) are not installed locally "
+            f"and managed environment '{target_env}' is not ready. Install it via "
+            f"'python scripts/setup_model_env.py install {target_env}' or the GUI 'Install Environment' button."
+        )
+
+    image_rgb = load_image_rgb_array(image)
     backend = reg.create(
         spec.name,
         settings=settings,

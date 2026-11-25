@@ -181,6 +181,7 @@ function renderSignature() {
     outpaint_chunks: state.outpaint_chunks,
     audio_stems: state.audio_stems,
     cache: state.cache,
+    model_envs: state.model_envs,
     progress: state.progress,
     phase_progress: state.phase_progress,
     running: state.running,

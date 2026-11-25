@@ -9,6 +9,7 @@ function drawSettings() {
       <h2>Settings</h2>
       ${comfySettingsHtml()}
       ${commercialPolicySettingsHtml()}
+      ${managedModelEnvsSettingsHtml()}
       ${intermediateSettingsHtml(cloud)}
       ${cloudSettingsHtml(cloud)}
       ${qwenSettingsHtml(refs)}
@@ -39,6 +40,53 @@ function commercialPolicySettingsHtml() {
     <div class="actions">
       <button type="button" class="primary" onclick="saveCommercialPolicySettings()">Save Policy &amp; Audit Settings</button>
     </div>
+  `;
+}
+
+function managedModelEnvsSettingsHtml() {
+  const envs = (typeof state !== 'undefined' && state && state.model_envs) || {};
+  const g = settings('global');
+  const guardOn = String(g.commercial_model_guard || 'true').toLowerCase() !== 'false'
+    || String(g.non_commercial_benchmark_override || 'false').toLowerCase() !== 'true';
+  const defaults = [
+    ['transformers_seg', 'Transformers Segmentation & Matting (OSI)', 'florence2, birefnet, mask2former, oneformer, rf_detr_seg', true],
+    ['sam2_family', 'Official SAM 2.1 / EdgeTAM / Grounding Ecosystem (OSI)', 'sam21, sam21_image, samurai, edgetam, evf_sam2, grounded_sam2, grounding_dino', true],
+    ['ddcolor_env', 'DDColor Reference Generator (Apache-2.0)', 'ddcolor', true],
+    ['vos_matting', 'Cutie VOS & VideoMaMa Matting (OSI)', 'cutie, videomama', true],
+    ['noncommercial_research', 'SAM 3 / SAM 3.1 Research Only (Non-Commercial)', 'sam3, sam3_image, sam31, sam31_image', false],
+  ];
+
+  const rowsHtml = defaults.map(([name, label, modelsStr, isSafe]) => {
+    const info = envs[name] || {};
+    const status = String(info.status || 'missing');
+    const ready = Boolean(info.ready || status === 'ready');
+    const blocked = (!isSafe) && guardOn;
+    const pillClass = ready ? 'ready' : (status === 'error' ? 'error' : 'missing');
+    const pillLabel = ready ? `Ready (${info.torch_flavor || 'installed'})` : (status === 'error' ? 'Install error' : 'Not installed');
+    const btnDisabled = (typeof state !== 'undefined' && state && state.running) || blocked;
+    const modelsText = Array.isArray(info.models) && info.models.length ? info.models.join(', ') : modelsStr;
+    return `
+      <div class="model-env-row">
+        <div>
+          <strong>${esc(info.label || label)}</strong> <code>${esc(name)}</code>
+          <span class="env-pill ${pillClass}">${esc(pillLabel)}</span>
+          ${!isSafe ? '<span class="seg-nc-badge">Non-Commercial</span>' : ''}
+          <div class="field-inline-note">Models: ${esc(modelsText)}</div>
+          ${blocked ? '<div class="field-inline-note">Blocked while Commercial Model Guard is ON.</div>' : ''}
+          ${info.error ? `<div class="field-inline-note">${esc(info.error)}</div>` : ''}
+          <div id="modelEnvInstallStatus_${esc(name)}" class="field-inline-note"></div>
+        </div>
+        <div>
+          <button type="button" class="compact-btn" onclick="installModelEnv('${esc(name)}', ${isSafe ? 'false' : 'true'})" ${btnDisabled ? 'disabled' : ''}>${ready ? 'Reinstall Environment' : 'Install Environment'}</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <h3>Managed Isolated Model Environments</h3>
+    <p class="field-help">Isolated Python environments stored under <code>.cache/model_envs/&lt;env_name&gt;/</code> so DDColor and segmenter packages never pollute ARP's main Python 3.13 environment.</p>
+    <div class="model-env-grid">${rowsHtml}</div>
   `;
 }
 

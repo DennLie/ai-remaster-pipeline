@@ -2500,3 +2500,46 @@ async function freeVramNow() {
     if (btn) btn.disabled = Boolean(state && state.running);
   }
 }
+
+async function installModelEnv(envName, isNonCommercial = false) {
+  const g = (state && state.settings && state.settings.global) || {};
+  const needsConfirm = Boolean(isNonCommercial || envName === 'noncommercial_research');
+  if (needsConfirm) {
+    const guardOff = String(g.commercial_model_guard || 'true').toLowerCase() === 'false';
+    const overrideOn = String(g.non_commercial_benchmark_override || 'false').toLowerCase() === 'true';
+    if (!guardOff || !overrideOn) {
+      alert('Commercial Model Guard blocks non-commercial environment "' + envName + '". Disable Commercial Model Guard with benchmark override in Settings first.');
+      return;
+    }
+    if (!confirm('Install non-commercial research environment "' + envName + '" (Meta SAM License)? Outputs produced with SAM 3 / SAM 3.1 cannot be certified commercial-safe. Continue?')) {
+      return;
+    }
+  }
+
+  const statusEl = document.getElementById('modelEnvInstallStatus_' + envName)
+    || document.getElementById('osiSam2Status')
+    || document.getElementById('osiKeyframeSegStatus')
+    || document.getElementById('cbKeyframeSegStatus');
+  if (statusEl) statusEl.textContent = 'Starting isolated environment installation for ' + envName + '...';
+
+  try {
+    const res = await postJson('/api/model-envs/install', { env_name: envName });
+    if (!res.ok) {
+      const msg = res.error || res.message || ('Could not install environment ' + envName);
+      if (statusEl) statusEl.textContent = msg;
+      alert(msg);
+      return;
+    }
+    state = await api(stateUrl());
+    if (typeof draw === 'function') draw(false);
+    const refreshedStatusEl = document.getElementById('modelEnvInstallStatus_' + envName)
+      || document.getElementById('osiSam2Status');
+    if (refreshedStatusEl) {
+      refreshedStatusEl.textContent = res.message || ('Installing ' + envName + '... see Logs for progress.');
+    }
+  } catch (err) {
+    const msg = 'Install failed: ' + (err.message || err);
+    if (statusEl) statusEl.textContent = msg;
+    alert(msg);
+  }
+}

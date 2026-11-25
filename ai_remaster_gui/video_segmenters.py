@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import gc
 import importlib
+import importlib.util
+import json
 import math
 import sys
 import tempfile
@@ -38,6 +40,13 @@ from .commercial_policy import (
     PolicyDecision,
     enabled as commercial_guard_enabled,
     evaluate_component,
+)
+from .config import ROOT
+from .managed_model_envs import (
+    env_for_model,
+    inspect_env,
+    is_managed_env_active,
+    run_in_managed_env,
 )
 from .rle_masks import MaskObjectMetadata, ShotMaskArchive
 
@@ -1843,6 +1852,48 @@ class VideoSegmenterRegistry:
     def list_specs(self) -> list[SegmenterSpec]:
         return list(self._specs.values())
 
+    def is_available(self, name: str) -> bool:
+        return self.availability_info(name)["available"]
+
+    def availability_info(
+        self,
+        name: str,
+        *,
+        settings: Mapping[str, Mapping[str, str]] | None = None,
+        inner_tracker: str = "sam21",
+    ) -> dict[str, Any]:
+        spec = self.get_spec(name)
+        env_name = env_for_model(spec.name) or ""
+        local_ok = _video_backend_locally_available(spec.name, inner_tracker=inner_tracker)
+        if local_ok:
+            return {
+                "available": True,
+                "runtime": "in_process",
+                "env_name": env_name,
+                "env_status": inspect_env(env_name, settings=settings)["status"] if env_name else "missing",
+            }
+        if env_name:
+            env_info = inspect_env(env_name, settings=settings)
+            if env_info["ready"]:
+                return {
+                    "available": True,
+                    "runtime": f"managed_env:{env_name}",
+                    "env_name": env_name,
+                    "env_status": "ready",
+                }
+            return {
+                "available": False,
+                "runtime": "missing",
+                "env_name": env_name,
+                "env_status": env_info["status"],
+            }
+        return {
+            "available": False,
+            "runtime": "missing",
+            "env_name": "",
+            "env_status": "missing",
+        }
+
     def check_policy(
         self,
         name: str,
@@ -2072,6 +2123,152 @@ def _record_segmentation_compliance(
     )
 
 
+_VIDEO_PROBE_MODULES: dict[str, tuple[str, ...]] = {
+    "sam21": ("sam2",),
+    "samurai": ("sam2",),
+    "edgetam": ("edgetam",),
+    "cutie": ("cutie",),
+    "grounded_sam2": ("groundingdino", "transformers"),
+    "rf_detr_seg": ("rfdetr",),
+    "videomama": ("videomama",),
+    "sam3": ("sam3",),
+    "sam31": ("sam3",),
+}
+
+
+def _video_module_available(module_names: Sequence[str]) -> bool:
+    for name in module_names:
+        if name in sys.modules:
+            return True
+        try:
+            if importlib.util.find_spec(name) is not None:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _video_backend_locally_available(name: str, *, inner_tracker: str = "sam21") -> bool:
+    canonical = str(name or "").strip().lower()
+    probes = _VIDEO_PROBE_MODULES.get(canonical, ())
+    if not _video_module_available(probes):
+        return False
+    if canonical == "grounded_sam2":
+        inner_probes = _VIDEO_PROBE_MODULES.get(str(inner_tracker or "sam21").strip().lower(), ("sam2",))
+        return _video_module_available(inner_probes)
+    return True
+
+
+def _serialize_prompts_for_subprocess(
+    prompts: dict[int, dict[str, Any]] | None,
+    stage_dir: Path,
+) -> Path | None:
+    if not prompts:
+        return None
+    from PIL import Image
+
+    serialized: dict[str, Any] = {}
+    for key, raw in prompts.items():
+        entry: dict[str, Any] = {}
+        for k, v in dict(raw or {}).items():
+            if k == "mask" and v is not None:
+                mask_arr = (np.asarray(v) > 0).astype(np.uint8) * 255
+                mask_path = stage_dir / f"prompt_{key}_seed.png"
+                Image.fromarray(mask_arr, mode="L").save(mask_path, format="PNG")
+                entry["mask_path"] = str(mask_path)
+            elif isinstance(v, np.ndarray):
+                entry[k] = v.tolist()
+            else:
+                entry[k] = v
+        serialized[str(key)] = entry
+    prompts_file = stage_dir / "prompts.json"
+    prompts_file.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
+    return prompts_file
+
+
+def _dispatch_shot_in_managed_env(
+    *,
+    env_name: str,
+    spec: SegmenterSpec,
+    shot_id: str,
+    frames: list[np.ndarray] | list[Path] | Path | str,
+    prompts: dict[int, dict[str, Any]] | None,
+    target_path: Path,
+    text_prompts: list[str] | str | None,
+    checkpoint_path: Path | str | None,
+    device: str,
+    min_mask_area: int,
+    iou_threshold: float,
+    alpha_threshold: float,
+    settings: Mapping[str, Mapping[str, str]] | None,
+    allow_non_commercial_benchmark: bool,
+) -> Path:
+    import cv2
+
+    with tempfile.TemporaryDirectory(prefix="arp-vid-env-") as tmpdir:
+        tmp_path = Path(tmpdir)
+        if isinstance(frames, list):
+            if not frames:
+                raise ValueError("video_frames sequence must not be empty.")
+            frames_dir = tmp_path / "frames"
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            if isinstance(frames[0], np.ndarray):
+                for idx, arr in enumerate(frames):
+                    cv2.imwrite(str(frames_dir / f"{idx:05d}.png"), np.asarray(arr))
+            else:
+                for idx, src_p in enumerate(frames):
+                    src = Path(src_p)
+                    dst = frames_dir / f"{idx:05d}{src.suffix or '.png'}"
+                    dst.write_bytes(src.read_bytes())
+            frames_arg = str(frames_dir)
+        else:
+            frames_arg = str(frames)
+
+        prompts_file = _serialize_prompts_for_subprocess(prompts, tmp_path)
+        argv: list[str] = [
+            "--segmenter",
+            spec.name,
+            "--shot-id",
+            shot_id,
+            "--frames",
+            frames_arg,
+            "--output",
+            str(target_path),
+            "--device",
+            str(device),
+            "--min-mask-area",
+            str(int(min_mask_area)),
+            "--iou-threshold",
+            str(float(iou_threshold)),
+            "--alpha-threshold",
+            str(float(alpha_threshold)),
+            "--compliance-output-dir",
+            "",
+        ]
+        if prompts_file is not None:
+            argv.extend(["--prompts-json", str(prompts_file)])
+        for t_prompt in normalize_text_prompts(text_prompts):
+            argv.extend(["--text-prompts", t_prompt])
+        if checkpoint_path is not None:
+            argv.extend(["--checkpoint", str(checkpoint_path)])
+        if allow_non_commercial_benchmark or spec.commercial_tier == "hard_blocked":
+            argv.append("--allow-non-commercial-benchmark")
+
+        run_in_managed_env(
+            env_name,
+            ROOT / "scripts" / "track_shot_masks.py",
+            argv,
+            settings=settings,
+            allow_non_commercial=bool(allow_non_commercial_benchmark or spec.commercial_tier == "hard_blocked"),
+        )
+
+    if not target_path.is_file():
+        raise RuntimeError(
+            f"Managed env '{env_name}' did not produce expected mask archive at '{target_path}'."
+        )
+    return target_path
+
+
 def run_shot_segmentation(
     *,
     shot_id: str,
@@ -2096,6 +2293,14 @@ def run_shot_segmentation(
     reg = registry or DEFAULT_SEGMENTER_REGISTRY
     spec = reg.get_spec(segmenter)
 
+    # Always evaluate commercial policy FIRST (fail-closed).
+    reg.check_policy(
+        spec.name,
+        settings=settings,
+        allow_non_commercial_benchmark=allow_non_commercial_benchmark,
+        checkpoint_path=checkpoint_path,
+    )
+
     init_kwargs: dict[str, Any] = dict(backend_kwargs)
     if checkpoint_path is not None:
         init_kwargs.setdefault("checkpoint_path", checkpoint_path)
@@ -2105,6 +2310,53 @@ def run_shot_segmentation(
 
     target_path = Path(output_npz_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    has_injected_runner = any(
+        init_kwargs.get(k) is not None
+        for k in ("predictor", "pre_tracker", "runner", "detector", "inner_backend")
+    )
+    local_ok = _video_backend_locally_available(
+        spec.name,
+        inner_tracker=str(init_kwargs.get("inner_tracker", "sam21")),
+    )
+
+    if not has_injected_runner and not local_ok:
+        env_name = env_for_model(spec.name)
+        if env_name and not is_managed_env_active():
+            env_info = inspect_env(env_name, settings=settings)
+            if env_info["ready"]:
+                _dispatch_shot_in_managed_env(
+                    env_name=env_name,
+                    spec=spec,
+                    shot_id=shot_id,
+                    frames=frames,
+                    prompts=prompts,
+                    target_path=target_path,
+                    text_prompts=text_prompts,
+                    checkpoint_path=checkpoint_path,
+                    device=device,
+                    min_mask_area=min_mask_area,
+                    iou_threshold=iou_threshold,
+                    alpha_threshold=alpha_threshold,
+                    settings=settings,
+                    allow_non_commercial_benchmark=allow_non_commercial_benchmark,
+                )
+                if compliance_output_dir is not None:
+                    _record_segmentation_compliance(
+                        compliance_output_dir=compliance_output_dir,
+                        spec=spec,
+                        shot_id=shot_id,
+                        output_npz_path=target_path,
+                        checkpoint_path=checkpoint_path,
+                        settings=settings,
+                        allow_non_commercial_benchmark=allow_non_commercial_benchmark,
+                    )
+                return target_path
+        target_env = env_name or "sam2_family"
+        raise RuntimeError(
+            f"Video segmenter '{spec.name}' dependencies are not installed locally and managed environment '{target_env}' is not ready. "
+            f"Install it via 'python scripts/setup_model_env.py install {target_env}' or the GUI 'Install Environment' button."
+        )
 
     backend = reg.create(
         spec.name,

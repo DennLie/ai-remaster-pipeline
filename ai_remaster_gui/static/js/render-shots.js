@@ -60,6 +60,7 @@ function drawShotStage({ key, heading, runLabel, outputLimit, afterRender }) {
         ${key === 'colour' ? colorizationMethodWarning(s) : ''}
         ${key === 'shots' ? shotDetectionInputStatus(s) : ''}
         ${visibleFields.map(f => fieldHtml(st, f, shotFieldOptions(key, f, s))).join('')}
+        ${key === 'references' ? renderDdcolorEnvStatusHtml(s) : ''}
         ${key === 'references' ? referenceGenerationOptionsHtml(s) : ''}
         ${shotOutputList(expected, outputLimit)}
         ${stageCheckboxes(s)}
@@ -521,6 +522,103 @@ function activeColorBibleBannerHtml(stageKey = 'references') {
   `;
 }
 
+const MODEL_TO_ENV_MAP = {
+  florence2: 'transformers_seg',
+  birefnet: 'transformers_seg',
+  mask2former: 'transformers_seg',
+  oneformer: 'transformers_seg',
+  rf_detr_seg: 'transformers_seg',
+  sam21: 'sam2_family',
+  sam21_image: 'sam2_family',
+  samurai: 'sam2_family',
+  edgetam: 'sam2_family',
+  evf_sam2: 'sam2_family',
+  grounded_sam2: 'sam2_family',
+  grounding_dino: 'sam2_family',
+  ddcolor: 'ddcolor_env',
+  cutie: 'vos_matting',
+  videomama: 'vos_matting',
+  sam3: 'noncommercial_research',
+  sam3_image: 'noncommercial_research',
+  sam31: 'noncommercial_research',
+  sam31_image: 'noncommercial_research',
+};
+
+function modelEnvFor(modelId) {
+  const norm = String(modelId || '').trim().toLowerCase().replace(/-/g, '_');
+  return MODEL_TO_ENV_MAP[norm] || '';
+}
+
+function modelEnvStatusFor(modelIdOrEnv) {
+  const envName = MODEL_TO_ENV_MAP[String(modelIdOrEnv || '').trim().toLowerCase().replace(/-/g, '_')] || String(modelIdOrEnv || '').trim();
+  const envs = (typeof state !== 'undefined' && state && state.model_envs) || {};
+  const info = envs[envName] || null;
+  const g = settings('global');
+  const commercialGuardOn = String(g.commercial_model_guard || 'true').toLowerCase() !== 'false'
+    || String(g.non_commercial_benchmark_override || 'false').toLowerCase() !== 'true';
+  const isNc = envName === 'noncommercial_research';
+  const status = info ? String(info.status || 'missing') : 'missing';
+  const ready = Boolean(info && (info.ready || status === 'ready'));
+  const installing = Boolean(typeof state !== 'undefined' && state && state.running && String(state.running_stage || '').includes(`Install model env: ${envName}`));
+  return {
+    envName,
+    status: installing ? 'installing' : status,
+    ready,
+    installing,
+    isNonCommercial: isNc,
+    policyBlocked: isNc && commercialGuardOn,
+    torchFlavor: (info && info.torch_flavor) || '',
+    error: (info && info.error) || '',
+  };
+}
+
+function renderModelEnvInlinePillHtml(modelIdOrEnv) {
+  const st = modelEnvStatusFor(modelIdOrEnv);
+  if (!st.envName) return '';
+  let pillClass = 'missing';
+  let pillText = 'Not installed';
+  if (st.installing) {
+    pillClass = 'installing';
+    pillText = `Installing (${st.envName})`;
+  } else if (st.ready) {
+    pillClass = 'ready';
+    pillText = 'Ready (managed env)';
+  } else if (st.status === 'error') {
+    pillClass = 'error';
+    pillText = 'Install error';
+  }
+  const btnDisabled = (typeof state !== 'undefined' && state && state.running) || st.installing || st.policyBlocked;
+  const btnTitle = st.policyBlocked
+    ? 'Blocked while Commercial Model Guard is ON. Disable Commercial Guard with benchmark override in Settings.'
+    : `Install isolated environment '${st.envName}' under .cache/model_envs/${st.envName}`;
+  const btnHtml = st.ready
+    ? ''
+    : `<button type="button" class="compact-btn" onclick="installModelEnv(${jsArg(st.envName)}, ${st.isNonCommercial ? 'true' : 'false'})" ${btnDisabled ? 'disabled' : ''} title="${esc(btnTitle)}">Install Environment</button>`;
+  return `
+    <span class="env-pill ${pillClass}" data-model-env="${esc(st.envName)}" title="Managed env: ${esc(st.envName)}">${esc(pillText)}</span>
+    ${btnHtml}
+  `;
+}
+
+function renderDdcolorEnvStatusHtml(s = {}) {
+  const method = s.method || 'qwen';
+  const runner = s.reference_runner || 'guided_only';
+  if (method !== 'ddcolor' && runner === 'guided_only') return '';
+  const st = modelEnvStatusFor('ddcolor');
+  return `
+    <div class="source-info" style="margin:8px 0;">
+      <div>
+        <span>DDColor Runtime (<code>${esc(st.envName)}</code>)</span>
+        <strong>${st.ready ? `Ready (isolated Python env · ${esc(st.torchFlavor || 'cpu/cuda')})` : 'Using main .venv fallback or not installed yet'}</strong>
+      </div>
+      <div class="osi-masks-controls" style="margin:0;">
+        ${renderModelEnvInlinePillHtml('ddcolor')}
+      </div>
+    </div>
+    <div id="modelEnvInstallStatus_ddcolor_env" class="shot-empty"></div>
+  `;
+}
+
 function segmenterShortLabel(segmenter) {
   const labels = {
     sam21: 'SAM 2.1',
@@ -640,9 +738,10 @@ function osiMaskStatusHtml(s) {
         <div class="osi-masks-header">
           <div>
             <span class="seg-section-badge">Step 1 · Keyframe Still</span>
-            <span class="osi-masks-title">Keyframe Image Segmenter (${esc(imgCaps.label)})</span>
-            ${imgCaps.nonCommercial ? '<span class="seg-nc-badge">Non-Commercial</span>' : '<span class="approval-badge approved">OSI Commercial-Safe</span>'}
-          </div>
+          <span class="osi-masks-title">Keyframe Image Segmenter (${esc(imgCaps.label)})</span>
+          ${imgCaps.nonCommercial ? '<span class="seg-nc-badge">Non-Commercial</span>' : '<span class="approval-badge approved">OSI Commercial-Safe</span>'}
+          ${renderModelEnvInlinePillHtml(s.image_segmenter || 'birefnet')}
+        </div>
           <div class="osi-masks-controls">
             ${(imgCaps.textCapable || imgCaps.classCapable) ? `<input id="osiKeyframeSegInput" type="text" placeholder="${imgCaps.classCapable ? 'Scene classes (e.g. person, coat, sky)' : 'Text prompt (e.g. man in coat)'}" style="min-width:190px;padding:4px 8px;font-size:12px;">` : ''}
             <button type="button" class="compact-btn" onclick="segmentSelectedShotKeyframe()" ${imgBtnDisabled ? 'disabled' : ''}>Segment Reference Still</button>
@@ -660,6 +759,7 @@ function osiMaskStatusHtml(s) {
             <span class="osi-masks-title">Video Mask Tracker (${esc(segLabel)})</span>
             <span class="approval-badge ${badgeClass}">${esc(badgeText)}</span>
             ${isNonCommercial ? '<span class="seg-nc-badge">Non-Commercial</span>' : ''}
+            ${renderModelEnvInlinePillHtml(segmenter)}
           </div>
           <div class="osi-masks-controls">
             ${totalCount ? `<select id="osiSam2ShotSelect" aria-label="Select shot for mask tracking">${optionsHtml}</select>` : ''}

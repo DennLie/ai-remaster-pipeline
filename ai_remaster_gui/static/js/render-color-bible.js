@@ -488,6 +488,7 @@ function renderCbKeyframeSegmenterBox() {
           <span class="seg-section-badge">Step 1 · Keyframe Still</span>
           <strong class="osi-masks-title">Keyframe Image Segmenter</strong>
           ${caps.nonCommercial ? '<span class="seg-nc-badge">Non-Commercial</span>' : '<span class="approval-badge approved">OSI Commercial-Safe</span>'}
+          ${typeof renderModelEnvInlinePillHtml === 'function' ? renderModelEnvInlinePillHtml(seg) : ''}
         </div>
       </div>
       <div class="osi-masks-controls" style="margin-top:8px;">
