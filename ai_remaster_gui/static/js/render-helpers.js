@@ -133,6 +133,34 @@ const FIELD_DESCRIPTIONS = {
     'LTX 2.5 is tuned around 24 fps. 24 fps fast keeps only original frames and retimes them, 24 fps motion-interpolates without changing duration, and Source keeps the original cadence.',
   'outpaint.offset_y':
     'Shift the source vertically for the whole video before outpainting. Positive values move it down; negative values move it up. Chunks inherit this unless overridden.',
+  'references.method':
+    'Still reference generator for keyframe images. Qwen 2511 uses ComfyUI with Color Bible prompting; DDColor runs locally (Apache-2.0, no ComfyUI).',
+  'references.reference_runner':
+    'Controls how Qwen 2511 and DDColor route shots. Guided only uses the chosen Method on every shot; Auto drafts unmapped shots with local DDColor; DDColor only forces Apache-2.0 drafts.',
+  'references.ddcolor_model':
+    'Official piddnad/DDColor checkpoint variant used when DDColor renders a keyframe still.',
+  'references.ddcolor_model_path':
+    'Optional local checkpoint override (.pth/.bin). Leave blank to auto-download the selected DDColor variant.',
+  'references.color_bible_db':
+    'Optional per-stage override. Leave empty to use the active Color Bible SQLite DB automatically.',
+  'references.film_id':
+    'Optional per-stage override. Leave empty to inherit the active film selected or synced in Color Bible.',
+  'references.confidence_threshold':
+    'Color Bible assignments below this confidence score trigger human review before colorizing the shot still.',
+  'colour.method':
+    'Propagates still reference colours across every video frame. OSI Masked LAB is the commercial-safe local default; ComfyUI/cloud methods handle legacy alternatives.',
+  'colour.masks_dir':
+    'Optional shot masks folder override. Leave blank to auto-detect *.masks.npz under intermediate/shot_masks.',
+  'colour.image_segmenter':
+    'Single-image Keyframe / Reference Still segmenter used for binary Color Bible masks and optional Video Mask Tracker seeds. SAM 3 / 3.1 Still-Image require benchmark override (Meta SAM License).',
+  'colour.segmenter':
+    'Shot-local video segmentation or matting backend used when generating compressed .masks.npz object masks. SAM 3 / 3.1 carry the Meta SAM License (non-commercial / benchmark-only).',
+  'colour.segmenter_text_prompts':
+    'Optional period-separated object queries (e.g. "man in coat. red car.") for text-capable segmenters: Grounded-SAM-2, SAM 3, or SAM 3.1.',
+  'colour.color_bible_db':
+    'Optional per-stage override. Leave empty to use the active Color Bible SQLite DB automatically.',
+  'colour.film_id':
+    'Optional per-stage override. Leave empty to inherit the active film selected or synced in Color Bible.',
   'colour.processing_height':
     'Downscale frames before colourisation. Source keeps the original resolution; 1080p is a practical first stop for 4K material.',
   'colour.openai_image_model':
@@ -349,36 +377,43 @@ function fieldHelpHtml(help) {
   return help ? `<small class="field-help">${esc(help)}</small>` : '';
 }
 
-function fieldHtml(st, field) {
+function fieldHtml(st, field, opts = {}) {
   const [key, label, kind, defaultValue] = field;
   const value = settings(st.key)[key] ?? defaultValue ?? '';
   const help = fieldDescription(st.key, key);
   const tooltip = fieldTooltip(st.key, key);
   const title = tooltipTitle(tooltip);
+  const disabledAttr = opts.disabled ? ' disabled' : '';
+  const placeholderAttr = opts.placeholder ? ` placeholder="${esc(opts.placeholder)}"` : '';
+  const inlineNote = opts.note ? `<small class="field-inline-note">${esc(opts.note)}</small>` : '';
+  const wrap = body => (opts.disabled || opts.note)
+    ? `<div class="field-group${opts.disabled ? ' field-disabled' : ''}">${body}</div>`
+    : body;
 
   if (st.key === 'outpaint' && key === 'target_height') {
     return outpaintHeightFieldHtml(label, kind, value, tooltip) + fieldHelpHtml(help);
   }
-  if (kind.startsWith('select:')) return selectFieldHtml(key, label, kind, value, tooltip) + fieldHelpHtml(help);
-  if (kind.startsWith('range:')) return rangeFieldHtml(key, label, kind, value, tooltip) + fieldHelpHtml(help);
-  if (kind === 'checkbox') return checkboxFieldHtml(key, label, value, help, tooltip);
+  if (kind.startsWith('select:')) return wrap(selectFieldHtml(key, label, kind, value, tooltip, opts) + inlineNote + fieldHelpHtml(help));
+  if (kind.startsWith('range:')) return wrap(rangeFieldHtml(key, label, kind, value, tooltip) + inlineNote + fieldHelpHtml(help));
+  if (kind === 'checkbox') return wrap(checkboxFieldHtml(key, label, value, help, tooltip) + inlineNote);
 
   const input = `
-    <input data-field="${key}" data-kind="${kind}" type="${kind === 'number' ? 'number' : 'text'}" step="any" value="${esc(value)}"${title}>
+    <input data-field="${key}" data-kind="${kind}" type="${kind === 'number' ? 'number' : 'text'}" step="any" value="${esc(value)}"${placeholderAttr}${disabledAttr}${title}>
   `;
 
   if (['file', 'folder', 'save'].includes(kind)) {
-    return `
+    return wrap(`
       <label${title}>${label}</label>
       <div class="field-row">
         ${input}
-        <button type="button" onclick="browseField('${st.key}','${key}','${kind}')">Browse</button>
+        <button type="button" onclick="browseField('${st.key}','${key}','${kind}')"${disabledAttr}>Browse</button>
       </div>
+      ${inlineNote}
       ${fieldHelpHtml(help)}
-    `;
+    `);
   }
 
-  return `<label${title}>${label}</label>${input}${fieldHelpHtml(help)}`;
+  return wrap(`<label${title}>${label}</label>${input}${inlineNote}${fieldHelpHtml(help)}`);
 }
 
 function outpaintHeightFieldHtml(label, kind, value, tooltip = '') {
@@ -446,13 +481,14 @@ async function selectOutpaintHeightMode(mode) {
   await saveStage('outpaint', false);
 }
 
-function selectFieldHtml(key, label, kind, value, tooltip = '') {
+function selectFieldHtml(key, label, kind, value, tooltip = '', opts = {}) {
   const isSelected = option => value === option || (option === 'farneback_3f' && (value === 'temporal' || value === ''));
   const options = kind.slice(7).split('|')
     .map(option => `<option value="${esc(option)}" ${isSelected(option) ? 'selected' : ''}>${esc(selectOptionLabel(key, option))}</option>`)
     .join('');
   const title = tooltipTitle(tooltip);
-  return `<label${title}>${label}</label><select data-field="${key}"${title}>${options}</select>`;
+  const disabledAttr = opts.disabled ? ' disabled' : '';
+  return `<label${title}>${label}</label><select data-field="${key}"${disabledAttr}${title}>${options}</select>`;
 }
 
 function selectOptionLabel(key, option) {
@@ -512,6 +548,25 @@ function selectOptionLabel(key, option) {
   if ((key === 'method' || key === 'colorization_method') && option === 'colormnet') return 'ColorMNet (single reference)';
   if ((key === 'method' || key === 'colorization_method') && option === 'deepexemplar') return 'Deep Exemplar (single reference)';
   if (key === 'colorization_method' && option === 'openai') return 'OpenAI Cloud';
+  if (key === 'segmenter' && option === 'sam21') return 'SAM 2.1 (Apache-2.0, default)';
+  if (key === 'segmenter' && option === 'samurai') return 'SAMURAI (Kalman SAM 2.1, Apache-2.0)';
+  if (key === 'segmenter' && option === 'edgetam') return 'Meta EdgeTAM (fast VOS, Apache-2.0)';
+  if (key === 'segmenter' && option === 'cutie') return 'Cutie VOS (object memory, MIT)';
+  if (key === 'segmenter' && option === 'grounded_sam2') return 'Grounded-SAM-2 (Text + SAM 2.1, Apache-2.0)';
+  if (key === 'segmenter' && option === 'rf_detr_seg') return 'RF-DETR-Seg (real-time instance, Apache-2.0)';
+  if (key === 'segmenter' && option === 'videomama') return 'VideoMaMa (video matting, Apache-2.0)';
+  if (key === 'segmenter' && option === 'sam3') return 'SAM 3 (Meta SAM License — Non-Commercial / Benchmark Only)';
+  if (key === 'segmenter' && option === 'sam31') return 'SAM 3.1 (Meta SAM License — Non-Commercial / Benchmark Only)';
+  if (key === 'image_segmenter' && option === 'evf_sam2') return 'EVF-SAM-2 (Text Prompt Still, Apache-2.0)';
+  if (key === 'image_segmenter' && option === 'florence2') return 'Florence-2 (Text Referring Seg, MIT)';
+  if (key === 'image_segmenter' && option === 'birefnet') return 'BiRefNet / BiRefNet_lite (Sharp Foreground, MIT)';
+  if (key === 'image_segmenter' && option === 'mask2former') return 'Mask2Former (Panoptic Scene Classes, MIT/Apache-2.0)';
+  if (key === 'image_segmenter' && option === 'oneformer') return 'OneFormer (Universal Panoptic / Instance, MIT)';
+  if (key === 'image_segmenter' && option === 'grounding_dino') return 'Grounding DINO (Open-Vocab Boxes, Apache-2.0)';
+  if (key === 'image_segmenter' && option === 'rf_detr_seg') return 'RF-DETR-Seg (Real-Time Instance Still, Apache-2.0)';
+  if (key === 'image_segmenter' && option === 'sam21_image') return 'SAM 2.1 Single-Image (Points / Boxes, Apache-2.0)';
+  if (key === 'image_segmenter' && option === 'sam3_image') return 'SAM 3 Still-Image (Non-Commercial — Meta SAM License)';
+  if (key === 'image_segmenter' && option === 'sam31_image') return 'SAM 3.1 Still-Image (Non-Commercial — Meta SAM License)';
   if (key === 'target_height' && option === 'source') {
     const resolution = (state.source_info && state.source_info.resolution) || '';
     const match = String(resolution).match(/x(\d+)/i);

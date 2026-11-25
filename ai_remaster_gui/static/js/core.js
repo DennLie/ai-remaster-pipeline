@@ -435,11 +435,26 @@ function isNearLogBottom(el) {
 
 function availableTabs() {
   const tabs = ['global'];
+  let colorBibleInserted = false;
   for (const st of state.stages) {
-    if (st.key === 'output') tabs.push('cache');
+    if (st.key === 'references' && !colorBibleInserted) {
+      tabs.push('color_bible');
+      colorBibleInserted = true;
+    }
+    if (st.key === 'output') {
+      if (!colorBibleInserted) {
+        tabs.push('color_bible');
+        colorBibleInserted = true;
+      }
+      tabs.push('cache');
+    }
     tabs.push(st.key);
+    if (st.key === 'shots' && !colorBibleInserted) {
+      tabs.push('color_bible');
+      colorBibleInserted = true;
+    }
   }
-  tabs.push('color_bible');
+  if (!colorBibleInserted) tabs.push('color_bible');
   tabs.push('settings');
   return tabs;
 }

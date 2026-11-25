@@ -2275,24 +2275,150 @@ async function openColorBibleForShot(filmId, shotIndex) {
   }
 }
 
+const keyframeSegState = {
+  lastMaskPath: '',
+  lastShotIndex: 0,
+  lastSegmenter: 'birefnet',
+};
+
+function cbSetKeyframeSegmenter(seg) {
+  if (typeof cbState !== 'undefined') cbState.imageSegmenter = seg;
+  if (typeof drawColorBible === 'function') drawColorBible();
+}
+
+async function cbSegmentKeyframeStill() {
+  const imgInput = document.getElementById('cbRefKeyframePath');
+  const segSelect = document.getElementById('cbKeyframeSegSelect');
+  const queryInput = document.getElementById('cbKeyframeSegQuery');
+  const statusEl = document.getElementById('cbKeyframeSegStatus');
+  const imagePath = (imgInput && imgInput.value.trim()) || '';
+  if (!imagePath) {
+    if (typeof cbState !== 'undefined' && !cbState.newRefOpen) {
+      cbState.newRefOpen = true;
+      if (typeof drawColorBible === 'function') drawColorBible();
+    }
+    const msg = 'Enter or select a Keyframe Image Path first before segmenting.';
+    if (statusEl) statusEl.textContent = msg;
+    return;
+  }
+  const segmenter = (segSelect && segSelect.value) || 'birefnet';
+  const queryVal = (queryInput && queryInput.value.trim()) || '';
+  const payload = { image_path: imagePath, segmenter };
+  if (['mask2former', 'oneformer', 'rf_detr_seg'].includes(segmenter) && queryVal) {
+    payload.target_classes = queryVal;
+  } else if (queryVal) {
+    payload.text_prompt = queryVal;
+  }
+  if (statusEl) statusEl.textContent = `Running ${segmenter} still segmentation...`;
+  const res = await postJson('/api/segment-keyframe', payload);
+  if (!res.ok) {
+    if (statusEl) statusEl.textContent = res.error || 'Keyframe segmentation failed.';
+    return;
+  }
+  keyframeSegState.lastMaskPath = res.mask_path || '';
+  keyframeSegState.lastSegmenter = res.segmenter || segmenter;
+  const maskInput = document.getElementById('cbRefMaskUri');
+  if (maskInput && res.mask_path) maskInput.value = res.mask_path;
+  if (statusEl) statusEl.textContent = `Mask saved (${res.segmenter}, ${res.foreground_pixels} px): ${res.mask_path}`;
+}
+
+async function segmentSelectedShotKeyframe() {
+  const select = document.getElementById('osiSam2ShotSelect');
+  const shotIndex = select ? Number(select.value) : 0;
+  const rows = (state && state.shot_views && state.shot_views.colour) || [];
+  const row = rows.find(r => Number(r.index) === shotIndex) || rows[0];
+  const colourCfg = (state.settings && state.settings.colour) || {};
+  const segmenter = colourCfg.image_segmenter || 'birefnet';
+  const queryInput = document.getElementById('osiKeyframeSegInput');
+  const queryVal = (queryInput && queryInput.value.trim()) || '';
+  const statusEl = document.getElementById('osiKeyframeSegStatus');
+  const imagePath = (row && (row.color_reference || row.source_reference)) || '';
+  if (!imagePath) {
+    if (statusEl) statusEl.textContent = 'Selected shot has no reference frame image yet.';
+    return;
+  }
+  const payload = { image_path: imagePath, segmenter };
+  if (['mask2former', 'oneformer', 'rf_detr_seg'].includes(segmenter) && queryVal) {
+    payload.target_classes = queryVal;
+  } else if (queryVal) {
+    payload.text_prompt = queryVal;
+  }
+  if (statusEl) statusEl.textContent = `Segmenting Shot ${shotIndex + 1} still with ${segmenter}...`;
+  const res = await postJson('/api/segment-keyframe', payload);
+  if (!res.ok) {
+    if (statusEl) statusEl.textContent = res.error || 'Keyframe segmentation failed.';
+    return;
+  }
+  keyframeSegState.lastMaskPath = res.mask_path || '';
+  keyframeSegState.lastShotIndex = shotIndex;
+  keyframeSegState.lastSegmenter = res.segmenter || segmenter;
+  draw(false);
+}
+
+function useKeyframeMaskInColorBible() {
+  if (typeof openColorBibleForShot === 'function') {
+    const ctx = (state && state.color_bible_context) || {};
+    openColorBibleForShot(ctx.film_id || '', keyframeSegState.lastShotIndex);
+  }
+}
+
+async function sendKeyframeMaskToVideoTracker() {
+  if (!keyframeSegState.lastMaskPath) {
+    const statusEl = document.getElementById('cbKeyframeSegStatus') || document.getElementById('osiKeyframeSegStatus');
+    if (statusEl) statusEl.textContent = 'Segment a keyframe still first to create a seed mask.';
+    return;
+  }
+  if (typeof selectTab === 'function') await selectTab('colour');
+  return await trackSelectedOsiShotMasks();
+}
+
+async function trackSelectedOsiShotMasks() {
+  const select = document.getElementById('osiSam2ShotSelect');
+  const shotIndex = select ? Number(select.value) : 0;
+  const rows = (state && state.shot_views && state.shot_views.colour) || [];
+  const row = rows.find(r => Number(r.index) === shotIndex) || rows[0];
+  const shotId = (row && row.shot_id) ? String(row.shot_id) : '';
+  return await trackShotMasksSam2(Number.isFinite(shotIndex) ? shotIndex : 0, shotId);
+}
+
 async function trackShotMasksSam2(shotIndex, shotId) {
+  const statusEl = document.getElementById('osiSam2Status');
+  const colourCfg = (state.settings && state.settings.colour) || {};
+  const segmenter = colourCfg.segmenter || 'sam21';
+  const textPrompts = String(colourCfg.segmenter_text_prompts || '').trim();
+  const segLabel = (typeof segmenterShortLabel === 'function') ? segmenterShortLabel(segmenter) : segmenter;
+  if (statusEl) statusEl.textContent = `Tracking Shot ${Number(shotIndex) + 1} masks with ${segLabel}...`;
   try {
     const manifest = (state.shot_views && (state.shot_views.colour_manifest || state.shot_views.references_manifest))
-      || (state.settings && state.settings.colour && state.settings.colour.manifest) || '';
-    const res = await postJson('/api/sam2-track-shot', {
+      || colourCfg.manifest || '';
+    const payload = {
       async: true,
       shot_index: shotIndex,
       shot_id: shotId || '',
       manifest,
-    });
-    if (!res.ok) return alert(res.error || 'SAM 2.1 mask tracking failed to start.');
-    if (res.output_npz_path) {
-      alert(`SAM 2.1 mask archive saved: ${res.output_npz_path}`);
+      segmenter,
+    };
+    if (textPrompts) payload.text_prompts = textPrompts;
+    if (keyframeSegState.lastMaskPath) payload.seed_mask_path = keyframeSegState.lastMaskPath;
+    const res = await postJson('/api/sam2-track-shot', payload);
+    if (!res.ok) {
+      const msg = res.error || `${segLabel} mask tracking failed to start.`;
+      if (statusEl) statusEl.textContent = msg;
+      else alert(msg);
+      return;
     }
     state = await api(stateUrl());
     draw(false);
+    const updatedStatus = document.getElementById('osiSam2Status');
+    if (res.output_npz_path && updatedStatus) {
+      updatedStatus.textContent = `${segLabel} mask archive saved: ${res.output_npz_path}`;
+    } else if (res.output_npz_path) {
+      alert(`${segLabel} mask archive saved: ${res.output_npz_path}`);
+    }
   } catch (err) {
-    alert('SAM 2.1 tracking failed: ' + (err.message || err));
+    const msg = `${segLabel} tracking failed: ` + (err.message || err);
+    if (statusEl) statusEl.textContent = msg;
+    else alert(msg);
   }
 }
 

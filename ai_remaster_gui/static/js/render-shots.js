@@ -53,11 +53,13 @@ function drawShotStage({ key, heading, runLabel, outputLimit, afterRender }) {
         <h2>${st.title}</h2>
         <p>${st.description}</p>
         ${progressHtml(sp.percent, sp.label)}
-        ${(key === 'references' || key === 'colour') ? activeColorBibleBannerHtml() : ''}
+        ${(key === 'references' || key === 'colour') ? workflowConceptBannerHtml(key) : ''}
+        ${(key === 'references' || key === 'colour') ? activeColorBibleBannerHtml(key) : ''}
+        ${key === 'colour' ? osiMaskStatusHtml(s) : ''}
         ${key === 'colour' ? colourQcSummaryHtml() : ''}
         ${key === 'colour' ? colorizationMethodWarning(s) : ''}
         ${key === 'shots' ? shotDetectionInputStatus(s) : ''}
-        ${visibleFields.map(f => fieldHtml(st, f)).join('')}
+        ${visibleFields.map(f => fieldHtml(st, f, shotFieldOptions(key, f, s))).join('')}
         ${key === 'references' ? referenceGenerationOptionsHtml(s) : ''}
         ${shotOutputList(expected, outputLimit)}
         ${stageCheckboxes(s)}
@@ -286,7 +288,7 @@ function shotStageVisibleFields(st, s = {}) {
     const cloud = new Set(['openai_image_model', 'openai_previous_frames', 'openai_image_size', 'openai_image_quality', 'openai_prompt']);
     const deep = new Set(['frame_propagate', 'use_half_resolution', 'use_torch_compile', 'use_sage_attention']);
     const legacyColorMNet = new Set(['use_torch_compile', 'colormnet_memory_mode', 'colormnet_feature_encoder', 'colormnet_text_guidance', 'colormnet_text_guidance_weight']);
-    const osiMaskedLab = new Set(['masks_dir', 'color_bible_db', 'film_id', 'osi_flow_scale', 'osi_anchor_strength', 'guided_radius', 'guided_eps', 'osi_run_qc', 'osi_workers']);
+    const osiMaskedLab = new Set(['masks_dir', 'image_segmenter', 'segmenter', 'segmenter_text_prompts', 'color_bible_db', 'film_id', 'osi_flow_scale', 'osi_anchor_strength', 'guided_radius', 'guided_eps', 'osi_run_qc', 'osi_workers']);
     const method = s.method || 'osi_masked_lab';
     if (method === 'osi_masked_lab') return st.fields.filter(field => common.has(field[0]) || osiMaskedLab.has(field[0]));
     if (method === 'openai') return st.fields.filter(field => common.has(field[0]) || cloud.has(field[0]));
@@ -305,6 +307,10 @@ function shotStageVisibleFields(st, s = {}) {
 // references need "Describe each still" and are held to two; see qwen21_generate_reference.py.
 function referenceGenerationOptionsHtml(s) {
   const method = s.method || 'qwen';
+  const runner = s.reference_runner || 'guided_only';
+  if (method === 'ddcolor' || (method === 'qwen' && runner === 'ddcolor_only')) {
+    return referenceSeedHtml(s);
+  }
   return referenceModelOptionsHtml(s, method) + (method === 'openai' ? '' : referenceSeedHtml(s));
 }
 
@@ -314,7 +320,7 @@ function referenceSeedHtml(s) {
     <div class="checks">
       <label>
         Seed
-        <input data-field="reference_seed" type="number" min="-1" step="1" value="${esc(s.reference_seed || '-1')}" class="inline-number" aria-label="Qwen seed">
+        <input data-field="reference_seed" type="number" min="-1" step="1" value="${esc(s.reference_seed || '-1')}" class="inline-number" aria-label="Reference generation seed">
       </label>
     </div>
     <p class="field-help">-1 picks a new random seed every time, so regenerating a reference gives a different take.
@@ -402,19 +408,268 @@ function shotDetectionInputStatus(s) {
   `;
 }
 
-function activeColorBibleBannerHtml() {
+function workflowConceptBannerHtml(stageKey) {
+  const text = stageKey === 'colour'
+    ? 'Two-step colorization: 1. Reference Generation colors keyframe stills; 2. Colorization spreads those colors across all video frames.'
+    : 'Two-step colorization: 1. Reference Generation colors keyframe stills per shot; 2. Colorization spreads those colors across all video frames.';
+  return `<div class="inline-note">${esc(text)}</div>`;
+}
+
+function shotFieldOptions(stageKey, field, s = {}) {
+  const key = field[0];
+  const ctx = (typeof state !== 'undefined' && state && state.color_bible_context) || {};
+  const g = settings('global');
+  const resolvedDb = ctx.db_path || g.color_bible_db || 'manifests/color_bible.db';
+  const resolvedFilm = ctx.film_id || g.color_bible_film_id || '';
+
+  if (key === 'color_bible_db') {
+    return { placeholder: `Auto: ${resolvedDb}${ctx.exists === false ? ' (not created yet)' : ''}` };
+  }
+  if (key === 'film_id') {
+    return { placeholder: resolvedFilm ? `Auto: ${resolvedFilm}` : 'Auto (select or sync a film in Color Bible)' };
+  }
+  if (stageKey === 'colour' && key === 'masks_dir') {
+    return { placeholder: 'Auto: intermediate/shot_masks' };
+  }
+  if (stageKey === 'colour' && key === 'image_segmenter') {
+    const imgSeg = s.image_segmenter || 'birefnet';
+    if (imgSeg === 'sam3_image' || imgSeg === 'sam31_image') {
+      const guardOff = String(g.commercial_model_guard || 'true').toLowerCase() === 'false'
+        || String(g.non_commercial_benchmark_override || 'false').toLowerCase() === 'true';
+      return {
+        note: guardOff
+          ? 'Non-Commercial / Benchmark Only (Meta SAM License) — active via benchmark override; logged as non-commercial.'
+          : 'Blocked by Commercial Model Guard (Meta SAM License — Non-Commercial / Benchmark Only).',
+      };
+    }
+    return {};
+  }
+  if (stageKey === 'colour' && key === 'segmenter') {
+    const seg = s.segmenter || 'sam21';
+    if (seg === 'sam3' || seg === 'sam31') {
+      const guardOff = String(g.commercial_model_guard || 'true').toLowerCase() === 'false'
+        || String(g.non_commercial_benchmark_override || 'false').toLowerCase() === 'true';
+      return {
+        note: guardOff
+          ? 'Non-Commercial / Benchmark Only (Meta SAM License) — active via benchmark override; logged as non-commercial.'
+          : 'Blocked by Commercial Model Guard (Meta SAM License — non-commercial / benchmark-only).',
+      };
+    }
+    return {};
+  }
+  if (stageKey === 'colour' && key === 'segmenter_text_prompts') {
+    const seg = s.segmenter || 'sam21';
+    if (['grounded_sam2', 'sam3', 'sam31'].includes(seg)) {
+      return { placeholder: 'e.g. man in coat. red car.' };
+    }
+    return {
+      disabled: true,
+      note: 'Text prompts require Grounded-SAM-2, SAM 3, or SAM 3.1.',
+    };
+  }
+
+  if (stageKey !== 'references') return {};
+
+  const method = s.method || 'qwen';
+  const runner = s.reference_runner || 'guided_only';
+
+  if (key === 'reference_runner') {
+    if (method === 'ddcolor') {
+      return { disabled: true, note: 'Method is DDColor — always runs local DDColor only.' };
+    }
+    if (method === 'qwen21' || method === 'openai') {
+      return { disabled: true, note: 'Always runs the selected Method directly. Auto DDColor + Qwen routing applies to Qwen 2511.' };
+    }
+    if (method === 'qwen' && runner === 'auto') {
+      return { note: 'Auto: shots without Color Bible entities use fast local DDColor; matched shots use Qwen 2511.' };
+    }
+  }
+  if (method === 'qwen' && runner === 'ddcolor_only' && ['compute', 'prompt', 'prompt_suffix'].includes(key)) {
+    return { disabled: true, note: 'Bypassed while Reference runner is set to DDColor only.' };
+  }
+  if (method === 'openai' && key === 'confidence_threshold') {
+    return { disabled: true, note: 'Not used by OpenAI Cloud reference generation.' };
+  }
+  return {};
+}
+
+function activeColorBibleBannerHtml(stageKey = 'references') {
   const ctx = (state && state.color_bible_context) || {};
   const g = settings('global');
-  const filmId = ctx.film_id || g.color_bible_film_id || '';
-  const dbPath = ctx.db_path || g.color_bible_db || 'manifests/color_bible.db';
+  const stageCfg = settings(stageKey);
+  const filmId = stageCfg.film_id || ctx.film_id || g.color_bible_film_id || '';
+  const dbPath = stageCfg.color_bible_db || ctx.db_path || g.color_bible_db || 'manifests/color_bible.db';
+  const sourceTag = stageCfg.film_id
+    ? 'stage override'
+    : ctx.film_id_source === 'auto_source'
+      ? 'auto from source'
+      : ctx.film_id_source === 'auto_single'
+        ? 'auto from DB'
+        : ctx.film_id_source === 'global'
+          ? 'from Color Bible'
+          : '';
   return `
     <div class="source-info" style="margin-bottom:8px;">
       <div>
-        <span>Active Color Bible</span>
-        <strong>${filmId ? `${esc(filmId)} (${esc(dbPath)})` : 'None selected — pick or sync a film in Color Bible'}</strong>
+        <span>Active Color Bible${sourceTag ? ` (${esc(sourceTag)})` : ''}</span>
+        <strong>${filmId ? `${esc(filmId)} (${esc(dbPath)})` : `None selected (${esc(dbPath)}) — pick or sync a film in Color Bible`}</strong>
       </div>
       <div class="actions" style="margin:0;">
         <button type="button" class="compact-btn" onclick="openColorBibleForShot('${esc(filmId)}', null)">Open Color Bible</button>
+      </div>
+    </div>
+  `;
+}
+
+function segmenterShortLabel(segmenter) {
+  const labels = {
+    sam21: 'SAM 2.1',
+    samurai: 'SAMURAI',
+    edgetam: 'EdgeTAM',
+    cutie: 'Cutie',
+    grounded_sam2: 'Grounded-SAM-2',
+    rf_detr_seg: 'RF-DETR-Seg',
+    videomama: 'VideoMaMa',
+    sam3: 'SAM 3 (Benchmark Only)',
+    sam31: 'SAM 3.1 (Benchmark Only)',
+  };
+  return labels[segmenter] || segmenter || 'SAM 2.1';
+}
+
+function segmenterPolicyFor(s = {}) {
+  const seg = (s && s.segmenter) || 'sam21';
+  const map = (typeof state !== 'undefined' && state && state.segmenter_policies) || {};
+  if (map[seg]) return map[seg];
+  if (['sam3', 'sam31'].includes(seg)) {
+    const g = settings('global');
+    const guardOff = String(g.commercial_model_guard || 'true').toLowerCase() === 'false'
+      || String(g.non_commercial_benchmark_override || 'false').toLowerCase() === 'true';
+    return {
+      allowed: guardOff,
+      reason: guardOff ? '' : `${seg} is governed by the Meta SAM License (non-commercial / benchmark-only).`,
+    };
+  }
+  return (typeof state !== 'undefined' && state && state.sam2_policy) || { allowed: true, reason: '' };
+}
+
+function imageSegmenterCapabilities(name) {
+  const seg = name || 'birefnet';
+  const textCapable = ['evf_sam2', 'florence2', 'grounding_dino', 'sam3_image', 'sam31_image'].includes(seg);
+  const classCapable = ['mask2former', 'oneformer', 'rf_detr_seg'].includes(seg);
+  const nonCommercial = ['sam3_image', 'sam31_image'].includes(seg);
+  const labels = {
+    evf_sam2: 'EVF-SAM-2',
+    florence2: 'Florence-2',
+    birefnet: 'BiRefNet',
+    mask2former: 'Mask2Former',
+    oneformer: 'OneFormer',
+    grounding_dino: 'Grounding DINO',
+    rf_detr_seg: 'RF-DETR-Seg',
+    sam21_image: 'SAM 2.1 Still',
+    sam3_image: 'SAM 3 Still',
+    sam31_image: 'SAM 3.1 Still',
+  };
+  return {
+    name: seg,
+    label: labels[seg] || seg,
+    textCapable,
+    classCapable,
+    nonCommercial,
+  };
+}
+
+function imageSegmenterPolicyFor(s = {}) {
+  const seg = (s && s.image_segmenter) || 'birefnet';
+  const map = (typeof state !== 'undefined' && state && state.image_segmenter_policies) || {};
+  if (map[seg]) return map[seg];
+  if (['sam3_image', 'sam31_image'].includes(seg)) {
+    const g = settings('global');
+    const guardOff = String(g.commercial_model_guard || 'true').toLowerCase() === 'false'
+      || String(g.non_commercial_benchmark_override || 'false').toLowerCase() === 'true';
+    return {
+      allowed: guardOff,
+      reason: guardOff ? '' : `${seg} is governed by the Meta SAM License (Non-Commercial / Benchmark Only).`,
+    };
+  }
+  return { allowed: true, reason: '' };
+}
+
+function osiMaskStatusHtml(s) {
+  if ((s.method || 'osi_masked_lab') !== 'osi_masked_lab') return '';
+  const rows = (state && state.shot_views && state.shot_views.colour) || [];
+  const totalCount = rows.length;
+  const maskedCount = rows.filter(r => Boolean(r.has_masks)).length;
+  const segmenter = s.segmenter || 'sam21';
+  const segLabel = segmenterShortLabel(segmenter);
+  const segPolicy = segmenterPolicyFor(s);
+  const imgCaps = imageSegmenterCapabilities(s.image_segmenter || 'birefnet');
+  const imgPolicy = imageSegmenterPolicyFor(s);
+  const firstUnmasked = rows.find(r => !r.has_masks) || rows[0];
+  const defaultIdx = firstUnmasked ? firstUnmasked.index : 0;
+
+  let badgeClass = 'pending';
+  let badgeText = 'No manifest shots';
+  if (totalCount > 0) {
+    if (maskedCount === totalCount) {
+      badgeClass = 'approved';
+      badgeText = `All masks ready (${maskedCount}/${totalCount})`;
+    } else if (maskedCount > 0) {
+      badgeClass = 'warn';
+      badgeText = `Partial masks (${maskedCount}/${totalCount})`;
+    } else {
+      badgeText = `No .masks.npz yet (0/${totalCount} — optical flow fallback)`;
+    }
+  }
+
+  const optionsHtml = rows.map(r => {
+    const label = `Shot ${r.index + 1} (${r.has_masks ? 'masks ready' : 'unmasked'})`;
+    return `<option value="${r.index}"${r.index === defaultIdx ? ' selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+
+  const imgBtnDisabled = state.running || !totalCount || !imgPolicy.allowed;
+  const btnDisabled = state.running || !totalCount || !segPolicy.allowed;
+  const btnTitle = !segPolicy.allowed
+    ? String(segPolicy.reason || 'Blocked by Commercial Model Guard')
+    : (!totalCount ? 'Run Shot Detection first' : `Generate ${segLabel} .masks.npz archive for the selected shot`);
+  const isNonCommercial = ['sam3', 'sam31'].includes(segmenter);
+  const lastSeedMask = (typeof keyframeSegState !== 'undefined' && keyframeSegState.lastMaskPath) || '';
+
+  return `
+    <div class="osi-masks-box seg-two-step">
+      <div class="seg-section">
+        <div class="osi-masks-header">
+          <div>
+            <span class="seg-section-badge">Step 1 · Keyframe Still</span>
+            <span class="osi-masks-title">Keyframe Image Segmenter (${esc(imgCaps.label)})</span>
+            ${imgCaps.nonCommercial ? '<span class="seg-nc-badge">Non-Commercial</span>' : '<span class="approval-badge approved">OSI Commercial-Safe</span>'}
+          </div>
+          <div class="osi-masks-controls">
+            ${(imgCaps.textCapable || imgCaps.classCapable) ? `<input id="osiKeyframeSegInput" type="text" placeholder="${imgCaps.classCapable ? 'Scene classes (e.g. person, coat, sky)' : 'Text prompt (e.g. man in coat)'}" style="min-width:190px;padding:4px 8px;font-size:12px;">` : ''}
+            <button type="button" class="compact-btn" onclick="segmentSelectedShotKeyframe()" ${imgBtnDisabled ? 'disabled' : ''}>Segment Reference Still</button>
+            ${lastSeedMask ? `<button type="button" class="compact-btn" onclick="useKeyframeMaskInColorBible()">Use Mask in Color Bible</button>` : ''}
+          </div>
+        </div>
+        ${!imgPolicy.allowed ? `<div class="inline-warning" style="margin-top:6px;">${esc(imgPolicy.reason || `${imgCaps.label} is blocked by Commercial Model Guard.`)}</div>` : ''}
+        <div id="osiKeyframeSegStatus" class="shot-empty">${lastSeedMask ? `Keyframe seed mask ready: ${esc(lastSeedMask)}` : ''}</div>
+      </div>
+
+      <div class="seg-section">
+        <div class="osi-masks-header">
+          <div>
+            <span class="seg-section-badge">Step 2 · Video Tracking</span>
+            <span class="osi-masks-title">Video Mask Tracker (${esc(segLabel)})</span>
+            <span class="approval-badge ${badgeClass}">${esc(badgeText)}</span>
+            ${isNonCommercial ? '<span class="seg-nc-badge">Non-Commercial</span>' : ''}
+          </div>
+          <div class="osi-masks-controls">
+            ${totalCount ? `<select id="osiSam2ShotSelect" aria-label="Select shot for mask tracking">${optionsHtml}</select>` : ''}
+            <button type="button" class="compact-btn" onclick="trackSelectedOsiShotMasks()" ${btnDisabled ? 'disabled' : ''} title="${esc(btnTitle)}">Track Shot Masks (${esc(segLabel)})</button>
+          </div>
+        </div>
+        <div class="shot-empty" id="osiVideoSeedMaskLabel">${lastSeedMask ? `Seed mask queued for Video Mask Tracker: ${esc(lastSeedMask)}` : 'Tracks keyframe seed masks or spatial/text prompts shot-wide into compressed .masks.npz.'}</div>
+        ${!segPolicy.allowed ? `<div class="inline-warning" style="margin-top:6px;">${esc(segPolicy.reason || `${segLabel} is blocked by Commercial Model Guard.`)}</div>` : ''}
+        ${(segPolicy.allowed && isNonCommercial) ? '<div class="inline-warning" style="margin-top:6px;">Non-Commercial / Benchmark Only mode active (Meta SAM License) — logged in compliance_report.json.</div>' : ''}
+        <div id="osiSam2Status" class="shot-empty"></div>
       </div>
     </div>
   `;
@@ -644,6 +899,19 @@ function colourSegmentCard(context) {
   const maskBadge = hasMasks
     ? `<span class="approval-badge approved">Masks ready</span>`
     : `<span class="approval-badge pending">Unmasked</span>`;
+  const colourCfg = settings('colour');
+  const segmenter = colourCfg.segmenter || 'sam21';
+  const segLabel = segmenterShortLabel(segmenter);
+  const segPolicy = segmenterPolicyFor(colourCfg);
+  const maskActionHtml = method === 'osi_masked_lab'
+    ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+          ${maskBadge}
+          ${qcBadge}
+          <button type="button" class="compact-btn" onclick="trackShotMasksSam2(${idx}, '${esc(row.shot_id || '')}')" ${state.running || !segPolicy.allowed ? 'disabled' : ''} title="${esc(segPolicy.allowed ? `Track ${segLabel} masks for this shot` : segPolicy.reason)}">Track Shot Masks (${esc(segLabel)})</button>
+        </div>
+      `
+    : (qcBadge ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">${qcBadge}</div>` : '');
 
   return `
     <article class="shot-card" data-shot-card-mode="colour" data-shot-card-index="${idx}">
@@ -659,11 +927,7 @@ function colourSegmentCard(context) {
       <div>
         <label>Segment &amp; Masks</label>
         <p class="shot-time">${esc(colorizationLabel(method))} uses this reference for the selected shot range.</p>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;">
-          ${maskBadge}
-          ${qcBadge}
-          <button type="button" class="compact-btn" onclick="trackShotMasksSam2(${idx}, '${esc(row.shot_id || '')}')">Track Shot Masks (SAM 2.1)</button>
-        </div>
+        ${maskActionHtml}
       </div>
       ${method === 'ltx' ? ltxShotControlsHtml(context.manifest, row) : ''}
     </article>
@@ -778,7 +1042,7 @@ function referenceCard(context) {
         ${reviewSection}
         <div class="reference-use-note">
           <strong>Reference frames</strong>
-          <span>CMNET2 and OpenAI Cloud use every reference frame. ColorMNet and Deep Exemplar use Reference 1 only.</span>
+          <span>OSI Masked LAB uses all shot reference keyframes bidirectionally (local, commercial-safe). CMNET2 and OpenAI Cloud also use every reference frame; ColorMNet and Deep Exemplar use Reference 1 only.</span>
         </div>
         <div class="reference-anchor-grid">
           ${items.map(item => referenceAnchorCard(manifest, row, idx, item)).join('')}

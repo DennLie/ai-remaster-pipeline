@@ -2,6 +2,8 @@
 
 let cbState = {
   data: null,
+  qcSummary: null,
+  qcError: null,
   activeFilmId: '',
   activeTab: 'character', // 'character' | 'object' | 'location'
   selectedEntityId: null,
@@ -30,6 +32,25 @@ async function loadColorBibleData(filmId = '', force = false) {
     }
     cbState.data = res;
     cbState.activeFilmId = res.film_id || '';
+
+    if (cbState.activeFilmId) {
+      try {
+        const qcRes = await api('/api/color-bible/qc-summary?film_id=' + encodeURIComponent(cbState.activeFilmId));
+        if (qcRes && qcRes.ok && qcRes.summary) {
+          cbState.qcSummary = qcRes.summary;
+          cbState.qcError = null;
+        } else {
+          cbState.qcSummary = null;
+          cbState.qcError = (qcRes && qcRes.error) || null;
+        }
+      } catch (_) {
+        cbState.qcSummary = null;
+        cbState.qcError = null;
+      }
+    } else {
+      cbState.qcSummary = null;
+      cbState.qcError = null;
+    }
 
     // If selected entity no longer exists, reset selection
     if (cbState.selectedEntityId) {
@@ -118,6 +139,8 @@ function drawColorBible(followLogs = false) {
         </div>
       </section>
 
+      ${renderColorBibleQcSummaryBar(cbState.qcSummary, cbState.activeFilmId)}
+
       <!-- Split Workbench -->
       <div class="color-bible-split">
         <!-- Left Column: Entities & Shot Range Assignments -->
@@ -132,6 +155,37 @@ function drawColorBible(followLogs = false) {
         </div>
       </div>
     </div>
+  `;
+}
+
+function renderColorBibleQcSummaryBar(summary, filmId) {
+  const counts = (summary && summary.status_counts) || { pass: 0, warn: 0, fail: 0 };
+  const total = Number((summary && summary.total_events) || 0);
+  const pass = Number(counts.pass || 0);
+  const warn = Number(counts.warn || 0);
+  const fail = Number(counts.fail || 0);
+  const codes = (summary && summary.failure_codes) || {};
+  const topCodes = Object.entries(codes)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3)
+    .map(([code, n]) => `${code} (${n})`)
+    .join(', ');
+  const metaText = !filmId
+    ? 'Select or sync a film to inspect recorded Color QC metrics'
+    : (total > 0
+      ? `${total} QC event${total === 1 ? '' : 's'} recorded${topCodes ? ` · Top flags: ${topCodes}` : ''}`
+      : 'No QC events recorded yet for this film');
+
+  return `
+    <section class="card cb-qc-summary-bar" aria-label="Color QC Summary">
+      <div class="cb-qc-badges">
+        <strong class="cb-qc-title">Color QC Summary</strong>
+        <span class="cb-qc-badge pass">Pass: ${pass}</span>
+        <span class="cb-qc-badge warn">Warn: ${warn}</span>
+        <span class="cb-qc-badge fail">Fail: ${fail}</span>
+      </div>
+      <span class="cb-qc-meta">${esc(metaText)}</span>
+    </section>
   `;
 }
 
@@ -405,6 +459,51 @@ function renderAssignmentsCard(data) {
 
 // --- Right Panel: References, Palettes & Approvals ---
 
+function renderCbKeyframeSegmenterBox() {
+  const seg = (typeof cbState !== 'undefined' && cbState.imageSegmenter) || (settings('colour').image_segmenter || 'birefnet');
+  const caps = (typeof imageSegmenterCapabilities === 'function')
+    ? imageSegmenterCapabilities(seg)
+    : { name: seg, label: seg, textCapable: ['evf_sam2', 'florence2', 'grounding_dino', 'sam3_image', 'sam31_image'].includes(seg), classCapable: ['mask2former', 'oneformer', 'rf_detr_seg'].includes(seg), nonCommercial: ['sam3_image', 'sam31_image'].includes(seg) };
+  const policy = (typeof imageSegmenterPolicyFor === 'function')
+    ? imageSegmenterPolicyFor({ image_segmenter: seg })
+    : { allowed: !caps.nonCommercial, reason: caps.nonCommercial ? 'Meta SAM License — Non-Commercial / Benchmark Only' : '' };
+
+  const options = [
+    ['evf_sam2', 'EVF-SAM-2 (Text Prompt Still, Apache-2.0)'],
+    ['florence2', 'Florence-2 (Text Referring Seg, MIT)'],
+    ['birefnet', 'BiRefNet / BiRefNet_lite (Foreground Matting, MIT)'],
+    ['mask2former', 'Mask2Former (Panoptic Scene Classes, MIT/Apache-2.0)'],
+    ['oneformer', 'OneFormer (Universal Panoptic / Instance, MIT)'],
+    ['grounding_dino', 'Grounding DINO (Open-Vocab Boxes, Apache-2.0)'],
+    ['rf_detr_seg', 'RF-DETR-Seg (Instance Still, Apache-2.0)'],
+    ['sam21_image', 'SAM 2.1 Single-Image (Points/Boxes, Apache-2.0)'],
+    ['sam3_image', 'SAM 3 Still-Image (Non-Commercial — Meta SAM License)'],
+    ['sam31_image', 'SAM 3.1 Still-Image (Non-Commercial — Meta SAM License)'],
+  ];
+
+  return `
+    <div class="cb-keyframe-seg-box">
+      <div class="osi-masks-header">
+        <div>
+          <span class="seg-section-badge">Step 1 · Keyframe Still</span>
+          <strong class="osi-masks-title">Keyframe Image Segmenter</strong>
+          ${caps.nonCommercial ? '<span class="seg-nc-badge">Non-Commercial</span>' : '<span class="approval-badge approved">OSI Commercial-Safe</span>'}
+        </div>
+      </div>
+      <div class="osi-masks-controls" style="margin-top:8px;">
+        <select id="cbKeyframeSegSelect" onchange="if (typeof cbSetKeyframeSegmenter === 'function') cbSetKeyframeSegmenter(this.value);">
+          ${options.map(([val, lbl]) => `<option value="${val}"${val === seg ? ' selected' : ''}>${esc(lbl)}</option>`).join('')}
+        </select>
+        ${(caps.textCapable || caps.classCapable) ? `<input id="cbKeyframeSegQuery" type="text" placeholder="${caps.classCapable ? 'Scene classes (e.g. person, sky)' : 'Text prompt (e.g. blue coat)'}" style="flex:1;min-width:170px;padding:5px 8px;font-size:12px;">` : ''}
+        <button type="button" class="small accent" onclick="cbSegmentKeyframeStill()" ${!policy.allowed ? 'disabled' : ''}>Segment Reference Still</button>
+        <button type="button" class="small" onclick="sendKeyframeMaskToVideoTracker()">Send to Video Tracker</button>
+      </div>
+      ${!policy.allowed ? `<div class="inline-warning" style="margin-top:6px;">${esc(policy.reason || 'Blocked by Commercial Model Guard.')}</div>` : ''}
+      <div id="cbKeyframeSegStatus" class="shot-empty"></div>
+    </div>
+  `;
+}
+
 function renderReferencesCard(data) {
   const references = data.references || [];
   const selectedLabel = getSelectedEntityLabel(data);
@@ -415,6 +514,8 @@ function renderReferencesCard(data) {
         <h2>Color References & Palettes</h2>
         <button type="button" class="accent small" onclick="cbToggleNewRef()">${cbState.newRefOpen ? 'Cancel' : '+ Add Reference'}</button>
       </div>
+
+      ${renderCbKeyframeSegmenterBox()}
 
       ${cbState.newRefOpen ? `
         <form class="cb-form-card" onsubmit="cbSubmitReference(event)">
